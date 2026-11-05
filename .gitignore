@@ -1,0 +1,8 @@
+.DS_Store
+*.swp
+*~
+bin/
+tmp/
+.env
+.env.*
+!.env.example
