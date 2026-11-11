@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -12,6 +13,8 @@ import (
 type Config struct {
 	HTTPHost            string
 	HTTPPort            int
+	APIToken            string
+	AllowInsecureBind   bool
 	Environment         string // "development", "staging", "production"
 	LogLevel            string // "debug", "info", "warn", "error"
 	LogFormat           string // "text", "json"
@@ -39,6 +42,7 @@ var (
 	ErrInvalidLLMProvider  = errors.New("LLM_PROVIDER inválido: deve ser 'fake' ou 'anthropic'")
 	ErrMissingAnthropicKey = errors.New("ANTHROPIC_API_KEY é obrigatório quando LLM_PROVIDER=anthropic")
 	ErrMissingStageModel   = errors.New("nome do modelo obrigatório ausente quando LLM_PROVIDER=anthropic")
+	ErrInsecureHTTPBind    = errors.New("HTTP_HOST não-loopback exige API_TOKEN configurado")
 )
 
 // LoadFromEnv carrega a configuração a partir do ambiente, preenchendo padrões seguros.
@@ -55,8 +59,10 @@ func LoadFromEnv() Config {
 	}
 
 	return Config{
-		HTTPHost:            getEnv("HTTP_HOST", "0.0.0.0"),
+		HTTPHost:            getEnv("HTTP_HOST", "127.0.0.1"),
 		HTTPPort:            getEnvInt("HTTP_PORT", 8080),
+		APIToken:            strings.TrimSpace(os.Getenv("API_TOKEN")),
+		AllowInsecureBind:   getEnvBool("ALLOW_INSECURE_BIND", false),
 		Environment:         getEnv("APP_ENV", "development"),
 		LogLevel:            getEnv("LOG_LEVEL", "info"),
 		LogFormat:           getEnv("LOG_FORMAT", "text"),
@@ -83,6 +89,10 @@ func LoadFromEnv() Config {
 
 // Validate valida as configurações obrigatórias na fronteira de inicialização.
 func (c Config) Validate() error {
+	if !isLoopbackHost(c.HTTPHost) && strings.TrimSpace(c.APIToken) == "" && !c.AllowInsecureBind {
+		return fmt.Errorf("%w (host=%q)", ErrInsecureHTTPBind, c.HTTPHost)
+	}
+
 	switch c.LLMProvider {
 	case "fake":
 		return nil
@@ -103,6 +113,15 @@ func (c Config) Validate() error {
 	default:
 		return fmt.Errorf("%w: %q", ErrInvalidLLMProvider, c.LLMProvider)
 	}
+}
+
+func isLoopbackHost(host string) bool {
+	h := strings.TrimSpace(strings.ToLower(host))
+	if h == "" || h == "localhost" || h == "127.0.0.1" || h == "::1" {
+		return true
+	}
+	ip := net.ParseIP(h)
+	return ip != nil && ip.IsLoopback()
 }
 
 func getEnv(key, defaultVal string) string {

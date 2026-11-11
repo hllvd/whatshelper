@@ -11,7 +11,8 @@ import (
 func clearLLMEnv() {
 	for _, k := range []string{
 		"LLM_PROVIDER", "ANTHROPIC_API_KEY", "MODEL_ANALYSIS", "MODEL_RESPONSE", "MODEL_NUDGE",
-		"HTTP_PORT", "APP_ENV", "LOG_LEVEL", "LOG_FORMAT", "S3_USE_SSL",
+		"HTTP_HOST", "HTTP_PORT", "API_TOKEN", "ALLOW_INSECURE_BIND",
+		"APP_ENV", "LOG_LEVEL", "LOG_FORMAT", "S3_USE_SSL",
 	} {
 		_ = os.Unsetenv(k)
 	}
@@ -22,6 +23,9 @@ func TestLoadFromEnv_Defaults(t *testing.T) {
 	defer clearLLMEnv()
 
 	cfg := config.LoadFromEnv()
+	if cfg.HTTPHost != "127.0.0.1" {
+		t.Fatalf("expected default HTTPHost 127.0.0.1, got %s", cfg.HTTPHost)
+	}
 	if cfg.HTTPPort != 8080 {
 		t.Fatalf("expected default port 8080, got %d", cfg.HTTPPort)
 	}
@@ -133,6 +137,40 @@ func TestConfig_ValidateAnthropic(t *testing.T) {
 			}
 			if tt.wantErr != nil && !errors.Is(err, tt.wantErr) {
 				t.Fatalf("expected error %v, got %v", tt.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestConfig_HTTPBindSecurity(t *testing.T) {
+	cases := []struct {
+		name    string
+		host    string
+		token   string
+		allow   bool
+		wantErr error
+	}{
+		{name: "loopback without token ok", host: "127.0.0.1"},
+		{name: "localhost without token ok", host: "localhost"},
+		{name: "non-loopback without token rejected", host: "0.0.0.0", wantErr: config.ErrInsecureHTTPBind},
+		{name: "non-loopback with token ok", host: "0.0.0.0", token: "secret-123"},
+		{name: "non-loopback with explicit allow_insecure_bind ok", host: "0.0.0.0", allow: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := config.Config{
+				HTTPHost:          tc.host,
+				APIToken:          tc.token,
+				AllowInsecureBind: tc.allow,
+				LLMProvider:       "fake",
+			}
+			err := cfg.Validate()
+			if tc.wantErr == nil && err != nil {
+				t.Fatalf("expected nil, got %v", err)
+			}
+			if tc.wantErr != nil && !errors.Is(err, tc.wantErr) {
+				t.Fatalf("expected %v, got %v", tc.wantErr, err)
 			}
 		})
 	}

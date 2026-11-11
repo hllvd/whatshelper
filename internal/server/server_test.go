@@ -76,3 +76,43 @@ func TestServer_GracefulShutdown(t *testing.T) {
 		t.Fatalf("shutdown failed: %v", err)
 	}
 }
+
+func TestServer_BearerAuthMiddleware(t *testing.T) {
+	cfg := config.Config{
+		HTTPHost:    "127.0.0.1",
+		HTTPPort:    0,
+		APIToken:    "super-secret-token",
+		LLMProvider: "fake",
+	}
+	srv := server.New(cfg, nil)
+
+	// /healthz fica aberto mesmo com API_TOKEN
+	recHealth := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(recHealth, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if recHealth.Code != http.StatusOK {
+		t.Fatalf("expected /healthz 200 without auth, got %d", recHealth.Code)
+	}
+
+	// /api/* sem token retorna 401
+	recNoAuth := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(recNoAuth, httptest.NewRequest(http.MethodGet, "/api/sources", nil))
+	if recNoAuth.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without token, got %d", recNoAuth.Code)
+	}
+
+	// /api/* com Bearer válido passa do middleware (retorna 503 sem store, não 401)
+	reqBearer := httptest.NewRequest(http.MethodGet, "/api/sources", nil)
+	reqBearer.Header.Set("Authorization", "Bearer super-secret-token")
+	recBearer := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(recBearer, reqBearer)
+	if recBearer.Code == http.StatusUnauthorized {
+		t.Fatalf("expected authorized request with valid bearer, got 401")
+	}
+
+	// ?token= funciona para SSE EventSource
+	recQuery := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(recQuery, httptest.NewRequest(http.MethodGet, "/api/sources?token=super-secret-token", nil))
+	if recQuery.Code == http.StatusUnauthorized {
+		t.Fatalf("expected authorized request with valid ?token=, got 401")
+	}
+}

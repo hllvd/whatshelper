@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/subtle"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -91,13 +93,39 @@ func NewWithDeps(cfg config.Config, logger *slog.Logger, deps Dependencies) *Ser
 
 	s.httpServer = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.HTTPHost, cfg.HTTPPort),
-		Handler:      mux,
+		Handler:      s.authMiddleware(mux),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 
 	return s
+}
+
+func (s *Server) authMiddleware(next http.Handler) http.Handler {
+	token := strings.TrimSpace(s.cfg.APIToken)
+	if token == "" {
+		return next
+	}
+	expected := []byte(token)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/api/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		provided := ""
+		if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+			provided = strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
+		} else if qToken := strings.TrimSpace(r.URL.Query().Get("token")); qToken != "" {
+			provided = qToken
+		}
+		if len(provided) == 0 || subtle.ConstantTimeCompare([]byte(provided), expected) != 1 {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="whatshelper"`)
+			writeJSONError(w, http.StatusUnauthorized, "token de autenticação inválido ou ausente")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) registerRoutes(mux *http.ServeMux) {
