@@ -90,6 +90,11 @@ func S3TraceKey(tenant, channel, sourceKey, runID string) string {
 	return fmt.Sprintf("%s/traces/%s/%s/%s.json", tenant, channel, sourceKey, runID)
 }
 
+// S3DraftKey gera a chave S3 para rascunhos de resposta aguardando aprovação/revisão.
+func S3DraftKey(tenant, channel, sourceKey, runID string) string {
+	return fmt.Sprintf("%s/drafts/%s/%s/%s.json", tenant, channel, sourceKey, runID)
+}
+
 // S3KnowledgeKey gera a chave S3 para documentos de conhecimento: <tenant>/knowledge/<filename>.
 func S3KnowledgeKey(tenant, filename string) string {
 	return fmt.Sprintf("%s/knowledge/%s", tenant, filename)

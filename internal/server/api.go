@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -338,6 +339,172 @@ func (s *Server) handlePutTenantPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, policy)
+}
+
+func (s *Server) handleGetSourceTasks(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Store == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "store não configurado")
+		return
+	}
+	tenant := strings.TrimSpace(r.URL.Query().Get("tenant"))
+	if tenant == "" {
+		tenant = "demo"
+	}
+	channel := r.PathValue("channel")
+	key := r.PathValue("key")
+	if channel == "" || key == "" {
+		writeJSONError(w, http.StatusBadRequest, "channel e key são obrigatórios")
+		return
+	}
+	tasks, err := s.deps.Store.ListSourceTasks(r.Context(), tenant, channel, key)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"tasks": tasks,
+	})
+}
+
+func (s *Server) handleListPendingTasks(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Store == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "store não configurado")
+		return
+	}
+	tenant := strings.TrimSpace(r.URL.Query().Get("tenant"))
+	if tenant == "" {
+		tenant = "demo"
+	}
+	farFuture := time.Now().UTC().Add(365 * 24 * time.Hour)
+	due, err := s.deps.Store.ListDueTasks(r.Context(), tenant, farFuture)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	pending := make([]core.Task, 0, len(due))
+	for _, t := range due {
+		if t.Status == core.TaskStatusPending {
+			pending = append(pending, t)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"tenant": tenant,
+		"tasks":  pending,
+	})
+}
+
+type taskActionRequest struct {
+	TenantID  string `json:"tenant_id"`
+	Channel   string `json:"channel"`
+	SourceKey string `json:"source_key"`
+	Text      string `json:"text,omitempty"`
+}
+
+func (s *Server) resolveTaskLocator(r *http.Request, taskID string, req taskActionRequest) (tenant, channel, sourceKey string, err error) {
+	tenant = strings.TrimSpace(req.TenantID)
+	if tenant == "" {
+		tenant = strings.TrimSpace(r.URL.Query().Get("tenant"))
+	}
+	if tenant == "" {
+		tenant = "demo"
+	}
+	channel = strings.TrimSpace(req.Channel)
+	if channel == "" {
+		channel = strings.TrimSpace(r.URL.Query().Get("channel"))
+	}
+	sourceKey = strings.TrimSpace(req.SourceKey)
+	if sourceKey == "" {
+		sourceKey = strings.TrimSpace(r.URL.Query().Get("source"))
+	}
+	if channel != "" && sourceKey != "" {
+		return tenant, channel, sourceKey, nil
+	}
+	due, err := s.deps.Store.ListDueTasks(r.Context(), tenant, time.Now().UTC().Add(365*24*time.Hour))
+	if err != nil {
+		return "", "", "", err
+	}
+	for _, t := range due {
+		if t.ID == taskID {
+			return tenant, t.Channel, t.SourceKey, nil
+		}
+	}
+	return "", "", "", core.ErrTaskNotFound
+}
+
+func (s *Server) handleCompleteTask(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Store == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "store não configurado")
+		return
+	}
+	taskID := r.PathValue("id")
+	var req taskActionRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		writeJSONError(w, http.StatusBadRequest, "JSON inválido")
+		return
+	}
+
+	tenant, channel, sourceKey, err := s.resolveTaskLocator(r, taskID, req)
+	if err != nil {
+		if errors.Is(err, core.ErrTaskNotFound) {
+			writeJSONError(w, http.StatusNotFound, "tarefa não encontrada")
+			return
+		}
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	task, err := s.deps.Store.GetTask(r.Context(), tenant, channel, sourceKey, taskID)
+	if err != nil {
+		if errors.Is(err, core.ErrTaskNotFound) {
+			writeJSONError(w, http.StatusNotFound, "tarefa não encontrada")
+			return
+		}
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	now := time.Now().UTC()
+	task.Status = core.TaskStatusCompleted
+	task.CompletedAt = &now
+	if err := s.deps.Store.SaveTask(r.Context(), *task); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, task)
+}
+
+func (s *Server) handleApproveTask(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Store == nil || s.deps.Pipeline == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "pipeline ou store não configurado")
+		return
+	}
+	taskID := r.PathValue("id")
+	var req taskActionRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		writeJSONError(w, http.StatusBadRequest, "JSON inválido")
+		return
+	}
+
+	tenant, channel, sourceKey, err := s.resolveTaskLocator(r, taskID, req)
+	if err != nil {
+		if errors.Is(err, core.ErrTaskNotFound) {
+			writeJSONError(w, http.StatusNotFound, "tarefa de aprovação não encontrada")
+			return
+		}
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	task, err := s.deps.Pipeline.ApproveTask(r.Context(), tenant, channel, sourceKey, taskID, req.Text)
+	if err != nil {
+		if errors.Is(err, core.ErrTaskNotFound) {
+			writeJSONError(w, http.StatusNotFound, "tarefa não encontrada")
+			return
+		}
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, task)
 }
 
 func parseIntQuery(r *http.Request, name string, fallback int) int {

@@ -315,4 +315,83 @@ func TestAPI_SourceStatusAndTenantPolicy(t *testing.T) {
 	if gotPol.Mode != core.ModeApproval || gotPol.BotEnabled {
 		t.Fatalf("unexpected policy returned: %+v", gotPol)
 	}
+
+	// 3. Lista tarefas pendentes + por fonte e conclui via API
+	dueAt := time.Now().UTC()
+	_ = storeRepo.SaveTask(context.Background(), core.Task{
+		ID: "task-api-1", TenantID: "demo", Channel: "simulator", SourceKey: "u-api",
+		Kind: "task", Title: "Ligar para cliente", Type: "callback", Status: core.TaskStatusPending,
+		DueAt: &dueAt, CreatedAt: dueAt,
+	})
+
+	pendingResp, err := ts.Client().Get(ts.URL + "/api/tasks/pending?tenant=demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pendingBody struct {
+		Tasks []core.Task `json:"tasks"`
+	}
+	_ = json.NewDecoder(pendingResp.Body).Decode(&pendingBody)
+	_ = pendingResp.Body.Close()
+	if len(pendingBody.Tasks) != 1 || pendingBody.Tasks[0].ID != "task-api-1" {
+		t.Fatalf("expected 1 pending task, got %+v", pendingBody.Tasks)
+	}
+
+	compResp, err := ts.Client().Post(ts.URL+"/api/tasks/task-api-1/complete?tenant=demo", "application/json", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = compResp.Body.Close()
+	if compResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 completing task, got %d", compResp.StatusCode)
+	}
+
+	srcTasksResp, err := ts.Client().Get(ts.URL + "/api/sources/simulator/u-api/tasks?tenant=demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var srcTasksBody struct {
+		Tasks []core.Task `json:"tasks"`
+	}
+	_ = json.NewDecoder(srcTasksResp.Body).Decode(&srcTasksBody)
+	_ = srcTasksResp.Body.Close()
+	if len(srcTasksBody.Tasks) != 1 || srcTasksBody.Tasks[0].Status != core.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %+v", srcTasksBody.Tasks)
+	}
+
+	// 4. Testa POST /api/tasks/{id}/approve com Pipeline conectado
+	blobs := fakes.NewMemoryBlobStore()
+	simCh := simulator.New(core.SystemClock{}, 8)
+	_ = simCh.Start(context.Background())
+	defer func() { _ = simCh.Stop(context.Background()) }()
+	pipe := brain.NewPipeline(context.Background(), brain.PipelineConfig{
+		Store: storeRepo, Blobs: blobs, LLM: fakes.NewOfflineDemoLLM(), Bus: bus,
+		Tenants: brain.NewStoreTenantPolicyLoader(storeRepo, nil),
+		Knowledge: brain.NewLocalKnowledgeSource(t.TempDir()),
+		PackLoader: func(name string) (*pack.Pack, error) { return nil, nil },
+	})
+	pipe.RegisterChannel(simCh)
+	defer pipe.Stop()
+
+	srvAppr := server.NewWithDeps(config.LoadFromEnv(), nil, server.Dependencies{
+		Store: storeRepo, Blobs: blobs, Bus: bus, Simulator: simCh, Pipeline: pipe,
+	})
+	tsAppr := httptest.NewServer(srvAppr.Handler())
+	defer tsAppr.Close()
+
+	_ = blobs.Put(context.Background(), "demo/drafts/simulator/u-api/r1.json", []byte(`{"run_id":"r1","tenant_id":"demo","channel":"simulator","source_key":"u-api","business_actor":"agent","text":"Rascunho original"}`), "application/json")
+	_ = storeRepo.SaveTask(context.Background(), core.Task{
+		ID: "appr-api-1", TenantID: "demo", Channel: "simulator", SourceKey: "u-api",
+		Kind: "approval", Title: "Aprovar", Type: "reply_approval", Status: core.TaskStatusPending,
+		DraftBlobRef: "demo/drafts/simulator/u-api/r1.json", DueAt: &dueAt, CreatedAt: dueAt,
+	})
+
+	apprResp, err := tsAppr.Client().Post(tsAppr.URL+"/api/tasks/appr-api-1/approve?tenant=demo", "application/json", strings.NewReader(`{"text":"Texto aprovado!"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = apprResp.Body.Close()
+	if apprResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 approving task, got %d", apprResp.StatusCode)
+	}
 }

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"whatshelper/internal/brain"
 	"whatshelper/internal/channels/simulator"
 	"whatshelper/internal/config"
 	"whatshelper/internal/core"
@@ -26,6 +27,7 @@ type Dependencies struct {
 	Blobs     core.BlobStore
 	Bus       core.EventBus
 	Simulator *simulator.Channel
+	Pipeline  *brain.Pipeline
 }
 
 // Server encapsula o servidor HTTP do Brain com logging estruturado e graceful shutdown.
@@ -108,6 +110,10 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/sources/{channel}/{key}/status", s.handleUpdateSourceStatus)
 	mux.HandleFunc("GET /api/sources/{channel}/{key}/messages", s.handleGetSourceMessages)
 	mux.HandleFunc("GET /api/sources/{channel}/{key}/runs", s.handleGetSourceRuns)
+	mux.HandleFunc("GET /api/sources/{channel}/{key}/tasks", s.handleGetSourceTasks)
+	mux.HandleFunc("GET /api/tasks/pending", s.handleListPendingTasks)
+	mux.HandleFunc("POST /api/tasks/{id}/complete", s.handleCompleteTask)
+	mux.HandleFunc("POST /api/tasks/{id}/approve", s.handleApproveTask)
 	mux.HandleFunc("GET /api/runs/{id}/trace", s.handleGetRunTrace)
 	mux.HandleFunc("GET /api/tenants/{id}/policy", s.handleGetTenantPolicy)
 	mux.HandleFunc("PUT /api/tenants/{id}/policy", s.handlePutTenantPolicy)

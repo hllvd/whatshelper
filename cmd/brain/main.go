@@ -120,6 +120,7 @@ func main() {
 		Blobs:     blobRepo,
 		Bus:       bus,
 		Simulator: simCh,
+		Pipeline:  pipeline,
 	})
 
 	serverErrCh := make(chan error, 1)

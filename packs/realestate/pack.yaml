@@ -121,6 +121,25 @@ opt_out_keywords:
   - "não quero mais"
   - "cancelar mensagens"
 
+task_rules:
+  - type: schedule_visit
+    title: "Confirmar visita sugerida pelo cliente"
+    trigger_signal: has_pending_visit
+    trigger_intent: schedule_visit
+    context_section: visit
+    due_in_minutes: 60
+  - type: schedule_call
+    title: "Agendar ligação ou reunião solicitada"
+    trigger_signal: has_pending_call
+    context_section: call
+    due_in_minutes: 60
+  - type: collect_documents
+    title: "Acompanhar envio de documentos do cliente"
+    trigger_signal: has_pending_documents
+    trigger_intent: send_documents
+    context_section: documents
+    due_in_minutes: 120
+
 context:
   - key: last_action
     description: Ação principal identificada na última mensagem

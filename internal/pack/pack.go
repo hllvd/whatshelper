@@ -102,6 +102,17 @@ type PromptsDef struct {
 }
 
 // Pack representa um vertical pack carregado e validado.
+// TaskRuleDef define uma regra declarativa para derivar tarefas a partir de sinais, intenções e contexto.
+type TaskRuleDef struct {
+	Type           string `yaml:"type" json:"type"`
+	Title          string `yaml:"title" json:"title"`
+	TriggerSignal  string `yaml:"trigger_signal,omitempty" json:"trigger_signal,omitempty"`
+	TriggerIntent  string `yaml:"trigger_intent,omitempty" json:"trigger_intent,omitempty"`
+	ContextSection string `yaml:"context_section,omitempty" json:"context_section,omitempty"`
+	DueInMinutes   int    `yaml:"due_in_minutes,omitempty" json:"due_in_minutes,omitempty"`
+}
+
+// Pack representa um vertical pack carregado e validado.
 type Pack struct {
 	Name           string              `yaml:"name" json:"name"`
 	Language       string              `yaml:"language" json:"language"`
@@ -109,6 +120,7 @@ type Pack struct {
 	Facts          []FactDef           `yaml:"facts" json:"facts"`
 	Signals        []SignalDef         `yaml:"signals" json:"signals"`
 	Intents        []IntentDef         `yaml:"intents,omitempty" json:"intents,omitempty"`
+	TaskRules      []TaskRuleDef       `yaml:"task_rules,omitempty" json:"task_rules,omitempty"`
 	OptOutKeywords []string            `yaml:"opt_out_keywords,omitempty" json:"opt_out_keywords,omitempty"`
 	Context        []ContextSectionDef `yaml:"context" json:"context"`
 	Prompts        PromptsDef          `yaml:"prompts" json:"prompts"`
@@ -286,6 +298,29 @@ func (p *Pack) Validate() error {
 			if field.Type == FactTypeEnum && len(field.Values) == 0 {
 				return fmt.Errorf("%w: campo enum %s.%s deve declarar values", ErrInvalidPack, c.Key, field.Key)
 			}
+		}
+	}
+
+	seenTaskTypes := make(map[string]bool)
+	for _, tr := range p.TaskRules {
+		if strings.TrimSpace(tr.Type) == "" || strings.TrimSpace(tr.Title) == "" {
+			return fmt.Errorf("%w: task_rule exige type e title", ErrInvalidPack)
+		}
+		if seenTaskTypes[tr.Type] {
+			return fmt.Errorf("%w: task_rule duplicada %q", ErrInvalidPack, tr.Type)
+		}
+		seenTaskTypes[tr.Type] = true
+		if tr.TriggerSignal == "" && tr.TriggerIntent == "" {
+			return fmt.Errorf("%w: task_rule %q exige trigger_signal ou trigger_intent", ErrInvalidPack, tr.Type)
+		}
+		if tr.TriggerSignal != "" && !seenSignals[tr.TriggerSignal] {
+			return fmt.Errorf("%w: task_rule %q referencia sinal desconhecido %q", ErrInvalidPack, tr.Type, tr.TriggerSignal)
+		}
+		if tr.TriggerIntent != "" && !seenIntents[tr.TriggerIntent] {
+			return fmt.Errorf("%w: task_rule %q referencia intenção desconhecida %q", ErrInvalidPack, tr.Type, tr.TriggerIntent)
+		}
+		if tr.ContextSection != "" && !seenCtx[tr.ContextSection] {
+			return fmt.Errorf("%w: task_rule %q referencia contexto desconhecido %q", ErrInvalidPack, tr.Type, tr.ContextSection)
 		}
 	}
 

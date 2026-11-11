@@ -477,6 +477,10 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 	})
 	trace.Decision = &decision
 
+	if decision.Action != DecisionOptOut && decision.Action != DecisionSkip {
+		p.deriveAndSaveRuleTasks(ctx, pk, analysisOutcome.Result, latest)
+	}
+
 	switch decision.Action {
 	case DecisionOptOut:
 		if err := UpdateSourceStatus(ctx, p.cfg.Store, p.now(), tenantID, channelID, sourceKey, core.SourceStatusOptedOut); err != nil {
@@ -490,6 +494,7 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 			return p.failPipeline(ctx, latest, runID, traceRef, trace, err)
 		}
 		p.publishStatusUpdated(tenantID, channelID, sourceKey, core.SourceStatusHuman, decision.Reason)
+		now := p.now()
 		_ = p.saveAndPublishTask(ctx, core.Task{
 			ID:        newID("task"),
 			TenantID:  tenantID,
@@ -499,8 +504,9 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 			Title:     "Atendimento humano solicitado pelo cliente",
 			Type:      "handoff",
 			Status:    core.TaskStatusPending,
+			DueAt:     &now,
 			Metadata:  map[string]string{"intent": decision.Intent},
-			CreatedAt: p.now(),
+			CreatedAt: now,
 		})
 		return p.recordRouterOnlyRun(ctx, latest, runID, traceRef, trace, analysisOutcome.Status)
 
@@ -678,6 +684,38 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 		},
 	})
 
+	runStatus := analysisOutcome.Status
+	runStage := "pipeline"
+	var draftRef string
+	if decision.Action == DecisionDraftOnly || decision.Action == DecisionAwaitApproval {
+		draftRef = store.S3DraftKey(tenantID, channelID, sourceKey, runID)
+		draftBytes, err := json.Marshal(DraftPayload{
+			RunID:         runID,
+			TenantID:      tenantID,
+			Channel:       channelID,
+			SourceKey:     sourceKey,
+			Account:       latest.Account,
+			BusinessActor: pk.Actors.Business,
+			Text:          finalReply,
+			Intent:        decision.Intent,
+			Mode:          string(tenantCfg.Mode),
+			CreatedAt:     p.now(),
+		})
+		if err != nil {
+			return err
+		}
+		if err := p.cfg.Blobs.Put(ctx, draftRef, draftBytes, "application/json"); err != nil {
+			return fmt.Errorf("erro ao salvar rascunho no BlobStore: %w", err)
+		}
+		if decision.Action == DecisionDraftOnly {
+			runStage = "draft"
+			runStatus = "draft_only"
+		} else {
+			runStage = "approval"
+			runStatus = "awaiting_approval"
+		}
+	}
+
 	// Persiste trace completo no BlobStore e Run final atualizado
 	if err := p.saveTrace(ctx, traceRef, trace); err != nil {
 		return err
@@ -688,8 +726,8 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 		Channel:          channelID,
 		SourceKey:        sourceKey,
 		MessageID:        latest.MessageID,
-		Stage:            "pipeline",
-		Status:           analysisOutcome.Status,
+		Stage:            runStage,
+		Status:           runStatus,
 		Model:            p.cfg.ResponseModel,
 		PromptTokens:     trace.Analysis.PromptTokens + replyResp.PromptTokens,
 		CompletionTokens: trace.Analysis.CompletionTokens + replyResp.CompletionTokens,
@@ -708,16 +746,146 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 		RunID:     runID,
 		At:        p.now(),
 		Payload: map[string]any{
-			"text":            finalReply,
-			"trace_ref":       traceRef,
-			"total_tokens":    trace.TotalTokens,
-			"total_duration":  trace.TotalDurationMs,
+			"text":           finalReply,
+			"trace_ref":      traceRef,
+			"draft_ref":      draftRef,
+			"mode":           string(tenantCfg.Mode),
+			"total_tokens":   trace.TotalTokens,
+			"total_duration": trace.TotalDurationMs,
 		},
 	})
+
+	if decision.Action == DecisionDraftOnly {
+		return nil
+	}
+
+	if decision.Action == DecisionAwaitApproval {
+		now := p.now()
+		apprTask := core.Task{
+			ID:           newID("appr"),
+			TenantID:     tenantID,
+			Channel:      channelID,
+			SourceKey:    sourceKey,
+			Kind:         "approval",
+			Title:        "Aprovar resposta sugerida",
+			Type:         "reply_approval",
+			Status:       core.TaskStatusPending,
+			DueAt:        &now,
+			DraftBlobRef: draftRef,
+			Metadata: map[string]string{
+				"run_id":  runID,
+				"intent":  decision.Intent,
+				"preview": truncateText(finalReply, 140),
+			},
+			CreatedAt: now,
+		}
+		if err := p.saveAndPublishTask(ctx, apprTask); err != nil {
+			return err
+		}
+		p.publish(core.Event{
+			ID:        newID("ev"),
+			Type:      core.EventApprovalPending,
+			TenantID:  tenantID,
+			Channel:   channelID,
+			SourceKey: sourceKey,
+			MessageID: latest.MessageID,
+			RunID:     runID,
+			At:        now,
+			Payload: map[string]any{
+				"task_id":   apprTask.ID,
+				"draft_ref": draftRef,
+				"preview":   finalReply,
+			},
+		})
+		return nil
+	}
 
 	// Persiste e envia resposta outbound
 	_, err = p.DeliverTextOutbound(ctx, tenantID, channelID, latest.Account, sourceKey, pk.Actors.Business, finalReply, runID, traceRef)
 	return err
+}
+
+// ApproveTask aprova (e opcionalmente edita) um rascunho de resposta pendente e o envia pelo canal.
+func (p *Pipeline) ApproveTask(ctx context.Context, tenant, channel, sourceKey, taskID, overrideText string) (*core.Task, error) {
+	task, err := p.cfg.Store.GetTask(ctx, tenant, channel, sourceKey, taskID)
+	if err != nil {
+		return nil, err
+	}
+	if task.Status != core.TaskStatusPending {
+		return nil, fmt.Errorf("tarefa %q já está com status %s", taskID, task.Status)
+	}
+
+	var draft DraftPayload
+	if task.DraftBlobRef != "" {
+		raw, err := p.cfg.Blobs.Get(ctx, task.DraftBlobRef)
+		if err != nil {
+			return nil, fmt.Errorf("falha ao carregar rascunho %s: %w", task.DraftBlobRef, err)
+		}
+		if err := json.Unmarshal(raw, &draft); err != nil {
+			return nil, fmt.Errorf("falha ao decodificar rascunho: %w", err)
+		}
+	}
+
+	text := strings.TrimSpace(overrideText)
+	if text == "" {
+		text = strings.TrimSpace(draft.Text)
+	}
+	if text == "" {
+		return nil, errors.New("texto da resposta aprovada está vazio")
+	}
+
+	businessActor := draft.BusinessActor
+	if businessActor == "" {
+		businessActor = "business"
+	}
+	if ch := p.getChannel(channel); ch != nil && ch.Capabilities().PlainTextOnly {
+		text = SanitizePlainText(text)
+	}
+
+	if _, err := p.DeliverTextOutbound(ctx, tenant, channel, draft.Account, sourceKey, businessActor, text, draft.RunID, ""); err != nil {
+		return nil, err
+	}
+
+	now := p.now()
+	task.Status = core.TaskStatusCompleted
+	task.CompletedAt = &now
+	if err := p.cfg.Store.SaveTask(ctx, *task); err != nil {
+		return nil, err
+	}
+	return task, nil
+}
+
+func (p *Pipeline) deriveAndSaveRuleTasks(ctx context.Context, pk *pack.Pack, analysis *pack.AnalysisResult, latest core.NormalizedMessage) {
+	derived := DeriveTasks(DeriveTasksInput{
+		Pack:      pk,
+		Analysis:  analysis,
+		TenantID:  latest.TenantID,
+		Channel:   latest.Channel,
+		SourceKey: latest.SourceKey,
+		MessageID: latest.MessageID,
+		Now:       p.now(),
+	})
+	if len(derived) == 0 {
+		return
+	}
+	existing, err := p.cfg.Store.ListSourceTasks(ctx, latest.TenantID, latest.Channel, latest.SourceKey)
+	if err != nil {
+		p.logger.Warn("falha ao listar tarefas existentes para deduplicação", slog.Any("error", err))
+		return
+	}
+	for _, task := range FilterNewTasks(derived, existing) {
+		if err := p.saveAndPublishTask(ctx, task); err != nil {
+			p.logger.Warn("falha ao salvar tarefa derivada", slog.String("task_id", task.ID), slog.Any("error", err))
+		}
+	}
+}
+
+func truncateText(s string, max int) string {
+	r := []rune(strings.TrimSpace(s))
+	if len(r) <= max {
+		return string(r)
+	}
+	return string(r[:max]) + "..."
 }
 
 // DeliverTextOutbound grava mensagem crua no BlobStore, metadados MSG# no Store, envia no canal e publica EventReplySent.
