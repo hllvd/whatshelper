@@ -40,7 +40,7 @@ func TestMemoryStore_SourceLifecycle(t *testing.T) {
 	}
 
 	// 3. Save Facts & Signals & Summary
-	facts := map[string]string{"Budget": "500000", "Bedrooms": "2"}
+	facts := map[string]string{"Budget": "5000", "Seats": "2"}
 	if err := store.SaveFacts(ctx, "tenant-1", "simulator", "user-1", facts); err != nil {
 		t.Fatalf("SaveFacts failed: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestMemoryStore_SourceLifecycle(t *testing.T) {
 		TenantID:  "tenant-1",
 		Channel:   "simulator",
 		SourceKey: "user-1",
-		Text:      "Cliente procura apartamento de 2 quartos até 500k.",
+		Text:      "Cliente procura plano para 2 usuários até 5000.",
 		TurnCount: 1,
 		UpdatedAt: now,
 	}
@@ -70,7 +70,7 @@ func TestMemoryStore_SourceLifecycle(t *testing.T) {
 	if state.Meta.Status != core.SourceStatusPaused {
 		t.Fatalf("expected status paused, got %s", state.Meta.Status)
 	}
-	if state.Facts["Budget"] != "500000" || state.Facts["Bedrooms"] != "2" {
+	if state.Facts["Budget"] != "5000" || state.Facts["Seats"] != "2" {
 		t.Fatalf("facts mismatch: %v", state.Facts)
 	}
 	if !state.Signals["has_new_question"] {
@@ -148,8 +148,8 @@ func TestMemoryStore_DueTasks(t *testing.T) {
 		TenantID:  "tenant-1",
 		Channel:   "simulator",
 		SourceKey: "user-1",
-		Title:     "Agendar visita",
-		Type:      "visit",
+		Title:     "Agendar reunião",
+		Type:      "meeting",
 		Status:    core.TaskStatusPending,
 		DueAt:     &future,
 		CreatedAt: now,

@@ -1,0 +1,120 @@
+name: realestate
+language: pt-BR
+
+actors:
+  business: broker
+  customer: customer
+
+facts:
+  - key: Intent
+    type: string
+    description: Intenção principal do cliente (ex. compra, locação, investimento)
+  - key: Property Type
+    type: string
+    description: Tipo de imóvel procurado (ex. apartamento, casa, terreno, sala comercial)
+  - key: Location
+    type: string
+    description: Região, bairro ou cidade de interesse
+  - key: Budget
+    type: number
+    description: Orçamento total informado (valor numérico puro)
+  - key: Min Price
+    type: number
+    description: Valor mínimo da faixa de preço (valor numérico puro)
+  - key: Max Price
+    type: number
+    description: Valor máximo da faixa de preço (valor numérico puro)
+  - key: Bedrooms
+    type: integer
+    description: Quantidade de quartos desejada
+  - key: Garage
+    type: integer
+    description: Quantidade de vagas de garagem desejada
+  - key: Approved Financing
+    type: boolean
+    description: Se o cliente já possui financiamento aprovado
+  - key: Purpose
+    type: string
+    description: Finalidade (ex. moradia, investimento)
+  - key: Purchase Timeline
+    type: string
+    description: Prazo estimado para compra ou mudança
+  - key: Viewing Interest
+    type: boolean
+    description: Se o cliente demonstrou interesse explícito em visitar
+  - key: Mentioned Property
+    type: string
+    description: Imóvel ou código específico mencionado pelo cliente
+  - key: Lead Score
+    type: string
+    description: Classificação qualitativa do lead quando explícita
+  - key: Children
+    type: string
+    description: Informação sobre filhos mencionada pelo cliente
+  - key: Pet
+    type: boolean
+    description: Se o cliente mencionou possuir animais de estimação
+
+signals:
+  - key: has_new_question
+    description: true se a NOVA MENSAGEM contém uma pergunta clara
+  - key: has_pending_question
+    description: true se há pergunta nas MENSAGENS RECENTES ainda não respondida
+  - key: has_pending_visit
+    description: true se uma visita foi sugerida mas ainda não confirmada
+  - key: has_pending_call
+    description: true se uma ligação ou reunião foi sugerida mas ainda não confirmada
+  - key: has_pending_documents
+    description: true se documentos foram solicitados mas ainda não enviados
+  - key: customer_engaged
+    description: true se o cliente está respondendo ativamente, perguntando ou interagindo
+
+context:
+  - key: last_action
+    description: Ação principal identificada na última mensagem
+    fields:
+      - key: type
+        type: enum
+        values: [question, visit, documents, call, followup, other]
+      - key: actor
+        type: enum
+        values: [broker, customer]
+      - key: description
+        type: string
+        description: Descrição curta em PT-BR (se type=question, incluir a pergunta exata ou fiel)
+  - key: visit
+    description: Detalhes de visita sugerida (manter expressões originais sem converter data)
+    fields:
+      - key: proposed_date
+        type: string
+      - key: proposed_time
+        type: string
+  - key: call
+    description: Detalhes de ligação/reunião sugerida
+    fields:
+      - key: proposed_date
+        type: string
+      - key: proposed_time
+        type: string
+      - key: type
+        type: enum
+        values: [phone, video, in-person]
+  - key: documents
+    description: Detalhes de documentos solicitados
+    fields:
+      - key: requested
+        type: boolean
+      - key: description
+        type: string
+
+prompts:
+  analysis: prompts/analysis.tmpl
+  reply: prompts/reply.tmpl
+  nudge: prompts/nudge.tmpl
+
+rules:
+  - Nunca assumir fatos não declarados explicitamente pelo cliente.
+  - Faça UMA pergunta de qualificação por vez para entender o perfil do cliente.
+  - Nunca invente imóveis, preços, condições ou informações que não estejam no conhecimento ou na conversa.
+  - Responda sempre em Português (PT-BR).
+  - Quando não souber a resposta com base no conhecimento, responda de forma neutra sem chutar.

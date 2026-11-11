@@ -31,7 +31,7 @@ func (t FactType) IsValid() bool {
 	}
 }
 
-// ActorsDef identifica os papéis na conversa (ex: broker/customer, clinic/patient).
+// ActorsDef identifica os papéis na conversa (ex: agent/customer, support/client).
 type ActorsDef struct {
 	Business string `yaml:"business" json:"business"`
 	Customer string `yaml:"customer" json:"customer"`
@@ -59,7 +59,7 @@ type ContextFieldDef struct {
 	Values      []string `yaml:"values,omitempty" json:"values,omitempty"`
 }
 
-// ContextSectionDef define uma seção de contexto estruturado (ex: visit, call, last_action).
+// ContextSectionDef define uma seção de contexto estruturado (ex: schedule, call, last_action).
 type ContextSectionDef struct {
 	Key         string            `yaml:"key" json:"key"`
 	Description string            `yaml:"description,omitempty" json:"description,omitempty"`
