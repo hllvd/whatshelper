@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,17 +21,39 @@ import (
 	"whatshelper/internal/store"
 )
 
-// TenantConfig representa a configuração carregada para um tenant.
-type TenantConfig struct {
-	ID               string `yaml:"id" json:"id"`
-	Name             string `yaml:"name" json:"name"`
-	Pack             string `yaml:"pack" json:"pack"`
-	ProactiveEnabled bool   `yaml:"proactive_enabled" json:"proactive_enabled"`
-}
+const PolicyConfigKey = "policy"
 
-// TenantConfigLoader resolve a configuração de um tenant.
+// TenantConfig representa a configuração e política carregada para um tenant.
+type TenantConfig = core.TenantPolicy
+
+// TenantConfigLoader resolve a configuração e política de um tenant.
 type TenantConfigLoader interface {
 	LoadTenant(ctx context.Context, tenantID string) (TenantConfig, error)
+}
+
+// ParseTenantPolicyYAML valida e normaliza o YAML de tenant.yaml em uma TenantPolicy completa.
+func ParseTenantPolicyYAML(defaultID string, raw []byte) (core.TenantPolicy, error) {
+	var policy core.TenantPolicy
+	if err := yaml.Unmarshal(raw, &policy); err != nil {
+		return core.TenantPolicy{}, fmt.Errorf("falha ao parsear tenant.yaml: %w", err)
+	}
+	var overrides struct {
+		BotEnabled *bool `yaml:"bot_enabled"`
+	}
+	if err := yaml.Unmarshal(raw, &overrides); err != nil {
+		return core.TenantPolicy{}, fmt.Errorf("falha ao parsear flags de tenant.yaml: %w", err)
+	}
+	if overrides.BotEnabled == nil {
+		policy.BotEnabled = true
+	}
+	if strings.TrimSpace(policy.ID) == "" {
+		policy.ID = defaultID
+	}
+	policy = policy.WithDefaults()
+	if err := policy.Validate(); err != nil {
+		return core.TenantPolicy{}, fmt.Errorf("política inválida para tenant %q: %w", policy.ID, err)
+	}
+	return policy, nil
 }
 
 // LocalTenantLoader carrega <tenantsDir>/<tenant>/tenant.yaml do sistema de arquivos.
@@ -51,17 +75,78 @@ func (l *LocalTenantLoader) LoadTenant(ctx context.Context, tenantID string) (Te
 	if err != nil {
 		return TenantConfig{}, fmt.Errorf("falha ao ler tenant.yaml (%s): %w", path, err)
 	}
-	var cfg TenantConfig
-	if err := yaml.Unmarshal(raw, &cfg); err != nil {
-		return TenantConfig{}, fmt.Errorf("falha ao parsear tenant.yaml: %w", err)
+	return ParseTenantPolicyYAML(cleanID, raw)
+}
+
+// StoreTenantPolicyLoader lê CONFIG#policy do core.Store (DynamoDB/Memória), com fallback opcional.
+type StoreTenantPolicyLoader struct {
+	store    core.Store
+	fallback TenantConfigLoader
+}
+
+func NewStoreTenantPolicyLoader(st core.Store, fallback TenantConfigLoader) *StoreTenantPolicyLoader {
+	return &StoreTenantPolicyLoader{store: st, fallback: fallback}
+}
+
+func (l *StoreTenantPolicyLoader) LoadTenant(ctx context.Context, tenantID string) (TenantConfig, error) {
+	raw, err := l.store.GetTenantConfig(ctx, tenantID, PolicyConfigKey)
+	if err == nil {
+		var policy core.TenantPolicy
+		if err := json.Unmarshal(raw, &policy); err != nil {
+			return TenantConfig{}, fmt.Errorf("falha ao decodificar CONFIG#policy do tenant %q: %w", tenantID, err)
+		}
+		policy = policy.WithDefaults()
+		if err := policy.Validate(); err != nil {
+			return TenantConfig{}, err
+		}
+		return policy, nil
 	}
-	if strings.TrimSpace(cfg.ID) == "" {
-		cfg.ID = cleanID
+	if errors.Is(err, core.ErrConfigNotFound) && l.fallback != nil {
+		return l.fallback.LoadTenant(ctx, tenantID)
 	}
-	if strings.TrimSpace(cfg.Pack) == "" {
-		return TenantConfig{}, fmt.Errorf("tenant %q sem pack definido", cleanID)
+	return TenantConfig{}, err
+}
+
+// SeedTenantPolicy grava a política de um tenant em CONFIG#policy no core.Store.
+func SeedTenantPolicy(ctx context.Context, st core.Store, policy core.TenantPolicy) error {
+	normalized := policy.WithDefaults()
+	if err := normalized.Validate(); err != nil {
+		return err
 	}
-	return cfg, nil
+	data, err := json.Marshal(normalized)
+	if err != nil {
+		return err
+	}
+	return st.SaveTenantConfig(ctx, normalized.ID, PolicyConfigKey, data)
+}
+
+// SeedLocalTenants carrega todos os <tenantsDir>/*/tenant.yaml e grava no core.Store.
+func SeedLocalTenants(ctx context.Context, tenantsDir string, st core.Store) ([]string, error) {
+	entries, err := os.ReadDir(tenantsDir)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao listar tenantsDir (%s): %w", tenantsDir, err)
+	}
+	loader := NewLocalTenantLoader(tenantsDir)
+	var seeded []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		policyPath := filepath.Join(tenantsDir, entry.Name(), "tenant.yaml")
+		if _, statErr := os.Stat(policyPath); statErr != nil {
+			continue
+		}
+		policy, err := loader.LoadTenant(ctx, entry.Name())
+		if err != nil {
+			return nil, err
+		}
+		if err := SeedTenantPolicy(ctx, st, policy); err != nil {
+			return nil, err
+		}
+		seeded = append(seeded, policy.ID)
+	}
+	sort.Strings(seeded)
+	return seeded, nil
 }
 
 // KnowledgeBundle reúne os documentos .md estáticos e o arquivo QA.md separado.

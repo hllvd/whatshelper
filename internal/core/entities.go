@@ -21,6 +21,7 @@ type SourceStatus string
 const (
 	SourceStatusActive   SourceStatus = "active"
 	SourceStatusPaused   SourceStatus = "paused"
+	SourceStatusHuman    SourceStatus = "human"
 	SourceStatusOptedOut SourceStatus = "opted_out"
 	SourceStatusArchived SourceStatus = "archived"
 )
@@ -90,18 +91,23 @@ const (
 	TaskStatusCancelled TaskStatus = "cancelled"
 )
 
-// Task representa uma tarefa ou pendência gerada a partir do atendimento.
+// Task representa uma tarefa, escalonamento, aprovação ou nudge agendado (compartilha SK TASK#).
 type Task struct {
-	ID          string     `json:"id"`
-	TenantID    string     `json:"tenant_id"`
-	Channel     string     `json:"channel"`
-	SourceKey   string     `json:"source_key"`
-	Title       string     `json:"title"`
-	Type        string     `json:"type"`
-	Status      TaskStatus `json:"status"`
-	DueAt       *time.Time `json:"due_at,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
-	CompletedAt *time.Time `json:"completed_at,omitempty"`
+	ID           string            `json:"id"`
+	TenantID     string            `json:"tenant_id"`
+	Channel      string            `json:"channel"`
+	SourceKey    string            `json:"source_key"`
+	Kind         string            `json:"kind,omitempty"` // "task" | "nudge" | "escalation" | "approval"
+	Title        string            `json:"title"`
+	Type         string            `json:"type"`
+	Status       TaskStatus        `json:"status"`
+	DueAt        *time.Time        `json:"due_at,omitempty"`
+	DraftBlobRef string            `json:"draft_blob_ref,omitempty"`
+	Attempt      int               `json:"attempt,omitempty"`
+	MaxAttempts  int               `json:"max_attempts,omitempty"`
+	Metadata     map[string]string `json:"metadata,omitempty"`
+	CreatedAt    time.Time         `json:"created_at"`
+	CompletedAt  *time.Time        `json:"completed_at,omitempty"`
 }
 
 // NudgeStatus define o estado do agendamento de follow-up proativo.
@@ -142,6 +148,7 @@ type Run struct {
 	CompletionTokens int       `json:"completion_tokens"`
 	DurationMs       int64     `json:"duration_ms"`
 	TraceBlobRef     string    `json:"trace_blob_ref,omitempty"`
+	TTL              int64     `json:"ttl,omitempty"`
 	CreatedAt        time.Time `json:"created_at"`
 }
 

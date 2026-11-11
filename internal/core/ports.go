@@ -2,16 +2,40 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 )
+
+const MaxSafeItemBytes = 350 * 1024 // abaixo do limite rígido de 400 KB do DynamoDB
 
 var (
 	// ErrVersionConflict indica concorrência otimista detectada ao comitar estado da fonte.
 	ErrVersionConflict = errors.New("store: conflito de versão otimista na fonte")
 	// ErrDuplicateMessage indica que o message_id já foi persistido para esta fonte.
 	ErrDuplicateMessage = errors.New("store: mensagem duplicada")
+	// ErrConfigNotFound indica ausência da configuração solicitada para o tenant.
+	ErrConfigNotFound = errors.New("store: configuração do tenant não encontrada")
+	// ErrTaskNotFound indica tarefa inexistente.
+	ErrTaskNotFound = errors.New("store: tarefa não encontrada")
+	// ErrItemTooLarge indica que um item excede o limite seguro do DynamoDB (< 400 KB).
+	ErrItemTooLarge = errors.New("store: tamanho do item excede o limite seguro")
 )
+
+// CheckCommitAnalysisSizes verifica se resumo, fatos ou contexto excedem o limite seguro do DynamoDB.
+func CheckCommitAnalysisSizes(input CommitAnalysisInput) error {
+	if len(input.Summary.Text) > MaxSafeItemBytes {
+		return fmt.Errorf("%w: summary (%d bytes)", ErrItemTooLarge, len(input.Summary.Text))
+	}
+	if data, err := json.Marshal(input.Facts); err == nil && len(data) > MaxSafeItemBytes {
+		return fmt.Errorf("%w: facts (%d bytes)", ErrItemTooLarge, len(data))
+	}
+	if data, err := json.Marshal(input.Context); err == nil && len(data) > MaxSafeItemBytes {
+		return fmt.Errorf("%w: context (%d bytes)", ErrItemTooLarge, len(data))
+	}
+	return nil
+}
 
 // ChannelCapabilities declara os recursos suportados pelo canal.
 type ChannelCapabilities struct {
@@ -63,10 +87,15 @@ type Store interface {
 	ListSources(ctx context.Context, tenant string) ([]SourceMeta, error)
 	ListRuns(ctx context.Context, tenant, channel, sourceKey string, limit int) ([]Run, error)
 	SaveTask(ctx context.Context, task Task) error
+	GetTask(ctx context.Context, tenant, channel, sourceKey, taskID string) (*Task, error)
+	ListSourceTasks(ctx context.Context, tenant, channel, sourceKey string) ([]Task, error)
 	ListDueTasks(ctx context.Context, tenant string, dueBefore time.Time) ([]Task, error)
 	SaveRun(ctx context.Context, run Run) error
+	SaveTenantConfig(ctx context.Context, tenantID, name string, data []byte) error
+	GetTenantConfig(ctx context.Context, tenantID, name string) ([]byte, error)
 	LinkSourceToContact(ctx context.Context, tenant, channel, sourceKey, contactID string) error
 	ListContactSources(ctx context.Context, tenant, contactID string) ([]SourceLink, error)
+	ListSourcesByContactGSI1(ctx context.Context, tenant, contactID string) ([]SourceMeta, error)
 }
 
 // BlobStore define o contrato de armazenamento de objetos no S3/MinIO (ou in-memory).

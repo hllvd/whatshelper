@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"whatshelper/internal/brain"
+	"whatshelper/internal/core"
 	"whatshelper/internal/core/fakes"
 	"whatshelper/internal/store"
 )
@@ -105,5 +106,68 @@ func TestBlobKnowledgeSource_TTLCache(t *testing.T) {
 	bFresh, _ := ks.Load(ctx, "t1")
 	if bFresh.QAContent != "QA v2" {
 		t.Fatalf("expected refreshed QA v2 after TTL, got %q", bFresh.QAContent)
+	}
+}
+
+func TestStoreTenantPolicyLoader_AndSeed(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	tDir := filepath.Join(tmp, "demo")
+	if err := os.MkdirAll(tDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	yamlBody := `id: demo
+name: Demo
+pack: sample
+mode: approval
+timezone: America/Sao_Paulo
+bot_enabled: true
+proactive_enabled: false
+business_hours:
+  enabled: true
+  days: [mon, tue, wed, thu, fri]
+  start: "09:00"
+  end: "18:00"
+`
+	if err := os.WriteFile(filepath.Join(tDir, "tenant.yaml"), []byte(yamlBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	mem := fakes.NewMemoryStore()
+	local := brain.NewLocalTenantLoader(tmp)
+	loader := brain.NewStoreTenantPolicyLoader(mem, local)
+
+	// Antes do seed, cai no fallback local
+	fallbackCfg, err := loader.LoadTenant(ctx, "demo")
+	if err != nil {
+		t.Fatalf("fallback LoadTenant failed: %v", err)
+	}
+	if fallbackCfg.Mode != core.ModeApproval || !fallbackCfg.BotEnabled {
+		t.Fatalf("unexpected fallback policy: %+v", fallbackCfg)
+	}
+
+	// Faz seed para o Store
+	seeded, err := brain.SeedLocalTenants(ctx, tmp, mem)
+	if err != nil {
+		t.Fatalf("SeedLocalTenants failed: %v", err)
+	}
+	if len(seeded) != 1 || seeded[0] != "demo" {
+		t.Fatalf("expected [demo], got %v", seeded)
+	}
+
+	// Atualiza política no Store diretamente e confirma leitura do Store
+	override := fallbackCfg
+	override.Mode = core.ModeDraft
+	if err := brain.SeedTenantPolicy(ctx, mem, override); err != nil {
+		t.Fatalf("SeedTenantPolicy failed: %v", err)
+	}
+
+	storeOnly := brain.NewStoreTenantPolicyLoader(mem, nil)
+	got, err := storeOnly.LoadTenant(ctx, "demo")
+	if err != nil {
+		t.Fatalf("storeOnly LoadTenant failed: %v", err)
+	}
+	if got.Mode != core.ModeDraft {
+		t.Fatalf("expected mode draft from store, got %s", got.Mode)
 	}
 }

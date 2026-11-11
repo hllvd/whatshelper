@@ -1,4 +1,19 @@
 id: demo
 name: Imobiliária Demo
 pack: realestate
+mode: auto
+timezone: America/Sao_Paulo
+bot_enabled: true
 proactive_enabled: false
+business_hours:
+  enabled: true
+  days: [mon, tue, wed, thu, fri, sat]
+  start: "09:00"
+  end: "18:00"
+out_of_hours_reply: "Olá! Nosso atendimento humano funciona de segunda a sábado, das 9h às 18h. Recebemos sua mensagem e responderemos assim que possível."
+rate_limit:
+  global_per_minute: 60
+  per_source_per_minute: 10
+nudge:
+  delay_minutes: 60
+  max_attempts: 2

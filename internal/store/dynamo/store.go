@@ -121,20 +121,25 @@ type sourceCatalogItem struct {
 }
 
 type taskItem struct {
-	PK          string          `dynamodbav:"PK"`
-	SK          string          `dynamodbav:"SK"`
-	GSI2PK      string          `dynamodbav:"GSI2PK,omitempty"`
-	GSI2SK      string          `dynamodbav:"GSI2SK,omitempty"`
-	ID          string          `dynamodbav:"id"`
-	TenantID    string          `dynamodbav:"tenant_id"`
-	Channel     string          `dynamodbav:"channel"`
-	SourceKey   string          `dynamodbav:"source_key"`
-	Title       string          `dynamodbav:"title"`
-	Type        string          `dynamodbav:"type"`
-	Status      core.TaskStatus `dynamodbav:"status"`
-	DueAt       string          `dynamodbav:"due_at,omitempty"`
-	CreatedAt   string          `dynamodbav:"created_at"`
-	CompletedAt string          `dynamodbav:"completed_at,omitempty"`
+	PK           string            `dynamodbav:"PK"`
+	SK           string            `dynamodbav:"SK"`
+	GSI2PK       string            `dynamodbav:"GSI2PK,omitempty"`
+	GSI2SK       string            `dynamodbav:"GSI2SK,omitempty"`
+	ID           string            `dynamodbav:"id"`
+	TenantID     string            `dynamodbav:"tenant_id"`
+	Channel      string            `dynamodbav:"channel"`
+	SourceKey    string            `dynamodbav:"source_key"`
+	Kind         string            `dynamodbav:"kind,omitempty"`
+	Title        string            `dynamodbav:"title"`
+	Type         string            `dynamodbav:"type"`
+	Status       core.TaskStatus   `dynamodbav:"status"`
+	DueAt        string            `dynamodbav:"due_at,omitempty"`
+	DraftBlobRef string            `dynamodbav:"draft_blob_ref,omitempty"`
+	Attempt      int               `dynamodbav:"attempt,omitempty"`
+	MaxAttempts  int               `dynamodbav:"max_attempts,omitempty"`
+	Metadata     map[string]string `dynamodbav:"metadata,omitempty"`
+	CreatedAt    string            `dynamodbav:"created_at"`
+	CompletedAt  string            `dynamodbav:"completed_at,omitempty"`
 }
 
 type runItem struct {
@@ -152,7 +157,17 @@ type runItem struct {
 	CompletionTokens int    `dynamodbav:"completion_tokens"`
 	DurationMs       int64  `dynamodbav:"duration_ms"`
 	TraceBlobRef     string `dynamodbav:"trace_blob_ref,omitempty"`
+	TTL              int64  `dynamodbav:"ttl,omitempty"`
 	CreatedAt        string `dynamodbav:"created_at"`
+}
+
+type tenantConfigItem struct {
+	PK        string `dynamodbav:"PK"`
+	SK        string `dynamodbav:"SK"`
+	TenantID  string `dynamodbav:"tenant_id"`
+	Name      string `dynamodbav:"name"`
+	Data      []byte `dynamodbav:"data"`
+	UpdatedAt string `dynamodbav:"updated_at"`
 }
 
 type contactLinkItem struct {
@@ -340,6 +355,9 @@ func (s *Store) SaveSourceMeta(ctx context.Context, meta core.SourceMeta) error 
 }
 
 func (s *Store) CommitAnalysis(ctx context.Context, input core.CommitAnalysisInput) error {
+	if err := core.CheckCommitAnalysisSizes(input); err != nil {
+		return err
+	}
 	now := input.UpdatedAt
 	if now.IsZero() {
 		now = s.clock.Now().UTC()
@@ -711,10 +729,38 @@ func (s *Store) ListRuns(ctx context.Context, tenant, channel, sourceKey string,
 			CompletionTokens: item.CompletionTokens,
 			DurationMs:       item.DurationMs,
 			TraceBlobRef:     item.TraceBlobRef,
+			TTL:              item.TTL,
 			CreatedAt:        parseTime(item.CreatedAt),
 		})
 	}
 	return result, nil
+}
+
+func taskFromItem(item taskItem) core.Task {
+	t := core.Task{
+		ID:           item.ID,
+		TenantID:     item.TenantID,
+		Channel:      item.Channel,
+		SourceKey:    item.SourceKey,
+		Kind:         item.Kind,
+		Title:        item.Title,
+		Type:         item.Type,
+		Status:       item.Status,
+		DraftBlobRef: item.DraftBlobRef,
+		Attempt:      item.Attempt,
+		MaxAttempts:  item.MaxAttempts,
+		Metadata:     item.Metadata,
+		CreatedAt:    parseTime(item.CreatedAt),
+	}
+	if item.DueAt != "" {
+		d := parseTime(item.DueAt)
+		t.DueAt = &d
+	}
+	if item.CompletedAt != "" {
+		c := parseTime(item.CompletedAt)
+		t.CompletedAt = &c
+	}
+	return t
 }
 
 func (s *Store) SaveTask(ctx context.Context, task core.Task) error {
@@ -723,16 +769,21 @@ func (s *Store) SaveTask(ctx context.Context, task core.Task) error {
 	}
 
 	item := taskItem{
-		PK:        store.SourcePK(task.TenantID, task.Channel, task.SourceKey),
-		SK:        store.TaskSK(task.ID),
-		ID:        task.ID,
-		TenantID:  task.TenantID,
-		Channel:   task.Channel,
-		SourceKey: task.SourceKey,
-		Title:     task.Title,
-		Type:      task.Type,
-		Status:    task.Status,
-		CreatedAt: formatTime(task.CreatedAt),
+		PK:           store.SourcePK(task.TenantID, task.Channel, task.SourceKey),
+		SK:           store.TaskSK(task.ID),
+		ID:           task.ID,
+		TenantID:     task.TenantID,
+		Channel:      task.Channel,
+		SourceKey:    task.SourceKey,
+		Kind:         task.Kind,
+		Title:        task.Title,
+		Type:         task.Type,
+		Status:       task.Status,
+		DraftBlobRef: task.DraftBlobRef,
+		Attempt:      task.Attempt,
+		MaxAttempts:  task.MaxAttempts,
+		Metadata:     task.Metadata,
+		CreatedAt:    formatTime(task.CreatedAt),
 	}
 	if task.DueAt != nil {
 		item.DueAt = formatTime(*task.DueAt)
@@ -756,6 +807,54 @@ func (s *Store) SaveTask(ctx context.Context, task core.Task) error {
 	return err
 }
 
+func (s *Store) GetTask(ctx context.Context, tenant, channel, sourceKey, taskID string) (*core.Task, error) {
+	out, err := s.client.GetItem(ctx, &dynamodb.GetItemInput{
+		TableName: aws.String(s.tableName),
+		Key: map[string]types.AttributeValue{
+			"PK": &types.AttributeValueMemberS{Value: store.SourcePK(tenant, channel, sourceKey)},
+			"SK": &types.AttributeValueMemberS{Value: store.TaskSK(taskID)},
+		},
+		ConsistentRead: aws.Bool(true),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("dynamo GetTask falhou: %w", err)
+	}
+	if len(out.Item) == 0 {
+		return nil, core.ErrTaskNotFound
+	}
+	var item taskItem
+	if err := attributevalue.UnmarshalMap(out.Item, &item); err != nil {
+		return nil, err
+	}
+	t := taskFromItem(item)
+	return &t, nil
+}
+
+func (s *Store) ListSourceTasks(ctx context.Context, tenant, channel, sourceKey string) ([]core.Task, error) {
+	out, err := s.client.Query(ctx, &dynamodb.QueryInput{
+		TableName:              aws.String(s.tableName),
+		KeyConditionExpression: aws.String("PK = :pk AND begins_with(SK, :prefix)"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":pk":     &types.AttributeValueMemberS{Value: store.SourcePK(tenant, channel, sourceKey)},
+			":prefix": &types.AttributeValueMemberS{Value: "TASK#"},
+		},
+		ConsistentRead: aws.Bool(true),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("dynamo ListSourceTasks falhou: %w", err)
+	}
+
+	result := make([]core.Task, 0, len(out.Items))
+	for _, raw := range out.Items {
+		var item taskItem
+		if err := attributevalue.UnmarshalMap(raw, &item); err != nil {
+			return nil, err
+		}
+		result = append(result, taskFromItem(item))
+	}
+	return result, nil
+}
+
 func (s *Store) ListDueTasks(ctx context.Context, tenant string, dueBefore time.Time) ([]core.Task, error) {
 	maxSK := store.DueGSI2SK(dueBefore, "\uffff", "\uffff")
 	out, err := s.client.Query(ctx, &dynamodb.QueryInput{
@@ -777,25 +876,7 @@ func (s *Store) ListDueTasks(ctx context.Context, tenant string, dueBefore time.
 		if err := attributevalue.UnmarshalMap(raw, &item); err != nil {
 			return nil, err
 		}
-		t := core.Task{
-			ID:        item.ID,
-			TenantID:  item.TenantID,
-			Channel:   item.Channel,
-			SourceKey: item.SourceKey,
-			Title:     item.Title,
-			Type:      item.Type,
-			Status:    item.Status,
-			CreatedAt: parseTime(item.CreatedAt),
-		}
-		if item.DueAt != "" {
-			d := parseTime(item.DueAt)
-			t.DueAt = &d
-		}
-		if item.CompletedAt != "" {
-			c := parseTime(item.CompletedAt)
-			t.CompletedAt = &c
-		}
-		result = append(result, t)
+		result = append(result, taskFromItem(item))
 	}
 	return result, nil
 }
@@ -904,6 +985,94 @@ func (s *Store) ListContactSources(ctx context.Context, tenant, contactID string
 	return result, nil
 }
 
+func (s *Store) SaveTenantConfig(ctx context.Context, tenant, name string, data []byte) error {
+	if strings.TrimSpace(tenant) == "" {
+		return core.ErrEmptyTenantID
+	}
+	if strings.TrimSpace(name) == "" {
+		return errors.New("config name is required")
+	}
+	copied := append([]byte(nil), data...)
+	item := tenantConfigItem{
+		PK:        store.TenantPK(tenant),
+		SK:        store.TenantConfigSK(name),
+		TenantID:  tenant,
+		Name:      name,
+		Data:      copied,
+		UpdatedAt: formatTime(s.clock.Now().UTC()),
+	}
+	av, err := attributevalue.MarshalMap(item)
+	if err != nil {
+		return err
+	}
+	_, err = s.client.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName: aws.String(s.tableName),
+		Item:      av,
+	})
+	return err
+}
+
+func (s *Store) GetTenantConfig(ctx context.Context, tenant, name string) ([]byte, error) {
+	out, err := s.client.GetItem(ctx, &dynamodb.GetItemInput{
+		TableName: aws.String(s.tableName),
+		Key: map[string]types.AttributeValue{
+			"PK": &types.AttributeValueMemberS{Value: store.TenantPK(tenant)},
+			"SK": &types.AttributeValueMemberS{Value: store.TenantConfigSK(name)},
+		},
+		ConsistentRead: aws.Bool(true),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("dynamo GetTenantConfig falhou: %w", err)
+	}
+	if len(out.Item) == 0 {
+		return nil, core.ErrConfigNotFound
+	}
+	var item tenantConfigItem
+	if err := attributevalue.UnmarshalMap(out.Item, &item); err != nil {
+		return nil, err
+	}
+	return append([]byte(nil), item.Data...), nil
+}
+
+func (s *Store) ListSourcesByContactGSI1(ctx context.Context, tenant, contactID string) ([]core.SourceMeta, error) {
+	if strings.TrimSpace(contactID) == "" {
+		return []core.SourceMeta{}, nil
+	}
+	out, err := s.client.Query(ctx, &dynamodb.QueryInput{
+		TableName:              aws.String(s.tableName),
+		IndexName:              aws.String(GSI1Name),
+		KeyConditionExpression: aws.String("GSI1PK = :pk"),
+		FilterExpression:       aws.String("SK = :meta"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":pk":   &types.AttributeValueMemberS{Value: store.ContactPK(tenant, contactID)},
+			":meta": &types.AttributeValueMemberS{Value: store.SKMeta},
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("dynamo ListSourcesByContactGSI1 falhou: %w", err)
+	}
+
+	result := make([]core.SourceMeta, 0, len(out.Items))
+	for _, raw := range out.Items {
+		var item metaItem
+		if err := attributevalue.UnmarshalMap(raw, &item); err != nil {
+			return nil, err
+		}
+		result = append(result, core.SourceMeta{
+			TenantID:             item.TenantID,
+			Channel:              item.Channel,
+			SourceKey:            item.SourceKey,
+			ContactID:            item.ContactID,
+			Status:               item.Status,
+			Version:              item.Version,
+			EncryptedContactInfo: item.EncryptedContactInfo,
+			CreatedAt:            parseTime(item.CreatedAt),
+			UpdatedAt:            parseTime(item.UpdatedAt),
+		})
+	}
+	return result, nil
+}
+
 func marshalRunItem(run core.Run) (map[string]types.AttributeValue, error) {
 	return attributevalue.MarshalMap(runItem{
 		PK:               store.SourcePK(run.TenantID, run.Channel, run.SourceKey),
@@ -920,6 +1089,7 @@ func marshalRunItem(run core.Run) (map[string]types.AttributeValue, error) {
 		CompletionTokens: run.CompletionTokens,
 		DurationMs:       run.DurationMs,
 		TraceBlobRef:     run.TraceBlobRef,
+		TTL:              run.TTL,
 		CreatedAt:        formatTime(run.CreatedAt),
 	})
 }

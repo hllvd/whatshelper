@@ -12,18 +12,19 @@ import (
 
 // MemoryStore é uma implementação concorrente e puramente em memória da interface core.Store.
 type MemoryStore struct {
-	mu           sync.RWMutex
-	clock        core.Clock
-	sources      map[string]*core.SourceMeta
-	summaries    map[string]*core.Summary
-	facts        map[string]map[string]string
-	signals      map[string]map[string]bool
-	contexts     map[string]*core.ConversationContext
-	messages     map[string][]core.MessageMeta
-	msgIndex     map[string]map[string]bool // sourceID -> messageID -> seen
-	tasks        map[string]map[string]core.Task
-	runs         map[string][]core.Run
-	contactLinks map[string][]core.SourceLink // key: tenant#contact_id
+	mu            sync.RWMutex
+	clock         core.Clock
+	sources       map[string]*core.SourceMeta
+	summaries     map[string]*core.Summary
+	facts         map[string]map[string]string
+	signals       map[string]map[string]bool
+	contexts      map[string]*core.ConversationContext
+	messages      map[string][]core.MessageMeta
+	msgIndex      map[string]map[string]bool // sourceID -> messageID -> seen
+	tasks         map[string]map[string]core.Task
+	runs          map[string][]core.Run
+	configs       map[string][]byte // key: tenant#name
+	contactLinks  map[string][]core.SourceLink // key: tenant#contact_id
 }
 
 func NewMemoryStore() *MemoryStore {
@@ -45,6 +46,7 @@ func NewMemoryStoreWithClock(clock core.Clock) *MemoryStore {
 		msgIndex:     make(map[string]map[string]bool),
 		tasks:        make(map[string]map[string]core.Task),
 		runs:         make(map[string][]core.Run),
+		configs:      make(map[string][]byte),
 		contactLinks: make(map[string][]core.SourceLink),
 	}
 }
@@ -120,6 +122,10 @@ func (m *MemoryStore) SaveSourceMeta(ctx context.Context, meta core.SourceMeta) 
 
 // CommitAnalysis grava atomicamente SUMMARY, FACTS, SIGNALS, CONTEXT e RUN, validando ExpectedVersion em META.
 func (m *MemoryStore) CommitAnalysis(ctx context.Context, input core.CommitAnalysisInput) error {
+	if err := core.CheckCommitAnalysisSizes(input); err != nil {
+		return err
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -315,6 +321,77 @@ func (m *MemoryStore) ListDueTasks(ctx context.Context, tenant string, dueBefore
 		return result[i].DueAt.Before(*result[j].DueAt)
 	})
 
+	return result, nil
+}
+
+func (m *MemoryStore) GetTask(ctx context.Context, tenant, channel, sourceKey, taskID string) (*core.Task, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	tenantTasks, ok := m.tasks[tenant]
+	if !ok {
+		return nil, core.ErrTaskNotFound
+	}
+	t, ok := tenantTasks[taskID]
+	if !ok || t.Channel != channel || t.SourceKey != sourceKey {
+		return nil, core.ErrTaskNotFound
+	}
+	copied := t
+	return &copied, nil
+}
+
+func (m *MemoryStore) ListSourceTasks(ctx context.Context, tenant, channel, sourceKey string) ([]core.Task, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var result []core.Task
+	for _, t := range m.tasks[tenant] {
+		if t.Channel == channel && t.SourceKey == sourceKey {
+			result = append(result, t)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].CreatedAt.After(result[j].CreatedAt)
+	})
+	return result, nil
+}
+
+func (m *MemoryStore) SaveTenantConfig(ctx context.Context, tenantID, name string, data []byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	copied := make([]byte, len(data))
+	copy(copied, data)
+	m.configs[fmt.Sprintf("%s#%s", tenantID, name)] = copied
+	return nil
+}
+
+func (m *MemoryStore) GetTenantConfig(ctx context.Context, tenantID, name string) ([]byte, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	raw, ok := m.configs[fmt.Sprintf("%s#%s", tenantID, name)]
+	if !ok {
+		return nil, core.ErrConfigNotFound
+	}
+	copied := make([]byte, len(raw))
+	copy(copied, raw)
+	return copied, nil
+}
+
+func (m *MemoryStore) ListSourcesByContactGSI1(ctx context.Context, tenant, contactID string) ([]core.SourceMeta, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var result []core.SourceMeta
+	for _, src := range m.sources {
+		if src.TenantID == tenant && src.ContactID == contactID {
+			result = append(result, *src)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Channel < result[j].Channel || (result[i].Channel == result[j].Channel && result[i].SourceKey < result[j].SourceKey)
+	})
 	return result, nil
 }
 

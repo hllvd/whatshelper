@@ -84,7 +84,7 @@ func main() {
 		LLM:                 llmClient,
 		Bus:                 bus,
 		Clock:               clock,
-		Tenants:             brain.NewLocalTenantLoader(cfg.TenantsDir),
+		Tenants:             brain.NewStoreTenantPolicyLoader(storeRepo, brain.NewLocalTenantLoader(cfg.TenantsDir)),
 		Knowledge:           brain.NewLocalKnowledgeSource(cfg.TenantsDir),
 		PackLoader:          func(name string) (*pack.Pack, error) { return pack.LoadFromDir(filepath.Join(cfg.PacksDir, name)) },
 		AnalysisModel:       analysisModel,
@@ -195,5 +195,12 @@ func runStoreInit(cfg config.Config, logger *slog.Logger) error {
 		return err
 	}
 	logger.Info("bucket S3 verificado/criado", slog.String("bucket", cfg.S3Bucket))
+
+	storeRepo := dynamo.NewStore(ddbClient, cfg.DynamoDBTable, core.SystemClock{})
+	seeded, err := brain.SeedLocalTenants(ctx, cfg.TenantsDir, storeRepo)
+	if err != nil {
+		return err
+	}
+	logger.Info("políticas de tenants carregadas", slog.Any("tenants", seeded))
 	return nil
 }

@@ -3,6 +3,7 @@ package storetest
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -202,6 +203,107 @@ func RunStoreContractTests(t *testing.T, makeStore func(t *testing.T, clock core
 		}
 		if len(links) != 1 || links[0].SourceKey != "s1" {
 			t.Fatalf("expected 1 contact link, got %+v", links)
+		}
+
+		gsiMetas, err := s.ListSourcesByContactGSI1(ctx, "tenant-c", "contact-99")
+		if err != nil {
+			t.Fatalf("ListSourcesByContactGSI1 failed: %v", err)
+		}
+		if len(gsiMetas) != 1 || gsiMetas[0].SourceKey != "s1" || gsiMetas[0].ContactID != "contact-99" {
+			t.Fatalf("expected 1 GSI1 source meta for s1, got %+v", gsiMetas)
+		}
+	})
+
+	t.Run("TenantConfig_SaveAndGet", func(t *testing.T) {
+		ctx := context.Background()
+		clock := fakes.NewFakeClock(time.Date(2026, 11, 11, 10, 0, 0, 0, time.UTC))
+		s := makeStore(t, clock)
+
+		if _, err := s.GetTenantConfig(ctx, "tenant-cfg", "policy"); !errors.Is(err, core.ErrConfigNotFound) {
+			t.Fatalf("expected ErrConfigNotFound, got %v", err)
+		}
+		payload := []byte(`{"mode":"auto","bot_enabled":true}`)
+		if err := s.SaveTenantConfig(ctx, "tenant-cfg", "policy", payload); err != nil {
+			t.Fatalf("SaveTenantConfig failed: %v", err)
+		}
+		got, err := s.GetTenantConfig(ctx, "tenant-cfg", "policy")
+		if err != nil {
+			t.Fatalf("GetTenantConfig failed: %v", err)
+		}
+		if string(got) != string(payload) {
+			t.Fatalf("expected %s, got %s", payload, got)
+		}
+	})
+
+	t.Run("Task_ExtendedFields_And_RunTTL_And_SizeGuard", func(t *testing.T) {
+		ctx := context.Background()
+		now := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
+		s := makeStore(t, fakes.NewFakeClock(now))
+
+		if _, err := s.GetTask(ctx, "tenant-d", "simulator", "s1", "missing"); !errors.Is(err, core.ErrTaskNotFound) {
+			t.Fatalf("expected ErrTaskNotFound, got %v", err)
+		}
+
+		task := core.Task{
+			ID:           "t-appr",
+			TenantID:     "tenant-d",
+			Channel:      "simulator",
+			SourceKey:    "s1",
+			Kind:         "approval",
+			Title:        "Aprovar resposta",
+			Type:         "approval",
+			Status:       core.TaskStatusPending,
+			DueAt:        &now,
+			DraftBlobRef: "tenant-d/drafts/t-appr.json",
+			Attempt:      1,
+			MaxAttempts:  3,
+			Metadata:     map[string]string{"intent": "schedule_check"},
+			CreatedAt:    now,
+		}
+		if err := s.SaveTask(ctx, task); err != nil {
+			t.Fatalf("SaveTask failed: %v", err)
+		}
+		gotTask, err := s.GetTask(ctx, "tenant-d", "simulator", "s1", "t-appr")
+		if err != nil {
+			t.Fatalf("GetTask failed: %v", err)
+		}
+		if gotTask.Kind != "approval" || gotTask.DraftBlobRef != task.DraftBlobRef || gotTask.Attempt != 1 || gotTask.Metadata["intent"] != "schedule_check" {
+			t.Fatalf("unexpected extended task: %+v", gotTask)
+		}
+		srcTasks, err := s.ListSourceTasks(ctx, "tenant-d", "simulator", "s1")
+		if err != nil || len(srcTasks) != 1 {
+			t.Fatalf("ListSourceTasks failed: len=%d err=%v", len(srcTasks), err)
+		}
+
+		ttl := now.Add(90 * 24 * time.Hour).Unix()
+		if err := s.SaveRun(ctx, core.Run{
+			ID:        "run-ttl",
+			TenantID:  "tenant-d",
+			Channel:   "simulator",
+			SourceKey: "s1",
+			MessageID: "m1",
+			Stage:     "analysis",
+			Status:    "ok",
+			TTL:       ttl,
+			CreatedAt: now,
+		}); err != nil {
+			t.Fatalf("SaveRun failed: %v", err)
+		}
+		runs, err := s.ListRuns(ctx, "tenant-d", "simulator", "s1", 10)
+		if err != nil || len(runs) != 1 || runs[0].TTL != ttl {
+			t.Fatalf("expected run with TTL=%d, got %+v err=%v", ttl, runs, err)
+		}
+
+		err = s.CommitAnalysis(ctx, core.CommitAnalysisInput{
+			TenantID:  "tenant-d",
+			Channel:   "simulator",
+			SourceKey: "s1",
+			Summary: core.Summary{
+				Text: strings.Repeat("x", core.MaxSafeItemBytes+10),
+			},
+		})
+		if !errors.Is(err, core.ErrItemTooLarge) {
+			t.Fatalf("expected ErrItemTooLarge, got %v", err)
 		}
 	})
 }
