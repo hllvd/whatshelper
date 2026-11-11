@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <title>Whatshelper — Simulador</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>Whatshelper Brain — Simulador</h1>
+    <nav aria-label="Navegação principal">
+      <ul class="nav-links">
+        <li><a href="/" aria-current="page">Chat Simulador</a></li>
+        <li><a href="/thinking">Pensando (Traces)</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <div class="layout-grid">
+    <aside class="panel" aria-label="Sessões do simulador">
+      <h2>Sessão</h2>
+      <div class="session-controls">
+        <label for="session-input">Source Key</label>
+        <input id="session-input" type="text" value="sim-user-1" autocomplete="off">
+        <button id="new-session-btn" type="button">Nova Sessão</button>
+      </div>
+      <h2>Conversas Recentes</h2>
+      <ul id="sources-list" class="source-list"></ul>
+    </aside>
+
+    <main class="panel chat-container">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;">
+        <h2 id="active-session-title">Conversa</h2>
+        <span id="sse-status" class="status-pill" aria-live="polite">Conectando SSE...</span>
+      </div>
+
+      <section id="chat-messages" class="chat-messages" aria-label="Mensagens da conversa" aria-live="polite"></section>
+
+      <form id="chat-form" class="chat-form">
+        <label for="chat-input" class="visually-hidden">Mensagem do cliente</label>
+        <textarea id="chat-input" placeholder="Digite sua mensagem como cliente (Enter para enviar, Shift+Enter para quebrar linha)..." required></textarea>
+        <button id="send-button" type="submit" class="primary">Enviar</button>
+      </form>
+    </main>
+  </div>
+
+  <script src="/static/sim.js"></script>
+</body>
+</html>

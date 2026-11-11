@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <title>Whatshelper — Pensando (Traces)</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>Whatshelper Brain — Pensando</h1>
+    <nav aria-label="Navegação principal">
+      <ul class="nav-links">
+        <li><a href="/">Chat Simulador</a></li>
+        <li><a href="/thinking" aria-current="page">Pensando (Traces)</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <div class="layout-grid">
+    <aside class="panel" aria-label="Conversas e estado atual">
+      <h2>Conversas</h2>
+      <ul id="sources-list" class="source-list"></ul>
+
+      <h2>Estado Atual</h2>
+      <div id="state-summary" style="font-size:0.86rem;"></div>
+      <table class="kv-table" aria-label="Fatos conhecidos">
+        <thead>
+          <tr><th>Fato</th><th>Valor</th></tr>
+        </thead>
+        <tbody id="state-facts"></tbody>
+      </table>
+      <table class="kv-table" aria-label="Sinais ativos">
+        <thead>
+          <tr><th>Sinal</th><th>Valor</th></tr>
+        </thead>
+        <tbody id="state-signals"></tbody>
+      </table>
+    </aside>
+
+    <main class="panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;">
+        <h2 id="thinking-title">Linha do Tempo de Execução</h2>
+        <span id="sse-status" class="status-pill" aria-live="polite">Conectando SSE...</span>
+      </div>
+
+      <section id="timeline" class="timeline" aria-label="Traces de pensamento do bot"></section>
+    </main>
+  </div>
+
+  <script src="/static/thinking.js"></script>
+</body>
+</html>

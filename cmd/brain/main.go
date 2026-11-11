@@ -5,10 +5,17 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
+	"whatshelper/internal/brain"
+	"whatshelper/internal/channels/simulator"
 	"whatshelper/internal/config"
+	"whatshelper/internal/core"
+	"whatshelper/internal/core/fakes"
+	"whatshelper/internal/llm/anthropic"
+	"whatshelper/internal/pack"
 	"whatshelper/internal/server"
 	"whatshelper/internal/store/dynamo"
 	"whatshelper/internal/store/s3blob"
@@ -39,9 +46,82 @@ func main() {
 		slog.String("bucket", cfg.S3Bucket),
 	)
 
-	srv := server.New(cfg, logger)
+	appCtx, appCancel := context.WithCancel(context.Background())
+	defer appCancel()
 
-	// Inicia servidor HTTP em background
+	clock := core.SystemClock{}
+
+	ddbClient, err := dynamo.NewClient(appCtx, cfg.DynamoDBEndpoint, cfg.S3Region, cfg.S3AccessKey, cfg.S3SecretKey)
+	if err != nil {
+		logger.Error("falha ao criar cliente DynamoDB", slog.Any("error", err))
+		os.Exit(1)
+	}
+	storeRepo := dynamo.NewStore(ddbClient, cfg.DynamoDBTable, clock)
+
+	s3Client, err := s3blob.NewClient(appCtx, cfg.S3Endpoint, cfg.S3Region, cfg.S3AccessKey, cfg.S3SecretKey)
+	if err != nil {
+		logger.Error("falha ao criar cliente S3", slog.Any("error", err))
+		os.Exit(1)
+	}
+	blobRepo := s3blob.NewStore(s3Client, cfg.S3Bucket)
+
+	llmClient, analysisModel, responseModel, err := buildLLM(cfg, clock)
+	if err != nil {
+		logger.Error("falha ao inicializar LLM", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	bus := core.NewInMemoryEventBus(128)
+	simCh := simulator.New(clock, 128)
+	if err := simCh.Start(appCtx); err != nil {
+		logger.Error("falha ao iniciar simulador", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	pipeline := brain.NewPipeline(appCtx, brain.PipelineConfig{
+		Store:               storeRepo,
+		Blobs:               blobRepo,
+		LLM:                 llmClient,
+		Bus:                 bus,
+		Clock:               clock,
+		Tenants:             brain.NewLocalTenantLoader(cfg.TenantsDir),
+		Knowledge:           brain.NewLocalKnowledgeSource(cfg.TenantsDir),
+		PackLoader:          func(name string) (*pack.Pack, error) { return pack.LoadFromDir(filepath.Join(cfg.PacksDir, name)) },
+		AnalysisModel:       analysisModel,
+		ResponseModel:       responseModel,
+		Debounce:            time.Duration(cfg.DebounceMs) * time.Millisecond,
+		RecentMessagesLimit: cfg.RecentMessagesLimit,
+		Logger:              logger,
+	})
+	pipeline.RegisterChannel(simCh)
+
+	// Consumidor das mensagens do simulador para ingestão no pipeline
+	go func() {
+		for {
+			select {
+			case <-appCtx.Done():
+				return
+			case msg, ok := <-simCh.Messages():
+				if !ok {
+					return
+				}
+				if err := pipeline.Ingest(appCtx, msg); err != nil {
+					logger.Error("erro ao ingerir mensagem do simulador",
+						slog.String("message_id", msg.MessageID),
+						slog.Any("error", err),
+					)
+				}
+			}
+		}
+	}()
+
+	srv := server.NewWithDeps(cfg, logger, server.Dependencies{
+		Store:     storeRepo,
+		Blobs:     blobRepo,
+		Bus:       bus,
+		Simulator: simCh,
+	})
+
 	serverErrCh := make(chan error, 1)
 	go func() {
 		if err := srv.Start(); err != nil {
@@ -49,7 +129,6 @@ func main() {
 		}
 	}()
 
-	// Captura sinais de terminação para graceful shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 
@@ -61,15 +140,38 @@ func main() {
 		os.Exit(1)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	appCancel()
+	_ = simCh.Stop(context.Background())
+	pipeline.Stop()
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := srv.Shutdown(ctx); err != nil {
+	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Error("erro ao encerrar servidor graciosamente", slog.Any("error", err))
 		os.Exit(1)
 	}
 
 	logger.Info("Whatshelper Brain finalizado com sucesso")
+}
+
+func buildLLM(cfg config.Config, clock core.Clock) (core.LLM, string, string, error) {
+	if cfg.LLMProvider == "anthropic" {
+		client, err := anthropic.New(cfg.AnthropicAPIKey, clock)
+		if err != nil {
+			return nil, "", "", err
+		}
+		return client, cfg.AnalysisModel, cfg.ResponseModel, nil
+	}
+	analysisModel := cfg.AnalysisModel
+	if analysisModel == "" {
+		analysisModel = "fake-analysis"
+	}
+	responseModel := cfg.ResponseModel
+	if responseModel == "" {
+		responseModel = "fake-response"
+	}
+	return fakes.NewOfflineDemoLLM(), analysisModel, responseModel, nil
 }
 
 func runStoreInit(cfg config.Config, logger *slog.Logger) error {

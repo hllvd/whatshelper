@@ -2,21 +2,42 @@ package server
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
+	"whatshelper/internal/channels/simulator"
 	"whatshelper/internal/config"
+	"whatshelper/internal/core"
 )
+
+//go:embed static/*
+var staticFS embed.FS
+
+// Dependencies agrupa as portas de domínio necessárias para a API HTTP e SSE.
+type Dependencies struct {
+	Store     core.Store
+	Blobs     core.BlobStore
+	Bus       core.EventBus
+	Simulator *simulator.Channel
+}
 
 // Server encapsula o servidor HTTP do Brain com logging estruturado e graceful shutdown.
 type Server struct {
 	httpServer *http.Server
 	logger     *slog.Logger
 	cfg        config.Config
+	deps       Dependencies
+	eventRing  *eventBuffer
+	ringSub    core.Subscription
+	stopCh     chan struct{}
+	stopOnce   sync.Once
 }
 
 type HealthResponse struct {
@@ -25,18 +46,44 @@ type HealthResponse struct {
 	Service   string    `json:"service"`
 }
 
-// New cria uma nova instância de Server configurada.
+// New cria uma instância básica de Server (usada quando apenas endpoints de saúde são necessários).
 func New(cfg config.Config, logger *slog.Logger) *Server {
+	return NewWithDeps(cfg, logger, Dependencies{})
+}
+
+// NewWithDeps cria uma instância completa de Server conectada ao Store, BlobStore, EventBus e Simulador.
+func NewWithDeps(cfg config.Config, logger *slog.Logger, deps Dependencies) *Server {
 	if logger == nil {
 		logger = InitLogger(cfg.LogLevel, cfg.LogFormat)
 	}
 
-	mux := http.NewServeMux()
 	s := &Server{
-		logger: logger,
-		cfg:    cfg,
+		logger:    logger,
+		cfg:       cfg,
+		deps:      deps,
+		eventRing: newEventBuffer(200),
+		stopCh:    make(chan struct{}),
 	}
 
+	if deps.Bus != nil {
+		sub := deps.Bus.Subscribe(core.EventFilter{})
+		s.ringSub = sub
+		go func() {
+			for {
+				select {
+				case <-s.stopCh:
+					return
+				case ev, ok := <-sub.Events():
+					if !ok {
+						return
+					}
+					s.eventRing.add(ev)
+				}
+			}
+		}()
+	}
+
+	mux := http.NewServeMux()
 	s.registerRoutes(mux)
 
 	s.httpServer = &http.Server{
@@ -53,6 +100,37 @@ func New(cfg config.Config, logger *slog.Logger) *Server {
 func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /readyz", s.handleReadyz)
+
+	// API HTTP (SRV-01)
+	mux.HandleFunc("POST /api/sim/messages", s.handlePostSimMessage)
+	mux.HandleFunc("GET /api/sources", s.handleListSources)
+	mux.HandleFunc("GET /api/sources/{channel}/{key}/state", s.handleGetSourceState)
+	mux.HandleFunc("GET /api/sources/{channel}/{key}/messages", s.handleGetSourceMessages)
+	mux.HandleFunc("GET /api/sources/{channel}/{key}/runs", s.handleGetSourceRuns)
+	mux.HandleFunc("GET /api/runs/{id}/trace", s.handleGetRunTrace)
+
+	// Stream de eventos SSE (SRV-02)
+	mux.HandleFunc("GET /api/events", s.handleEvents)
+
+	// UIs estáticas (SRV-03, SRV-04)
+	subFS, _ := fs.Sub(staticFS, "static")
+	fileServer := http.FileServer(http.FS(subFS))
+	mux.Handle("GET /static/", http.StripPrefix("/static/", fileServer))
+	mux.HandleFunc("GET /{$}", s.serveStaticFile(subFS, "index.html", "text/html; charset=utf-8"))
+	mux.HandleFunc("GET /thinking", s.serveStaticFile(subFS, "thinking.html", "text/html; charset=utf-8"))
+}
+
+func (s *Server) serveStaticFile(fsys fs.FS, name, contentType string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		data, err := fs.ReadFile(fsys, name)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", contentType)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(data)
+	}
 }
 
 // Handler retorna o http.Handler configurado (útil para testes unitários).
@@ -98,6 +176,12 @@ func (s *Server) Start() error {
 // Shutdown executa o encerramento gracioso do servidor.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.logger.Info("encerrando servidor graciosamente")
+	s.stopOnce.Do(func() {
+		close(s.stopCh)
+		if s.ringSub != nil {
+			s.ringSub.Cancel()
+		}
+	})
 	return s.httpServer.Shutdown(ctx)
 }
 

@@ -103,6 +103,11 @@ services:
       MODEL_RESPONSE: "${MODEL_RESPONSE:-}"
       MODEL_NUDGE: "${MODEL_NUDGE:-}"
       DEBOUNCE_MS: "${DEBOUNCE_MS:-1500}"
+      PACKS_DIR: "/app/packs"
+      TENANTS_DIR: "/app/tenants"
+    volumes:
+      - ./packs:/app/packs:ro
+      - ./tenants:/app/tenants:ro
 
 volumes:
   dynamodb_data:

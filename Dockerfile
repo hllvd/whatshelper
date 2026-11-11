@@ -28,6 +28,8 @@ RUN apk add --no-cache ca-certificates curl tzdata && \
 WORKDIR /app
 
 COPY --from=builder /bin/brain /app/brain
+COPY --from=builder /src/packs /app/packs
+COPY --from=builder /src/tenants /app/tenants
 
 USER brain
 
