@@ -590,4 +590,47 @@ func TestE2E_MultiPack_RealestateAndSupport(t *testing.T) {
 	if admGet.StatusCode != http.StatusOK || len(admBody.Messages) < 2 {
 		t.Fatalf("expected admin inbound+outbound messages, got status=%d body=%+v", admGet.StatusCode, admBody)
 	}
+
+	// Testa fluxo HTTP /api/learning/correct -> /api/learning/pending -> /api/learning/{id}/approve
+	corrResp, err := tsAdm.Client().Post(tsAdm.URL+"/api/learning/correct", "application/json",
+		strings.NewReader(`{"tenant_id":"demo-support","channel":"simulator","source_key":"u-sup","correction":"O SLA crítico é 1 hora."}`))
+	if err != nil || corrResp.StatusCode != http.StatusCreated {
+		t.Fatalf("POST /api/learning/correct failed: resp=%v err=%v", corrResp, err)
+	}
+	var createdProp brain.LearningProposal
+	_ = json.NewDecoder(corrResp.Body).Decode(&createdProp)
+	_ = corrResp.Body.Close()
+
+	pendLearnResp, err := tsAdm.Client().Get(tsAdm.URL + "/api/learning/pending?tenant=demo-support")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pendLearnBody struct {
+		Proposals []brain.LearningProposal `json:"proposals"`
+	}
+	_ = json.NewDecoder(pendLearnResp.Body).Decode(&pendLearnBody)
+	_ = pendLearnResp.Body.Close()
+	if len(pendLearnBody.Proposals) != 1 || pendLearnBody.Proposals[0].ID != createdProp.ID {
+		t.Fatalf("expected 1 pending learning proposal, got %+v", pendLearnBody.Proposals)
+	}
+
+	apprLearnResp, err := tsAdm.Client().Post(tsAdm.URL+"/api/learning/"+createdProp.ID+"/approve", "application/json",
+		strings.NewReader(`{"tenant_id":"demo-support","resume_customer":false}`))
+	if err != nil || apprLearnResp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/learning/%s/approve failed: resp=%v err=%v", createdProp.ID, apprLearnResp, err)
+	}
+	_ = apprLearnResp.Body.Close()
+
+	qaResp, err := tsAdm.Client().Get(tsAdm.URL + "/api/knowledge/QA.md?tenant=demo-support")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var qaDoc struct {
+		Content string `json:"content"`
+	}
+	_ = json.NewDecoder(qaResp.Body).Decode(&qaDoc)
+	_ = qaResp.Body.Close()
+	if !strings.Contains(qaDoc.Content, "1 hora") {
+		t.Fatalf("expected approved correction in QA.md, got %q", qaDoc.Content)
+	}
 }

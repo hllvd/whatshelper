@@ -67,6 +67,7 @@ type PipelineConfig struct {
 	AnalysisModel       string
 	ResponseModel       string
 	NudgeModel          string
+	LearningModel       string
 	Debounce            time.Duration
 	AfterFunc           AfterFunc
 	RecentMessagesLimit int

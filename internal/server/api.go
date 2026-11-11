@@ -790,6 +790,104 @@ func (s *Server) handlePostReplay(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, res)
 }
 
+func (s *Server) handleListPendingLearning(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Pipeline == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "pipeline não configurado")
+		return
+	}
+	tenant := strings.TrimSpace(r.URL.Query().Get("tenant"))
+	if tenant == "" {
+		tenant = "demo"
+	}
+	proposals, err := s.deps.Pipeline.ListPendingLearningProposals(r.Context(), tenant)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"tenant":    tenant,
+		"proposals": proposals,
+	})
+}
+
+func (s *Server) handleApproveLearning(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Pipeline == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "pipeline não configurado")
+		return
+	}
+	var req brain.ApproveLearningRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		writeJSONError(w, http.StatusBadRequest, "JSON inválido")
+		return
+	}
+	req.ProposalID = r.PathValue("id")
+	if strings.TrimSpace(req.TenantID) == "" {
+		req.TenantID = strings.TrimSpace(r.URL.Query().Get("tenant"))
+	}
+	if strings.TrimSpace(req.TenantID) == "" {
+		req.TenantID = "demo"
+	}
+	prop, err := s.deps.Pipeline.ApproveLearningProposal(r.Context(), req)
+	if err != nil {
+		if errors.Is(err, brain.ErrProposalNotFound) {
+			writeJSONError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, prop)
+}
+
+func (s *Server) handleRejectLearning(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Pipeline == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "pipeline não configurado")
+		return
+	}
+	var body struct {
+		TenantID string `json:"tenant_id"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		writeJSONError(w, http.StatusBadRequest, "JSON inválido")
+		return
+	}
+	tenant := strings.TrimSpace(body.TenantID)
+	if tenant == "" {
+		tenant = strings.TrimSpace(r.URL.Query().Get("tenant"))
+	}
+	if tenant == "" {
+		tenant = "demo"
+	}
+	prop, err := s.deps.Pipeline.RejectLearningProposal(r.Context(), tenant, r.PathValue("id"))
+	if err != nil {
+		if errors.Is(err, brain.ErrProposalNotFound) {
+			writeJSONError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, prop)
+}
+
+func (s *Server) handleCorrectLearning(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Pipeline == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "pipeline não configurado")
+		return
+	}
+	var req brain.CorrectReplyRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "JSON inválido")
+		return
+	}
+	prop, err := s.deps.Pipeline.ProposeLearningCorrection(r.Context(), req)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, prop)
+}
+
 func parseIntQuery(r *http.Request, name string, fallback int) int {
 	raw := strings.TrimSpace(r.URL.Query().Get(name))
 	if raw == "" {

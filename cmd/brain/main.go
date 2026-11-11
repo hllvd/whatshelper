@@ -107,6 +107,7 @@ func main() {
 		AnalysisModel:       analysisModel,
 		ResponseModel:       responseModel,
 		NudgeModel:          nudgeModel,
+		LearningModel:       cfg.LearningModel,
 		Debounce:            time.Duration(cfg.DebounceMs) * time.Millisecond,
 		RecentMessagesLimit: cfg.RecentMessagesLimit,
 		RunRetentionDays:    cfg.RunRetentionDays,

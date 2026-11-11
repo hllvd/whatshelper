@@ -31,6 +31,7 @@ type Config struct {
 	AnalysisModel       string
 	ResponseModel       string
 	NudgeModel          string
+	LearningModel       string
 	DebounceMs          int
 	RecentMessagesLimit int
 	RunRetentionDays    int
@@ -79,6 +80,7 @@ func LoadFromEnv() Config {
 		AnalysisModel:       strings.TrimSpace(os.Getenv("MODEL_ANALYSIS")),
 		ResponseModel:       strings.TrimSpace(os.Getenv("MODEL_RESPONSE")),
 		NudgeModel:          strings.TrimSpace(os.Getenv("MODEL_NUDGE")),
+		LearningModel:       strings.TrimSpace(os.Getenv("MODEL_LEARNING")),
 		DebounceMs:          getEnvInt("DEBOUNCE_MS", 1500),
 		RecentMessagesLimit: getEnvInt("RECENT_MESSAGES_LIMIT", 20),
 		RunRetentionDays:    getEnvInt("RUN_RETENTION_DAYS", 90),

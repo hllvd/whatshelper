@@ -101,7 +101,7 @@ func parseAdminTarget(target string, cmd *AdminCommand) {
 	cmd.SourceKey = strings.TrimSpace(target)
 }
 
-// HandleAdminInbound processa mensagens recebidas pelo canal admin sem passar pelo pipeline de atendimento ao cliente.
+// HandleAdminInbound processa comandos e correções recebidas pelo canal admin (CH-08, LRN-02, LRN-03, LRN-06).
 func (p *Pipeline) HandleAdminInbound(ctx context.Context, msg core.NormalizedMessage) error {
 	cmd := ParseAdminCommand(msg.Text)
 	p.logger.Info("mensagem recebida no canal admin",
@@ -109,7 +109,48 @@ func (p *Pipeline) HandleAdminInbound(ctx context.Context, msg core.NormalizedMe
 		"source_key", msg.SourceKey,
 		"command", string(cmd.Type),
 	)
-	return p.deliverAdminMessage(ctx, msg.TenantID, msg.SourceKey, fmt.Sprintf("Comando recebido (%s). Processamento de aprendizado ativo.", cmd.Type))
+
+	switch cmd.Type {
+	case AdminCmdApprove:
+		prop, err := p.ApproveLearningProposal(ctx, ApproveLearningRequest{
+			TenantID:       msg.TenantID,
+			ProposalID:     cmd.ProposalID,
+			Answer:         cmd.Correction,
+			ResumeCustomer: true,
+		})
+		if err != nil {
+			return p.deliverAdminMessage(ctx, msg.TenantID, msg.SourceKey, fmt.Sprintf("Não foi possível aprovar: %v", err))
+		}
+		note := fmt.Sprintf("Aprendizado %s gravado em QA.md (%s).", prop.ID, prop.MergeOutcome)
+		if prop.ResumedReply != "" {
+			note += fmt.Sprintf(" Cliente %s:%s respondido.", prop.OriginChannel, prop.OriginSourceKey)
+		}
+		return p.deliverAdminMessage(ctx, msg.TenantID, msg.SourceKey, note)
+
+	case AdminCmdReject:
+		prop, err := p.RejectLearningProposal(ctx, msg.TenantID, cmd.ProposalID)
+		if err != nil {
+			return p.deliverAdminMessage(ctx, msg.TenantID, msg.SourceKey, fmt.Sprintf("Não foi possível rejeitar: %v", err))
+		}
+		return p.deliverAdminMessage(ctx, msg.TenantID, msg.SourceKey, fmt.Sprintf("Proposta %s rejeitada e descartada.", prop.ID))
+
+	case AdminCmdCorrect:
+		if _, err := p.ProposeLearningCorrection(ctx, CorrectReplyRequest{
+			TenantID:   msg.TenantID,
+			Channel:    cmd.Channel,
+			SourceKey:  cmd.SourceKey,
+			Correction: cmd.Correction,
+		}); err != nil {
+			return p.deliverAdminMessage(ctx, msg.TenantID, msg.SourceKey, fmt.Sprintf("Uso: /corrigir <canal:source_key> | <correção>. Erro: %v", err))
+		}
+		return nil
+
+	default:
+		if _, err := p.ProposeLearningFromEscalation(ctx, msg.TenantID, "", cmd.Correction); err != nil {
+			return p.deliverAdminMessage(ctx, msg.TenantID, msg.SourceKey, fmt.Sprintf("Nenhum escalonamento pendente (%v). Use /corrigir <canal:source_key> | <correção>.", err))
+		}
+		return nil
+	}
 }
 
 func (p *Pipeline) deliverAdminMessage(ctx context.Context, tenantID, sourceKey, text string) error {

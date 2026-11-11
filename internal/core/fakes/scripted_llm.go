@@ -149,6 +149,29 @@ func NewOfflineDemoLLM() *ScriptedLLM {
 				DurationMs:       22,
 			}, nil
 
+		case "learning":
+			q := extractPromptLine(req.Prompt, "PERGUNTA DO CLIENTE:")
+			a := extractPromptLine(req.Prompt, "CORREÇÃO DO DONO:")
+			if q == "" {
+				q = "Dúvida geral do cliente"
+			}
+			if a == "" {
+				a = "Resposta corrigida pelo operador."
+			}
+			payload := map[string]any{
+				"question":        q,
+				"answer":          a,
+				"action":          "add",
+				"target_question": "",
+			}
+			raw, _ := json.Marshal(payload)
+			return &core.LLMResponse{
+				Content:          string(raw),
+				PromptTokens:     90,
+				CompletionTokens: 35,
+				DurationMs:       15,
+			}, nil
+
 		default:
 			return &core.LLMResponse{
 				Content:          "Olá! Tudo bem? Passando para saber se ainda posso ajudar.",
@@ -294,4 +317,14 @@ func extractDocNames(systemPrompt string) []string {
 		}
 	}
 	return docs
+}
+
+func extractPromptLine(prompt, prefix string) string {
+	for _, line := range strings.Split(prompt, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(trimmed, prefix))
+		}
+	}
+	return ""
 }
