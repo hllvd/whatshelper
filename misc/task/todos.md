@@ -65,12 +65,12 @@ A ordem de execução está nos milestones M0 → M5, no final do arquivo.
 
 ## LRN — Aprendizado (QA.md)
 
-- [ ] **LRN-01 — Escalonamento ao dono.** Enviar a pergunta sem resposta ao canal de admin, com o contexto da conversa.
-- [ ] **LRN-02 — Captura da correção.** A resposta do dono vira uma entrada pergunta/resposta proposta pelo LLM.
-- [ ] **LRN-03 — Aprovação.** O dono confirma ou edita antes de gravar. Se rejeitar, descarta.
-- [ ] **LRN-04 — Gravação em `QA.md`.** Formato estável, dedupe e merge de entradas parecidas, versionamento (S3 versioning ou git).
-- [ ] **LRN-05 — Hot reload e retomada.** Recarregar o conhecimento após gravar e, opcionalmente, responder ao cliente que ficou esperando.
-- [ ] **LRN-06 — Correção de resposta já enviada.** Comando do admin (ex.: `/corrigir`) para apontar uma resposta errada e gerar o aprendizado.
+- [x] **LRN-01 — Escalonamento ao dono.** Enviar a pergunta sem resposta ao canal de admin, com o contexto da conversa.
+- [x] **LRN-02 — Captura da correção.** A resposta do dono vira uma entrada pergunta/resposta proposta pelo LLM.
+- [x] **LRN-03 — Aprovação.** O dono confirma ou edita antes de gravar. Se rejeitar, descarta.
+- [x] **LRN-04 — Gravação em `QA.md`.** Formato estável, dedupe e merge de entradas parecidas, versionamento (S3 versioning ou git).
+- [x] **LRN-05 — Hot reload e retomada.** Recarregar o conhecimento após gravar e, opcionalmente, responder ao cliente que ficou esperando.
+- [x] **LRN-06 — Correção de resposta já enviada.** Comando do admin (ex.: `/corrigir`) para apontar uma resposta errada e gerar o aprendizado.
 
 ## CH — Canais (mensageria)
 
@@ -81,7 +81,7 @@ A ordem de execução está nos milestones M0 → M5, no final do arquivo.
 - [ ] **CH-05 — Envio humanizado.** Atraso variável, indicador de digitando, fila por conversa e rate limit.
 - [ ] **CH-06 — Mídia.** Áudio com transcrição via provider; imagem e documento salvos no S3 e referenciados. Pode ficar para depois do texto.
 - [ ] **CH-07 — Canal email (esqueleto).** Só o suficiente para validar o modelo de múltiplas fontes com chaves diferentes.
-- [ ] **CH-08 — Canal admin.** Conversa separada usada para escalonamento e comandos do dono.
+- [x] **CH-08 — Canal admin.** Conversa separada usada para escalonamento e comandos do dono.
 - [ ] **CH-09 — Canal API oficial (futuro).** Deixar documentado como a Cloud API da Meta entraria como outro `Channel`. Não implementar agora.
 
 ## SRV — Servidor local e visualizador

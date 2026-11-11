@@ -68,6 +68,24 @@
         <h3>Histórico de Versões</h3>
         <div id="versions-list"></div>
       </section>
+
+      <section aria-label="Propostas de Aprendizado Pendentes (QA.md)">
+        <div class="toolbar-row" style="justify-content:space-between;">
+          <h3>Propostas de Aprendizado Pendentes</h3>
+          <button id="refresh-learning-btn" type="button" class="btn-sm">Atualizar</button>
+        </div>
+        <div id="learning-proposals" style="display:flex;flex-direction:column;gap:0.6rem;margin-top:0.5rem;"></div>
+      </section>
+
+      <section aria-label="Canal Admin (Escalonamentos e Comandos)">
+        <h3>Canal Admin</h3>
+        <div id="admin-messages" style="display:flex;flex-direction:column;gap:0.4rem;max-height:220px;overflow-y:auto;padding:0.5rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);"></div>
+        <form id="admin-form" class="toolbar-row" style="margin-top:0.5rem;">
+          <label for="admin-input" class="visually-hidden">Mensagem ou comando admin</label>
+          <input id="admin-input" type="text" style="flex:1;" placeholder="Responda um escalonamento ou envie /aprovar, /rejeitar, /corrigir source | texto">
+          <button type="submit" class="btn-sm primary">Enviar ao Admin</button>
+        </form>
+      </section>
     </main>
   </div>
 

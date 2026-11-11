@@ -49,7 +49,7 @@ Isso iniciará:
 Com o ambiente rodando:
 - **Chat Simulador**: [http://localhost:8080/](http://localhost:8080/) — envie mensagens como cliente (escolha tenant `demo` ou `demo-support`), pause/assuma/reative conversas e aprove ou conclua tarefas pendentes.
 - **Tela "Pensando"**: [http://localhost:8080/thinking](http://localhost:8080/thinking) — acompanhe em tempo real (SSE) prompts, resposta crua, JSON parseado, diff de fatos, decisão do roteador, latência e tokens.
-- **Tela "Conhecimento & Política"**: [http://localhost:8080/knowledge](http://localhost:8080/knowledge) — edite arquivos `knowledge/*.md` e `QA.md` no MinIO, navegue/restaure versões históricas S3 e ajuste políticas (`bot_enabled`, `mode`, `proactive_enabled`).
+- **Tela "Conhecimento & Política"**: [http://localhost:8080/knowledge](http://localhost:8080/knowledge) — edite arquivos `knowledge/*.md` e `QA.md`, navegue/restaure versões históricas S3, ajuste políticas (`bot_enabled`, `mode`, `proactive_enabled`), aprove/rejeite propostas de aprendizado e interaja com o Canal Admin (`/aprovar`, `/rejeitar`, `/corrigir`).
 
 ### Smoke Test Manual (API)
 ```bash
@@ -132,3 +132,4 @@ make build
   - [ADR 0013: Grounding Determinístico e AdminNotifier](docs/adr/0013-grounding-e-notificacao-admin.md)
   - [ADR 0014: Nudges Reutilizam TASK# e GSI2](docs/adr/0014-nudge-como-task-gsi2.md)
   - [ADR 0015: Políticas, Conhecimento em MinIO e Bind Seguro](docs/adr/0015-politicas-seguranca-e-bind-local.md)
+  - [ADR 0016: Canal Admin e Aprendizado Contínuo em QA.md](docs/adr/0016-canal-admin-e-aprendizado-qa.md)

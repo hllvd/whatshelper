@@ -10,6 +10,12 @@
   const saveStatus = document.getElementById('save-status');
   const versionsList = document.getElementById('versions-list');
 
+  const learningProposalsEl = document.getElementById('learning-proposals');
+  const refreshLearningBtn = document.getElementById('refresh-learning-btn');
+  const adminMessagesEl = document.getElementById('admin-messages');
+  const adminForm = document.getElementById('admin-form');
+  const adminInput = document.getElementById('admin-input');
+
   const policyForm = document.getElementById('policy-form');
   const policyBotEnabled = document.getElementById('policy-bot-enabled');
   const policyProactive = document.getElementById('policy-proactive');
@@ -106,6 +112,132 @@
     policyMode.value = cachedPolicy.mode || 'auto';
   }
 
+  async function loadLearningProposals() {
+    if (!learningProposalsEl) return;
+    const res = await fetch(`/api/learning/pending?tenant=${encodeURIComponent(activeTenant)}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const proposals = data.proposals || [];
+    learningProposalsEl.textContent = '';
+
+    if (proposals.length === 0) {
+      const p = document.createElement('p');
+      p.style.fontSize = '0.82rem';
+      p.textContent = 'Nenhuma proposta de aprendizado pendente.';
+      learningProposalsEl.appendChild(p);
+      return;
+    }
+
+    for (const prop of proposals) {
+      const card = document.createElement('div');
+      card.className = 'task-card';
+
+      const meta = document.createElement('div');
+      meta.style.fontWeight = '600';
+      meta.textContent = `[${prop.id}] Origem: ${prop.origin_channel || '-'}:${prop.origin_source_key || '-'} (${prop.action})`;
+      card.appendChild(meta);
+
+      const qInput = document.createElement('input');
+      qInput.type = 'text';
+      qInput.value = prop.question || '';
+      qInput.setAttribute('aria-label', 'Pergunta proposta');
+      card.appendChild(qInput);
+
+      const aInput = document.createElement('textarea');
+      aInput.rows = 3;
+      aInput.value = prop.answer || '';
+      aInput.setAttribute('aria-label', 'Resposta proposta');
+      card.appendChild(aInput);
+
+      const resumeLabel = document.createElement('label');
+      resumeLabel.style.fontSize = '0.8rem';
+      const resumeCheck = document.createElement('input');
+      resumeCheck.type = 'checkbox';
+      resumeCheck.checked = !!(prop.origin_channel && prop.origin_source_key);
+      resumeLabel.appendChild(resumeCheck);
+      resumeLabel.appendChild(document.createTextNode(' Retomar e responder cliente após gravar'));
+      card.appendChild(resumeLabel);
+
+      const row = document.createElement('div');
+      row.className = 'toolbar-row';
+
+      const approveBtn = document.createElement('button');
+      approveBtn.type = 'button';
+      approveBtn.className = 'btn-sm primary';
+      approveBtn.textContent = 'Aprovar & Gravar QA.md';
+      approveBtn.addEventListener('click', async () => {
+        const resp = await fetch(`/api/learning/${encodeURIComponent(prop.id)}/approve`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tenant_id: activeTenant,
+            question: qInput.value,
+            answer: aInput.value,
+            resume_customer: resumeCheck.checked,
+          }),
+        });
+        if (resp.ok) {
+          await loadLearningProposals();
+          await loadAdminMessages();
+          if (activeFile.toLowerCase() === 'qa.md') {
+            await selectFile(activeFile);
+          } else {
+            await loadFiles();
+          }
+        }
+      });
+
+      const rejectBtn = document.createElement('button');
+      rejectBtn.type = 'button';
+      rejectBtn.className = 'btn-sm';
+      rejectBtn.textContent = 'Rejeitar';
+      rejectBtn.addEventListener('click', async () => {
+        const resp = await fetch(`/api/learning/${encodeURIComponent(prop.id)}/reject`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tenant_id: activeTenant }),
+        });
+        if (resp.ok) {
+          await loadLearningProposals();
+        }
+      });
+
+      row.appendChild(approveBtn);
+      row.appendChild(rejectBtn);
+      card.appendChild(row);
+      learningProposalsEl.appendChild(card);
+    }
+  }
+
+  async function loadAdminMessages() {
+    if (!adminMessagesEl) return;
+    const res = await fetch(`/api/admin/messages?tenant=${encodeURIComponent(activeTenant)}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    adminMessagesEl.textContent = '';
+    const msgs = data.messages || [];
+    if (msgs.length === 0) {
+      const p = document.createElement('p');
+      p.style.fontSize = '0.8rem';
+      p.textContent = 'Nenhuma mensagem no canal admin.';
+      adminMessagesEl.appendChild(p);
+      return;
+    }
+    for (const m of msgs) {
+      const row = document.createElement('div');
+      row.className = 'task-card';
+      const head = document.createElement('strong');
+      head.textContent = m.direction === 'inbound' ? 'Dono' : 'Brain';
+      row.appendChild(head);
+      const body = document.createElement('pre');
+      body.style.whiteSpace = 'pre-wrap';
+      body.textContent = m.text || '';
+      row.appendChild(body);
+      adminMessagesEl.appendChild(row);
+    }
+    adminMessagesEl.scrollTop = adminMessagesEl.scrollHeight;
+  }
+
   saveFileBtn.addEventListener('click', async () => {
     if (!activeFile) return;
     saveStatus.textContent = 'Salvando...';
@@ -157,13 +289,44 @@
     }
   });
 
+  if (refreshLearningBtn) {
+    refreshLearningBtn.addEventListener('click', () => {
+      loadLearningProposals();
+      loadAdminMessages();
+    });
+  }
+
+  if (adminForm) {
+    adminForm.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const text = adminInput.value.trim();
+      if (!text) return;
+      const res = await fetch('/api/admin/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenant_id: activeTenant, text }),
+      });
+      if (res.ok) {
+        adminInput.value = '';
+        setTimeout(() => {
+          loadAdminMessages();
+          loadLearningProposals();
+        }, 300);
+      }
+    });
+  }
+
   reloadBtn.addEventListener('click', () => {
     activeTenant = tenantInput.value.trim() || 'demo';
     activeFile = '';
     loadFiles();
     loadPolicy();
+    loadLearningProposals();
+    loadAdminMessages();
   });
 
   loadFiles();
   loadPolicy();
+  loadLearningProposals();
+  loadAdminMessages();
 })();

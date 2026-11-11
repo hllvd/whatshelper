@@ -17,7 +17,7 @@
   let activeSource = sessionInput.value.trim() || 'sim-user-1';
   let sse = null;
 
-  function renderBubble(direction, text, ts) {
+  function renderBubble(direction, text, ts, messageId) {
     const el = document.createElement('article');
     el.className = 'bubble ' + (direction === 'inbound' ? 'inbound' : 'outbound');
 
@@ -31,6 +31,33 @@
     const timeStr = ts ? new Date(ts).toLocaleTimeString('pt-BR') : '';
     meta.textContent = label + (timeStr ? ' · ' + timeStr : '');
     el.appendChild(meta);
+
+    if (direction === 'outbound') {
+      const corrBtn = document.createElement('button');
+      corrBtn.type = 'button';
+      corrBtn.className = 'btn-sm';
+      corrBtn.style.marginTop = '0.35rem';
+      corrBtn.textContent = 'Corrigir resposta';
+      corrBtn.addEventListener('click', async () => {
+        const correction = window.prompt('Qual deveria ser a resposta correta? (será gerada proposta para QA.md)');
+        if (!correction || !correction.trim()) return;
+        const resp = await fetch('/api/learning/correct', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tenant_id: activeTenant,
+            channel: CHANNEL,
+            source_key: activeSource,
+            message_id: messageId || '',
+            correction: correction.trim(),
+          }),
+        });
+        if (resp.ok) {
+          sseStatus.textContent = 'Proposta de aprendizado criada (/knowledge)';
+        }
+      });
+      el.appendChild(corrBtn);
+    }
 
     chatMessages.appendChild(el);
     chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -47,7 +74,7 @@
       if (msgRes.ok) {
         const data = await msgRes.json();
         for (const m of (data.messages || [])) {
-          renderBubble(m.direction, m.text, m.timestamp);
+          renderBubble(m.direction, m.text, m.timestamp, m.message_id);
         }
       }
       if (stateRes.ok) {
@@ -192,7 +219,7 @@
 
     sse.addEventListener('reply.sent', (ev) => {
       const data = JSON.parse(ev.data);
-      renderBubble('outbound', (data.payload && data.payload.text) || '', data.at);
+      renderBubble('outbound', (data.payload && data.payload.text) || '', data.at, data.message_id || '');
       sseStatus.textContent = 'SSE conectado';
     });
 
