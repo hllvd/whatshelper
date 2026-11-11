@@ -38,22 +38,23 @@ Dentro dessa partição, os registros são diferenciados pela **Sort Key (SK)**:
 - `TASK#<task_id>`: Tarefas operacionais derivadas da conversa (ex: agendar visita, enviar proposta).
 - `RUN#<timestamp_iso8601>#<run_id>`: Metadados resumidos de execução do pipeline (tokens, latência, estágio).
 
-### 2.3 Estrutura de Configuração do Tenant
+### 2.3 Estrutura de Configuração e Índice de Fontes do Tenant
 - **PK**: `T#<tenant>`
 - **SK**: `CONFIG#<nome>` (ex: `CONFIG#general`, `CONFIG#operating_hours`, `CONFIG#pack`)
+- **SK**: `SRC#<canal>#<source_key>` (índice esparso para listar conversas ativas do tenant sem `Scan`; ver ADR 0008)
 
 ### 2.4 Índices Secundários Globais (GSIs)
 
 #### GSI1 — Identidade e Vínculo Multicanal do Contato
 Permite consultar todas as fontes/conversas pertencentes a um mesmo contato unificado (`contact_id`), sem realizar merge físico de partições.
-- **GSI1PK**: `T#<tenant>#CONTACT#<contact_id>`
+- **GSI1PK**: `T#<tenant>#CONTACT#<contact_id>` *(índice esparso: atributo omitido quando `contact_id` está vazio; ver ADR 0008)*
 - **GSI1SK**: `SRC#<canal>#<source_key>`
-- Itens projetados: `META` das fontes e itens de ligação dedicados.
+- Itens projetados: `META` das fontes (quando possuem `contact_id`) e itens de ligação dedicados.
 
 #### GSI2 — Fila de Trabalho Vencido (Tasks e Nudges)
 Permite ao agendador do brain consultar rapidamente tarefas ou nudges pendentes que atingiram seu momento de execução (`due_at <= now`).
 - **GSI2PK**: `T#<tenant>#DUE`
-- **GSI2SK**: `<due_at_iso8601>#<source_key>`
+- **GSI2SK**: `<due_at_iso8601>#<canal>#<source_key>`
 - Itens presentes no GSI2 possuem atributos `GSI2PK` e `GSI2SK` definidos apenas enquanto estão com status `pending`.
 
 ---
@@ -74,8 +75,9 @@ Permite ao agendador do brain consultar rapidamente tarefas ou nudges pendentes 
 | **AP-10** | Obter todas as fontes vinculadas a um contato (`contact_id`) | DynamoDB | `Query` em `GSI1` | `GSI1PK = T#<tenant>#CONTACT#<contact_id>` |
 | **AP-11** | Associar fonte existente a um `contact_id` | DynamoDB | `TransactWriteItems` (atualiza META e cria item de link) | `PK = T#<tenant>#S#<canal>#<source_key>`, `SK = META` + Link `PK = T#<tenant>#CONTACT#<contact_id>`, `SK = SRC#<canal>#<source_key>` |
 | **AP-12** | Ler configurações do tenant | DynamoDB | `GetItem` ou `Query` | `PK = T#<tenant>`, `SK = CONFIG#<nome>` |
-| **AP-13** | Gravar trace de execução do LLM | S3 + DynamoDB | `PutObject` no S3 (trace completo) + `PutItem` no DynamoDB (`RUN#<ts>#<id>`) | S3: `<tenant>/traces/<canal>/<source_key>/<run_id>.json` |
+| **AP-13** | Gravar e listar traces de execução do LLM | S3 + DynamoDB | `PutObject` no S3 + `PutItem`/`Query` no DynamoDB (`RUN#<ts>#<id>`) | S3: `<tenant>/traces/<canal>/<source_key>/<run_id>.json` |
 | **AP-14** | Ler e gerenciar arquivos de conhecimento | S3 | `GetObject` / `PutObject` / `ListObjectsV2` | `<tenant>/knowledge/*.md` e `<tenant>/knowledge/QA.md` com S3 Versioning |
+| **AP-15** | Listar conversas/fontes ativas de um tenant | DynamoDB | `Query` com `SK begins_with SRC#` | `PK = T#<tenant>` |
 
 ---
 
@@ -86,13 +88,12 @@ O bucket S3 único (ou configurável por tenant) adota o seguinte particionament
 ```
 s3://<bucket-name>/
 ├── <tenant>/
-│   ├── raw/
-│   │   └── <canal>/
-│   │       └── <source_key>/
-│   │           └── <yyyy>/
-│   │               └── <mm>/
-│   │                   └── <dd>/
-│   │                       └── <timestamp>_<message_id>.json
+│   ├── <canal>/
+│   │   └── <source_key>/
+│   │       └── <yyyy>/
+│   │           └── <mm>/
+│   │               └── <dd>/
+│   │                   └── <ts>_<message_id>.json
 │   ├── media/
 │   │   └── <canal>/
 │   │       └── <source_key>/
