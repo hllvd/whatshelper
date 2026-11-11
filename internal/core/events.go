@@ -21,9 +21,11 @@ const (
 	EventReplySent         EventType = "reply.sent"
 	EventPipelineFailed    EventType = "pipeline.failed"
 
-	// Reservados / M2:
+	// Reservados / M2-M3:
 	EventEscalated           EventType = "escalation.triggered"
 	EventLearned             EventType = "learning.recorded"
+	EventLearningProposed    EventType = "learning.proposed"
+	EventAdminMessage        EventType = "admin.message"
 	EventSourceStatusUpdated EventType = "source.status_updated"
 	EventRunSkipped          EventType = "run.skipped"
 	EventTaskCreated         EventType = "task.created"

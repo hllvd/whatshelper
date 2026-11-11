@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"whatshelper/internal/brain"
+	"whatshelper/internal/channels/admin"
 	"whatshelper/internal/channels/simulator"
 	"whatshelper/internal/config"
 	"whatshelper/internal/core"
@@ -86,6 +87,11 @@ func main() {
 		logger.Error("falha ao iniciar simulador", slog.Any("error", err))
 		os.Exit(1)
 	}
+	adminCh := admin.New(clock, 128)
+	if err := adminCh.Start(appCtx); err != nil {
+		logger.Error("falha ao iniciar canal admin", slog.Any("error", err))
+		os.Exit(1)
+	}
 
 	knowledgeSrc := brain.NewBlobKnowledgeSource(blobRepo, clock, 5*time.Second)
 
@@ -107,37 +113,22 @@ func main() {
 		Logger:              logger,
 	})
 	pipeline.RegisterChannel(simCh)
+	pipeline.RegisterChannel(adminCh)
 	pipeline.StartNudgeWorker(appCtx, 30*time.Second, func() []string {
 		return discoverLocalTenants(cfg.TenantsDir)
 	})
 
-	// Consumidor das mensagens do simulador para ingestão no pipeline
-	go func() {
-		for {
-			select {
-			case <-appCtx.Done():
-				return
-			case msg, ok := <-simCh.Messages():
-				if !ok {
-					return
-				}
-				if err := pipeline.Ingest(appCtx, msg); err != nil {
-					logger.Error("erro ao ingerir mensagem do simulador",
-						slog.String("message_id", msg.MessageID),
-						slog.Any("error", err),
-					)
-				}
-			}
-		}
-	}()
+	go consumeChannel(appCtx, simCh, pipeline, logger)
+	go consumeChannel(appCtx, adminCh, pipeline, logger)
 
 	srv := server.NewWithDeps(cfg, logger, server.Dependencies{
-		Store:     storeRepo,
-		Blobs:     blobRepo,
-		Bus:       bus,
-		Simulator: simCh,
-		Pipeline:  pipeline,
-		Knowledge: knowledgeSrc,
+		Store:        storeRepo,
+		Blobs:        blobRepo,
+		Bus:          bus,
+		Simulator:    simCh,
+		AdminChannel: adminCh,
+		Pipeline:     pipeline,
+		Knowledge:    knowledgeSrc,
 	})
 
 	serverErrCh := make(chan error, 1)
@@ -160,6 +151,7 @@ func main() {
 
 	appCancel()
 	_ = simCh.Stop(context.Background())
+	_ = adminCh.Stop(context.Background())
 	pipeline.Stop()
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -171,6 +163,26 @@ func main() {
 	}
 
 	logger.Info("Whatshelper Brain finalizado com sucesso")
+}
+
+func consumeChannel(ctx context.Context, ch core.Channel, pipeline *brain.Pipeline, logger *slog.Logger) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case msg, ok := <-ch.Messages():
+			if !ok {
+				return
+			}
+			if err := pipeline.Ingest(ctx, msg); err != nil {
+				logger.Error("erro ao ingerir mensagem do canal",
+					slog.String("channel", ch.ID()),
+					slog.String("message_id", msg.MessageID),
+					slog.Any("error", err),
+				)
+			}
+		}
+	}
 }
 
 func buildLLM(cfg config.Config, clock core.Clock) (core.LLM, string, string, string, error) {

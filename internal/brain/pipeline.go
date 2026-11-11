@@ -101,9 +101,6 @@ func NewPipeline(ctx context.Context, cfg PipelineConfig) *Pipeline {
 		logger = slog.Default()
 	}
 	notifier := cfg.Notifier
-	if notifier == nil {
-		notifier = NewDefaultAdminNotifier(cfg.Store, cfg.Bus, logger)
-	}
 
 	p := &Pipeline{
 		cfg:      cfg,
@@ -111,6 +108,9 @@ func NewPipeline(ctx context.Context, cfg PipelineConfig) *Pipeline {
 		notifier: notifier,
 		channels: make(map[string]core.Channel),
 		logger:   logger,
+	}
+	if p.notifier == nil {
+		p.notifier = NewDefaultAdminNotifier(cfg.Store, cfg.Bus, logger).WithAdminDelivery(cfg.Blobs, p.getChannel)
 	}
 	p.dispatcher = NewSourceDispatcher(ctx, cfg.Debounce, cfg.AfterFunc, func(batchCtx context.Context, batch []core.NormalizedMessage) {
 		if err := p.ProcessBatch(batchCtx, batch); err != nil {
@@ -203,6 +203,22 @@ func (p *Pipeline) Ingest(ctx context.Context, msg core.NormalizedMessage) error
 	})
 
 	if msg.Direction == core.DirectionInbound {
+		if msg.Channel == AdminChannelID {
+			p.publish(core.Event{
+				ID:        newID("ev"),
+				Type:      core.EventAdminMessage,
+				TenantID:  msg.TenantID,
+				Channel:   AdminChannelID,
+				SourceKey: msg.SourceKey,
+				MessageID: msg.MessageID,
+				At:        p.now(),
+				Payload: map[string]any{
+					"direction": string(core.DirectionInbound),
+					"text":      msg.Text,
+				},
+			})
+			return p.HandleAdminInbound(ctx, msg)
+		}
 		_ = p.CancelPendingNudges(ctx, msg.TenantID, msg.Channel, msg.SourceKey)
 		p.dispatcher.Enqueue(msg)
 	}
@@ -558,8 +574,12 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 			Reason:    decision.Reason,
 			Message:   joinBatchTexts(batch),
 			ContextData: map[string]string{
-				"intent": decision.Intent,
-				"run_id": runID,
+				"intent":            decision.Intent,
+				"run_id":            runID,
+				"summary":           updatedState.Summary.Text,
+				"question":          joinBatchTexts(batch),
+				"origin_channel":    channelID,
+				"origin_source_key": sourceKey,
 			},
 			CreatedAt: p.now(),
 		})
@@ -648,8 +668,12 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 			Reason:    grounding.Reason,
 			Message:   replyInput.NewMessage.Text,
 			ContextData: map[string]string{
-				"run_id":    runID,
-				"trace_ref": traceRef,
+				"run_id":            runID,
+				"trace_ref":         traceRef,
+				"summary":           updatedState.Summary.Text,
+				"question":          replyInput.NewMessage.Text,
+				"origin_channel":    channelID,
+				"origin_source_key": sourceKey,
 			},
 			CreatedAt: p.now(),
 		})

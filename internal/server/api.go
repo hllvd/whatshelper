@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"whatshelper/internal/brain"
+	"whatshelper/internal/channels/admin"
 	"whatshelper/internal/core"
 	"whatshelper/internal/store"
 )
@@ -119,10 +121,21 @@ func (s *Server) handleGetSourceMessages(w http.ResponseWriter, r *http.Request)
 	key := r.PathValue("key")
 	limit := parseIntQuery(r, "limit", 50)
 
-	metas, err := s.deps.Store.ListRecentMessages(r.Context(), tenant, channel, key, limit)
+	views, err := s.loadChatMessages(r.Context(), tenant, channel, key, limit)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"messages": views,
+	})
+}
+
+func (s *Server) loadChatMessages(ctx context.Context, tenant, channel, key string, limit int) ([]chatMessageView, error) {
+	metas, err := s.deps.Store.ListRecentMessages(ctx, tenant, channel, key, limit)
+	if err != nil {
+		return nil, err
 	}
 
 	// Retorna em ordem cronológica (mais antiga -> mais recente) para o chat
@@ -131,7 +144,7 @@ func (s *Server) handleGetSourceMessages(w http.ResponseWriter, r *http.Request)
 		m := metas[i]
 		text := ""
 		if m.RawRef != "" && s.deps.Blobs != nil {
-			if raw, err := s.deps.Blobs.Get(r.Context(), m.RawRef); err == nil {
+			if raw, err := s.deps.Blobs.Get(ctx, m.RawRef); err == nil {
 				var norm core.NormalizedMessage
 				if json.Unmarshal(raw, &norm) == nil {
 					text = norm.Text
@@ -148,10 +161,58 @@ func (s *Server) handleGetSourceMessages(w http.ResponseWriter, r *http.Request)
 			RawRef:    m.RawRef,
 		})
 	}
+	return views, nil
+}
 
+func (s *Server) handleGetAdminMessages(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Store == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "store não configurado")
+		return
+	}
+	tenant := strings.TrimSpace(r.URL.Query().Get("tenant"))
+	if tenant == "" {
+		tenant = "demo"
+	}
+	sourceKey := strings.TrimSpace(r.URL.Query().Get("source"))
+	if sourceKey == "" {
+		sourceKey = admin.DefaultAdminSourceKey
+	}
+	limit := parseIntQuery(r, "limit", 50)
+
+	views, err := s.loadChatMessages(r.Context(), tenant, admin.ChannelID, sourceKey, limit)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
+		"tenant":   tenant,
+		"channel":  admin.ChannelID,
 		"messages": views,
 	})
+}
+
+func (s *Server) handlePostAdminMessage(w http.ResponseWriter, r *http.Request) {
+	if s.deps.AdminChannel == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "canal admin não inicializado")
+		return
+	}
+	var req simMessageRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "JSON inválido")
+		return
+	}
+	if strings.TrimSpace(req.TenantID) == "" {
+		req.TenantID = "demo"
+	}
+	if strings.TrimSpace(req.SourceKey) == "" {
+		req.SourceKey = admin.DefaultAdminSourceKey
+	}
+	msg, err := s.deps.AdminChannel.SubmitInbound(r.Context(), req.TenantID, req.SourceKey, req.Text)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, msg)
 }
 
 func (s *Server) handleGetSourceRuns(w http.ResponseWriter, r *http.Request) {

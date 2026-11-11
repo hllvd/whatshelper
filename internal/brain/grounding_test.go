@@ -2,6 +2,7 @@ package brain_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -99,6 +100,10 @@ func TestPipeline_UngroundedReplyEscalatesWithNeutralMessage(t *testing.T) {
 	p, st, ch := setupGatesPipeline(t, core.TenantPolicy{Mode: core.ModeAuto, BotEnabled: true}.WithDefaults(), clock, llm)
 	defer p.Stop()
 
+	adminCh := fakes.NewMemoryChannel("admin", 8)
+	_ = adminCh.Start(ctx)
+	p.RegisterChannel(adminCh)
+
 	msg := core.NormalizedMessage{
 		TenantID: "t1", Channel: "simulator", SourceKey: "u-esc",
 		MessageID: "m1", Timestamp: now, Direction: core.DirectionInbound, Type: core.MessageTypeText, Text: "Faz desconto especial?",
@@ -114,5 +119,13 @@ func TestPipeline_UngroundedReplyEscalatesWithNeutralMessage(t *testing.T) {
 	tasks, err := st.ListSourceTasks(ctx, "t1", "simulator", "u-esc")
 	if err != nil || len(tasks) != 1 || tasks[0].Kind != "escalation" {
 		t.Fatalf("expected escalation task created, got %+v err=%v", tasks, err)
+	}
+	admSent := adminCh.SentMessages()
+	if len(admSent) != 1 || !strings.Contains(admSent[0].Text, "Faz desconto especial?") || !strings.Contains(admSent[0].Text, "u-esc") {
+		t.Fatalf("expected contextual escalation forwarded to admin channel, got %+v", admSent)
+	}
+	admMetas, err := st.ListRecentMessages(ctx, "t1", brain.AdminChannelID, brain.AdminOwnerKey, 10)
+	if err != nil || len(admMetas) != 1 {
+		t.Fatalf("expected escalation saved in admin conversation partition, got %+v err=%v", admMetas, err)
 	}
 }

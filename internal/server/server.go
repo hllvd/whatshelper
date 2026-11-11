@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"whatshelper/internal/brain"
+	"whatshelper/internal/channels/admin"
 	"whatshelper/internal/channels/simulator"
 	"whatshelper/internal/config"
 	"whatshelper/internal/core"
@@ -25,12 +26,13 @@ var staticFS embed.FS
 
 // Dependencies agrupa as portas de domínio necessárias para a API HTTP e SSE.
 type Dependencies struct {
-	Store     core.Store
-	Blobs     core.BlobStore
-	Bus       core.EventBus
-	Simulator *simulator.Channel
-	Pipeline  *brain.Pipeline
-	Knowledge interface{ Invalidate(tenantID string) }
+	Store        core.Store
+	Blobs        core.BlobStore
+	Bus          core.EventBus
+	Simulator    *simulator.Channel
+	AdminChannel *admin.Channel
+	Pipeline     *brain.Pipeline
+	Knowledge    interface{ Invalidate(tenantID string) }
 }
 
 // Server encapsula o servidor HTTP do Brain com logging estruturado e graceful shutdown.
@@ -134,6 +136,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 
 	// API HTTP (SRV-01, SAF-01, SAF-02)
 	mux.HandleFunc("POST /api/sim/messages", s.handlePostSimMessage)
+	mux.HandleFunc("GET /api/admin/messages", s.handleGetAdminMessages)
+	mux.HandleFunc("POST /api/admin/messages", s.handlePostAdminMessage)
 	mux.HandleFunc("GET /api/sources", s.handleListSources)
 	mux.HandleFunc("GET /api/sources/{channel}/{key}/state", s.handleGetSourceState)
 	mux.HandleFunc("POST /api/sources/{channel}/{key}/status", s.handleUpdateSourceStatus)

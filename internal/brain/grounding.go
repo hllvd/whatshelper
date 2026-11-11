@@ -7,10 +7,19 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
 
 	"whatshelper/internal/core"
 	"whatshelper/internal/pack"
+	"whatshelper/internal/store"
+)
+
+const (
+	// AdminChannelID identifica o canal separado de comunicação com o dono/operador.
+	AdminChannelID = "admin"
+	// AdminOwnerKey identifica a conversa padrão do operador no canal admin.
+	AdminOwnerKey = "owner"
 )
 
 const (
@@ -203,11 +212,13 @@ func numberVariants(tok string) []string {
 	return variants
 }
 
-// DefaultAdminNotifier registra escalonamentos em log, EventBus e tarefa TASK# no Store.
+// DefaultAdminNotifier registra escalonamentos em log, EventBus, tarefa TASK# e canal admin.
 type DefaultAdminNotifier struct {
-	store  core.Store
-	bus    core.EventBus
-	logger *slog.Logger
+	store     core.Store
+	blobs     core.BlobStore
+	bus       core.EventBus
+	channelFn func(string) core.Channel
+	logger    *slog.Logger
 }
 
 func NewDefaultAdminNotifier(st core.Store, bus core.EventBus, logger *slog.Logger) *DefaultAdminNotifier {
@@ -219,6 +230,13 @@ func NewDefaultAdminNotifier(st core.Store, bus core.EventBus, logger *slog.Logg
 		bus:    bus,
 		logger: logger,
 	}
+}
+
+// WithAdminDelivery acopla BlobStore e lookup do canal admin para entrega contextualizada ao dono.
+func (n *DefaultAdminNotifier) WithAdminDelivery(blobs core.BlobStore, channelFn func(string) core.Channel) *DefaultAdminNotifier {
+	n.blobs = blobs
+	n.channelFn = channelFn
+	return n
 }
 
 func (n *DefaultAdminNotifier) Notify(ctx context.Context, alert core.AdminAlert) error {
@@ -250,14 +268,25 @@ func (n *DefaultAdminNotifier) Notify(ctx context.Context, alert core.AdminAlert
 		})
 	}
 
+	var taskID string
 	if n.store != nil {
-		meta := make(map[string]string, len(alert.ContextData)+1)
+		meta := make(map[string]string, len(alert.ContextData)+4)
 		for k, v := range alert.ContextData {
 			meta[k] = v
 		}
 		meta["reason"] = alert.Reason
+		if _, ok := meta["origin_channel"]; !ok {
+			meta["origin_channel"] = alert.Channel
+		}
+		if _, ok := meta["origin_source_key"]; !ok {
+			meta["origin_source_key"] = alert.SourceKey
+		}
+		if _, ok := meta["question"]; !ok && strings.TrimSpace(alert.Message) != "" {
+			meta["question"] = alert.Message
+		}
+		taskID = newID("esc")
 		task := core.Task{
-			ID:        newID("esc"),
+			ID:        taskID,
 			TenantID:  alert.TenantID,
 			Channel:   alert.Channel,
 			SourceKey: alert.SourceKey,
@@ -289,5 +318,77 @@ func (n *DefaultAdminNotifier) Notify(ctx context.Context, alert core.AdminAlert
 			})
 		}
 	}
+
+	n.deliverToAdminChannel(ctx, alert, taskID, now)
 	return nil
+}
+
+func (n *DefaultAdminNotifier) deliverToAdminChannel(ctx context.Context, alert core.AdminAlert, taskID string, now time.Time) {
+	if n.channelFn == nil && n.store == nil {
+		return
+	}
+	var adminCh core.Channel
+	if n.channelFn != nil {
+		adminCh = n.channelFn(AdminChannelID)
+	}
+	if adminCh == nil {
+		return
+	}
+
+	summary := strings.TrimSpace(alert.ContextData["summary"])
+	var b strings.Builder
+	fmt.Fprintf(&b, "[Escalonamento %s] Origem: %s:%s\n", taskID, alert.Channel, alert.SourceKey)
+	fmt.Fprintf(&b, "Motivo: %s\n", alert.Reason)
+	if summary != "" {
+		fmt.Fprintf(&b, "Resumo: %s\n", summary)
+	}
+	fmt.Fprintf(&b, "Pergunta do cliente: %s\n", strings.TrimSpace(alert.Message))
+	b.WriteString("Responda nesta conversa para gerar uma proposta de aprendizado em QA.md.")
+
+	outMsg := core.NormalizedMessage{
+		TenantID:  alert.TenantID,
+		Channel:   AdminChannelID,
+		SourceKey: AdminOwnerKey,
+		MessageID: newID("adm"),
+		Timestamp: now,
+		Direction: core.DirectionOutbound,
+		Type:      core.MessageTypeText,
+		Text:      b.String(),
+	}
+	if n.blobs != nil {
+		outMsg.RawRef = store.S3RawMessageKey(alert.TenantID, AdminChannelID, AdminOwnerKey, now, outMsg.MessageID)
+		if rawBytes, err := json.Marshal(outMsg); err == nil {
+			_ = n.blobs.Put(ctx, outMsg.RawRef, rawBytes, "application/json")
+		}
+	}
+	if n.store != nil {
+		_ = n.store.PutMessageMeta(ctx, core.MessageMeta{
+			TenantID:  alert.TenantID,
+			Channel:   AdminChannelID,
+			SourceKey: AdminOwnerKey,
+			MessageID: outMsg.MessageID,
+			Timestamp: now,
+			Direction: core.DirectionOutbound,
+			Type:      core.MessageTypeText,
+			RawRef:    outMsg.RawRef,
+			Sender:    "brain",
+		})
+	}
+	_ = adminCh.Send(ctx, outMsg)
+	if n.bus != nil {
+		n.bus.Publish(core.Event{
+			ID:        newID("ev"),
+			Type:      core.EventAdminMessage,
+			TenantID:  alert.TenantID,
+			Channel:   AdminChannelID,
+			SourceKey: AdminOwnerKey,
+			MessageID: outMsg.MessageID,
+			At:        now,
+			Payload: map[string]any{
+				"direction":     string(core.DirectionOutbound),
+				"text":          outMsg.Text,
+				"escalation_id": taskID,
+			},
+		})
+	}
 }

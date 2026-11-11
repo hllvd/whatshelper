@@ -99,3 +99,8 @@ func S3DraftKey(tenant, channel, sourceKey, runID string) string {
 func S3KnowledgeKey(tenant, filename string) string {
 	return fmt.Sprintf("%s/knowledge/%s", tenant, filename)
 }
+
+// S3LearningKey gera a chave S3 para propostas de aprendizado pendentes: <tenant>/learning/<proposal_id>.json.
+func S3LearningKey(tenant, proposalID string) string {
+	return fmt.Sprintf("%s/learning/%s.json", tenant, proposalID)
+}

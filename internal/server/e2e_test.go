@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"whatshelper/internal/brain"
+	"whatshelper/internal/channels/admin"
 	"whatshelper/internal/channels/simulator"
 	"whatshelper/internal/config"
 	"whatshelper/internal/core"
@@ -547,5 +548,46 @@ func TestE2E_MultiPack_RealestateAndSupport(t *testing.T) {
 	realRuns, _ := storeRepo.ListRuns(ctx, "demo-support", "simulator", "u-sup", 10)
 	if len(realRuns) != 1 {
 		t.Fatalf("expected real store untouched by replay (1 run), got %d", len(realRuns))
+	}
+
+	// Testa /api/admin/messages (CH-08)
+	admCh := admin.New(clock, 8)
+	_ = admCh.Start(ctx)
+	srvAdm := server.NewWithDeps(config.LoadFromEnv(), nil, server.Dependencies{
+		Store: storeRepo, Blobs: blobs, Bus: bus, AdminChannel: admCh, Pipeline: p,
+	})
+	tsAdm := httptest.NewServer(srvAdm.Handler())
+	defer tsAdm.Close()
+
+	admPost, err := tsAdm.Client().Post(tsAdm.URL+"/api/admin/messages", "application/json",
+		strings.NewReader(`{"tenant_id":"demo-support","text":"/aprovar prop-1"}`))
+	if err != nil || admPost.StatusCode != http.StatusAccepted {
+		t.Fatalf("POST /api/admin/messages failed: resp=%v err=%v", admPost, err)
+	}
+	_ = admPost.Body.Close()
+
+	select {
+	case admMsg := <-admCh.Messages():
+		if err := p.Ingest(ctx, admMsg); err != nil {
+			t.Fatalf("Ingest admin message failed: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting admin channel inbound message")
+	}
+
+	admGet, err := tsAdm.Client().Get(tsAdm.URL + "/api/admin/messages?tenant=demo-support")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var admBody struct {
+		Messages []struct {
+			Direction string `json:"direction"`
+			Text      string `json:"text"`
+		} `json:"messages"`
+	}
+	_ = json.NewDecoder(admGet.Body).Decode(&admBody)
+	_ = admGet.Body.Close()
+	if admGet.StatusCode != http.StatusOK || len(admBody.Messages) < 2 {
+		t.Fatalf("expected admin inbound+outbound messages, got status=%d body=%+v", admGet.StatusCode, admBody)
 	}
 }
