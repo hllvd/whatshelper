@@ -65,7 +65,7 @@ func main() {
 	}
 	blobRepo := s3blob.NewStore(s3Client, cfg.S3Bucket)
 
-	llmClient, analysisModel, responseModel, err := buildLLM(cfg, clock)
+	llmClient, analysisModel, responseModel, nudgeModel, err := buildLLM(cfg, clock)
 	if err != nil {
 		logger.Error("falha ao inicializar LLM", slog.Any("error", err))
 		os.Exit(1)
@@ -89,11 +89,15 @@ func main() {
 		PackLoader:          func(name string) (*pack.Pack, error) { return pack.LoadFromDir(filepath.Join(cfg.PacksDir, name)) },
 		AnalysisModel:       analysisModel,
 		ResponseModel:       responseModel,
+		NudgeModel:          nudgeModel,
 		Debounce:            time.Duration(cfg.DebounceMs) * time.Millisecond,
 		RecentMessagesLimit: cfg.RecentMessagesLimit,
 		Logger:              logger,
 	})
 	pipeline.RegisterChannel(simCh)
+	pipeline.StartNudgeWorker(appCtx, 30*time.Second, func() []string {
+		return discoverLocalTenants(cfg.TenantsDir)
+	})
 
 	// Consumidor das mensagens do simulador para ingestão no pipeline
 	go func() {
@@ -156,13 +160,13 @@ func main() {
 	logger.Info("Whatshelper Brain finalizado com sucesso")
 }
 
-func buildLLM(cfg config.Config, clock core.Clock) (core.LLM, string, string, error) {
+func buildLLM(cfg config.Config, clock core.Clock) (core.LLM, string, string, string, error) {
 	if cfg.LLMProvider == "anthropic" {
 		client, err := anthropic.New(cfg.AnthropicAPIKey, clock)
 		if err != nil {
-			return nil, "", "", err
+			return nil, "", "", "", err
 		}
-		return client, cfg.AnalysisModel, cfg.ResponseModel, nil
+		return client, cfg.AnalysisModel, cfg.ResponseModel, cfg.NudgeModel, nil
 	}
 	analysisModel := cfg.AnalysisModel
 	if analysisModel == "" {
@@ -172,7 +176,27 @@ func buildLLM(cfg config.Config, clock core.Clock) (core.LLM, string, string, er
 	if responseModel == "" {
 		responseModel = "fake-response"
 	}
-	return fakes.NewOfflineDemoLLM(), analysisModel, responseModel, nil
+	nudgeModel := cfg.NudgeModel
+	if nudgeModel == "" {
+		nudgeModel = "fake-nudge"
+	}
+	return fakes.NewOfflineDemoLLM(), analysisModel, responseModel, nudgeModel, nil
+}
+
+func discoverLocalTenants(tenantsDir string) []string {
+	entries, err := os.ReadDir(tenantsDir)
+	if err != nil {
+		return nil
+	}
+	var ids []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			if _, err := os.Stat(filepath.Join(tenantsDir, entry.Name(), "tenant.yaml")); err == nil {
+				ids = append(ids, entry.Name())
+			}
+		}
+	}
+	return ids
 }
 
 func runStoreInit(cfg config.Config, logger *slog.Logger) error {

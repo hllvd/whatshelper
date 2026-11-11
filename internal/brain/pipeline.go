@@ -66,6 +66,7 @@ type PipelineConfig struct {
 	PackLoader          func(packName string) (*pack.Pack, error)
 	AnalysisModel       string
 	ResponseModel       string
+	NudgeModel          string
 	Debounce            time.Duration
 	AfterFunc           AfterFunc
 	RecentMessagesLimit int
@@ -198,6 +199,7 @@ func (p *Pipeline) Ingest(ctx context.Context, msg core.NormalizedMessage) error
 	})
 
 	if msg.Direction == core.DirectionInbound {
+		_ = p.CancelPendingNudges(ctx, msg.TenantID, msg.Channel, msg.SourceKey)
 		p.dispatcher.Enqueue(msg)
 	}
 	return nil
@@ -802,7 +804,10 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 
 	// Persiste e envia resposta outbound
 	_, err = p.DeliverTextOutbound(ctx, tenantID, channelID, latest.Account, sourceKey, pk.Actors.Business, finalReply, runID, traceRef)
-	return err
+	if err != nil {
+		return err
+	}
+	return p.ScheduleNudge(ctx, tenantID, channelID, sourceKey, latest.Account)
 }
 
 // ApproveTask aprova (e opcionalmente edita) um rascunho de resposta pendente e o envia pelo canal.
