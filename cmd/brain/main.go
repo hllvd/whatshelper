@@ -17,8 +17,14 @@ func main() {
 	logger := server.InitLogger(cfg.LogLevel, cfg.LogFormat)
 	slog.SetDefault(logger)
 
+	if err := cfg.Validate(); err != nil {
+		logger.Error("configuração inválida", slog.Any("error", err))
+		os.Exit(1)
+	}
+
 	logger.Info("inicializando Whatshelper Brain",
 		slog.String("env", cfg.Environment),
+		slog.String("llm_provider", cfg.LLMProvider),
 		slog.String("table", cfg.DynamoDBTable),
 		slog.String("bucket", cfg.S3Bucket),
 	)
