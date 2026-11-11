@@ -113,6 +113,14 @@ intents:
       - "Obrigado!"
     action: reply
 
+opt_out_keywords:
+  - parar
+  - sair
+  - stop
+  - unsubscribe
+  - "não quero mais"
+  - "cancelar mensagens"
+
 context:
   - key: last_action
     description: Ação principal identificada na última mensagem

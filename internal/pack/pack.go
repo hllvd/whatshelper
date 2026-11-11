@@ -103,15 +103,16 @@ type PromptsDef struct {
 
 // Pack representa um vertical pack carregado e validado.
 type Pack struct {
-	Name     string              `yaml:"name" json:"name"`
-	Language string              `yaml:"language" json:"language"`
-	Actors   ActorsDef           `yaml:"actors" json:"actors"`
-	Facts    []FactDef           `yaml:"facts" json:"facts"`
-	Signals  []SignalDef         `yaml:"signals" json:"signals"`
-	Intents  []IntentDef         `yaml:"intents,omitempty" json:"intents,omitempty"`
-	Context  []ContextSectionDef `yaml:"context" json:"context"`
-	Prompts  PromptsDef          `yaml:"prompts" json:"prompts"`
-	Rules    []string            `yaml:"rules,omitempty" json:"rules,omitempty"`
+	Name           string              `yaml:"name" json:"name"`
+	Language       string              `yaml:"language" json:"language"`
+	Actors         ActorsDef           `yaml:"actors" json:"actors"`
+	Facts          []FactDef           `yaml:"facts" json:"facts"`
+	Signals        []SignalDef         `yaml:"signals" json:"signals"`
+	Intents        []IntentDef         `yaml:"intents,omitempty" json:"intents,omitempty"`
+	OptOutKeywords []string            `yaml:"opt_out_keywords,omitempty" json:"opt_out_keywords,omitempty"`
+	Context        []ContextSectionDef `yaml:"context" json:"context"`
+	Prompts        PromptsDef          `yaml:"prompts" json:"prompts"`
+	Rules          []string            `yaml:"rules,omitempty" json:"rules,omitempty"`
 
 	// Templates compilados na carga
 	AnalysisTmpl *template.Template `yaml:"-" json:"-"`

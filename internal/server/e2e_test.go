@@ -254,3 +254,65 @@ func TestE2E_SimulatorToBrainToStoreToVisualizer(t *testing.T) {
 		t.Fatalf("unexpected trace response (status=%d): %+v", traceResp.StatusCode, trace)
 	}
 }
+
+func TestAPI_SourceStatusAndTenantPolicy(t *testing.T) {
+	storeRepo := fakes.NewMemoryStore()
+	bus := core.NewInMemoryEventBus(16)
+	srv := server.NewWithDeps(config.LoadFromEnv(), nil, server.Dependencies{
+		Store: storeRepo,
+		Blobs: fakes.NewMemoryBlobStore(),
+		Bus:   bus,
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// 1. Atualiza status para paused e depois para active
+	resp, err := ts.Client().Post(ts.URL+"/api/sources/simulator/u-api/status", "application/json",
+		strings.NewReader(`{"tenant_id":"demo","status":"paused","reason":"teste manual"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 updating status, got %d", resp.StatusCode)
+	}
+	state, _ := storeRepo.GetSourceState(context.Background(), "demo", "simulator", "u-api")
+	if state.Meta.Status != core.SourceStatusPaused {
+		t.Fatalf("expected paused status, got %s", state.Meta.Status)
+	}
+
+	// Status inválido retorna 400
+	badResp, err := ts.Client().Post(ts.URL+"/api/sources/simulator/u-api/status", "application/json",
+		strings.NewReader(`{"tenant_id":"demo","status":"invalid_xyz"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = badResp.Body.Close()
+	if badResp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid status, got %d", badResp.StatusCode)
+	}
+
+	// 2. PUT & GET /api/tenants/demo/policy
+	putReq, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/tenants/demo/policy",
+		strings.NewReader(`{"name":"Demo","pack":"sample","mode":"approval","bot_enabled":false}`))
+	putReq.Header.Set("Content-Type", "application/json")
+	putResp, err := ts.Client().Do(putReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = putResp.Body.Close()
+	if putResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 on PUT policy, got %d", putResp.StatusCode)
+	}
+
+	getResp, err := ts.Client().Get(ts.URL + "/api/tenants/demo/policy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gotPol core.TenantPolicy
+	_ = json.NewDecoder(getResp.Body).Decode(&gotPol)
+	_ = getResp.Body.Close()
+	if gotPol.Mode != core.ModeApproval || gotPol.BotEnabled {
+		t.Fatalf("unexpected policy returned: %+v", gotPol)
+	}
+}

@@ -29,6 +29,7 @@ type RunTrace struct {
 	Analysis        *StageTrace          `json:"analysis,omitempty"`
 	ParsedResult    *pack.AnalysisResult `json:"parsed_result,omitempty"`
 	FactsDiff       []FactChange         `json:"facts_diff,omitempty"`
+	Decision        *Decision            `json:"decision,omitempty"`
 	Reply           *StageTrace          `json:"reply,omitempty"`
 	FinalReply      string               `json:"final_reply,omitempty"`
 	TotalTokens     int                  `json:"total_tokens"`
@@ -73,6 +74,7 @@ type PipelineConfig struct {
 type Pipeline struct {
 	cfg        PipelineConfig
 	dispatcher *SourceDispatcher
+	limiter    *TokenBucketLimiter
 	channelsMu sync.RWMutex
 	channels   map[string]core.Channel
 	logger     *slog.Logger
@@ -93,6 +95,7 @@ func NewPipeline(ctx context.Context, cfg PipelineConfig) *Pipeline {
 
 	p := &Pipeline{
 		cfg:      cfg,
+		limiter:  NewTokenBucketLimiter(cfg.Clock),
 		channels: make(map[string]core.Channel),
 		logger:   logger,
 	}
@@ -211,6 +214,21 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 	pk, err := p.cfg.PackLoader(tenantCfg.Pack)
 	if err != nil {
 		return p.failPipeline(ctx, latest, runID, traceRef, nil, err)
+	}
+
+	initialState, err := p.cfg.Store.GetSourceState(ctx, tenantID, channelID, sourceKey)
+	if err != nil {
+		return p.failPipeline(ctx, latest, runID, traceRef, nil, err)
+	}
+
+	batchTexts := make([]string, len(batch))
+	for i, m := range batch {
+		batchTexts[i] = m.Text
+	}
+	if skip, gateErr := p.enforcePreLLMGates(ctx, tenantCfg, pk, initialState, latest, runID, batchTexts); gateErr != nil {
+		return p.failPipeline(ctx, latest, runID, traceRef, nil, gateErr)
+	} else if skip {
+		return nil
 	}
 
 	knowledge, err := p.cfg.Knowledge.Load(ctx, tenantID)
@@ -441,6 +459,77 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 		},
 	})
 
+	withinHours := core.IsWithinBusinessHours(tenantCfg, p.now())
+	decision := Route(RouteInput{
+		Pack:               pk,
+		Analysis:           analysisOutcome.Result,
+		State:              updatedState,
+		Policy:             tenantCfg,
+		WithinBusinessHour: withinHours,
+	})
+	trace.Decision = &decision
+
+	switch decision.Action {
+	case DecisionOptOut:
+		if err := UpdateSourceStatus(ctx, p.cfg.Store, p.now(), tenantID, channelID, sourceKey, core.SourceStatusOptedOut); err != nil {
+			return p.failPipeline(ctx, latest, runID, traceRef, trace, err)
+		}
+		p.publishStatusUpdated(tenantID, channelID, sourceKey, core.SourceStatusOptedOut, decision.Reason)
+		return p.recordRouterOnlyRun(ctx, latest, runID, traceRef, trace, analysisOutcome.Status)
+
+	case DecisionHandoff:
+		if err := UpdateSourceStatus(ctx, p.cfg.Store, p.now(), tenantID, channelID, sourceKey, core.SourceStatusHuman); err != nil {
+			return p.failPipeline(ctx, latest, runID, traceRef, trace, err)
+		}
+		p.publishStatusUpdated(tenantID, channelID, sourceKey, core.SourceStatusHuman, decision.Reason)
+		_ = p.saveAndPublishTask(ctx, core.Task{
+			ID:        newID("task"),
+			TenantID:  tenantID,
+			Channel:   channelID,
+			SourceKey: sourceKey,
+			Kind:      "task",
+			Title:     "Atendimento humano solicitado pelo cliente",
+			Type:      "handoff",
+			Status:    core.TaskStatusPending,
+			Metadata:  map[string]string{"intent": decision.Intent},
+			CreatedAt: p.now(),
+		})
+		return p.recordRouterOnlyRun(ctx, latest, runID, traceRef, trace, analysisOutcome.Status)
+
+	case DecisionOutOfHoursReply:
+		now := p.now()
+		_ = p.saveAndPublishTask(ctx, core.Task{
+			ID:        newID("task"),
+			TenantID:  tenantID,
+			Channel:   channelID,
+			SourceKey: sourceKey,
+			Kind:      "task",
+			Title:     "Retornar contato recebido fora do horário comercial",
+			Type:      "out_of_hours_followup",
+			Status:    core.TaskStatusPending,
+			DueAt:     &now,
+			Metadata:  map[string]string{"intent": decision.Intent},
+			CreatedAt: now,
+		})
+		if strings.TrimSpace(tenantCfg.OutOfHoursReply) != "" {
+			replyText := tenantCfg.OutOfHoursReply
+			if plainTextOnly {
+				replyText = SanitizePlainText(replyText)
+			}
+			trace.FinalReply = replyText
+			if err := p.recordRouterOnlyRun(ctx, latest, runID, traceRef, trace, analysisOutcome.Status); err != nil {
+				return err
+			}
+			_, err := p.DeliverTextOutbound(ctx, tenantID, channelID, latest.Account, sourceKey, pk.Actors.Business, replyText, runID, traceRef)
+			return err
+		}
+		return p.recordRouterOnlyRun(ctx, latest, runID, traceRef, trace, analysisOutcome.Status)
+
+	case DecisionSkip:
+		p.publishRunSkipped(latest, runID, string(decision.Action), decision.Reason)
+		return p.recordRouterOnlyRun(ctx, latest, runID, traceRef, trace, analysisOutcome.Status)
+	}
+
 	// Estágio de resposta (BRAIN-03)
 	recentForReply, err := p.loadRecentPromptMessages(ctx, pk, tenantID, channelID, sourceKey, batchIDs)
 	if err != nil {
@@ -574,22 +663,34 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 	})
 
 	// Persiste e envia resposta outbound
+	_, err = p.DeliverTextOutbound(ctx, tenantID, channelID, latest.Account, sourceKey, pk.Actors.Business, finalReply, runID, traceRef)
+	return err
+}
+
+// DeliverTextOutbound grava mensagem crua no BlobStore, metadados MSG# no Store, envia no canal e publica EventReplySent.
+func (p *Pipeline) DeliverTextOutbound(
+	ctx context.Context,
+	tenantID, channelID, account, sourceKey, businessActor, text, runID, traceRef string,
+) (string, error) {
 	outMsg := core.NormalizedMessage{
 		TenantID:  tenantID,
 		Channel:   channelID,
-		Account:   latest.Account,
+		Account:   account,
 		SourceKey: sourceKey,
 		MessageID: newID("out"),
 		Timestamp: p.now(),
 		Direction: core.DirectionOutbound,
 		Type:      core.MessageTypeText,
-		Text:      finalReply,
+		Text:      text,
 	}
 	outMsg.RawRef = store.S3RawMessageKey(tenantID, channelID, sourceKey, outMsg.Timestamp, outMsg.MessageID)
 
-	outBytes, _ := json.Marshal(outMsg)
+	outBytes, err := json.Marshal(outMsg)
+	if err != nil {
+		return "", err
+	}
 	if err := p.cfg.Blobs.Put(ctx, outMsg.RawRef, outBytes, "application/json"); err != nil {
-		return fmt.Errorf("erro ao gravar resposta crua no BlobStore: %w", err)
+		return "", fmt.Errorf("erro ao gravar resposta crua no BlobStore: %w", err)
 	}
 	if err := p.cfg.Store.PutMessageMeta(ctx, core.MessageMeta{
 		TenantID:  tenantID,
@@ -600,14 +701,14 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 		Direction: core.DirectionOutbound,
 		Type:      core.MessageTypeText,
 		RawRef:    outMsg.RawRef,
-		Sender:    pk.Actors.Business,
+		Sender:    businessActor,
 	}); err != nil {
-		return fmt.Errorf("erro ao gravar MSG# outbound: %w", err)
+		return "", fmt.Errorf("erro ao gravar MSG# outbound: %w", err)
 	}
 
-	if ch != nil {
+	if ch := p.getChannel(channelID); ch != nil {
 		if err := ch.Send(ctx, outMsg); err != nil {
-			return fmt.Errorf("erro ao enviar resposta no canal %s: %w", channelID, err)
+			return "", fmt.Errorf("erro ao enviar resposta no canal %s: %w", channelID, err)
 		}
 	}
 
@@ -621,12 +722,123 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 		RunID:     runID,
 		At:        p.now(),
 		Payload: map[string]any{
-			"text":      finalReply,
+			"text":      text,
 			"trace_ref": traceRef,
 		},
 	})
+	return outMsg.MessageID, nil
+}
 
+func (p *Pipeline) enforcePreLLMGates(
+	ctx context.Context,
+	policy core.TenantPolicy,
+	pk *pack.Pack,
+	state *core.SourceState,
+	latest core.NormalizedMessage,
+	runID string,
+	batchTexts []string,
+) (bool, error) {
+	gate := EvaluatePreLLMGates(PreGateInput{
+		Policy:     policy,
+		State:      state,
+		Pack:       pk,
+		BatchTexts: batchTexts,
+	})
+	if !gate.Allowed {
+		if gate.UpdateStatus != "" {
+			if err := UpdateSourceStatus(ctx, p.cfg.Store, p.now(), latest.TenantID, latest.Channel, latest.SourceKey, gate.UpdateStatus); err != nil {
+				return false, err
+			}
+			p.publishStatusUpdated(latest.TenantID, latest.Channel, latest.SourceKey, gate.UpdateStatus, gate.Reason)
+		}
+		p.publishRunSkipped(latest, runID, string(gate.Action), gate.Reason)
+		return true, nil
+	}
+
+	allowed, limitReason := p.limiter.Allow(latest.TenantID, latest.Channel, latest.SourceKey, policy.RateLimit)
+	if !allowed {
+		p.publishRunSkipped(latest, runID, "rate_limited", limitReason)
+		return true, nil
+	}
+	return false, nil
+}
+
+func (p *Pipeline) publishStatusUpdated(tenantID, channelID, sourceKey string, status core.SourceStatus, reason string) {
+	p.publish(core.Event{
+		ID:        newID("ev"),
+		Type:      core.EventSourceStatusUpdated,
+		TenantID:  tenantID,
+		Channel:   channelID,
+		SourceKey: sourceKey,
+		At:        p.now(),
+		Payload: map[string]any{
+			"status": string(status),
+			"reason": reason,
+		},
+	})
+}
+
+func (p *Pipeline) publishRunSkipped(latest core.NormalizedMessage, runID, action, reason string) {
+	p.publish(core.Event{
+		ID:        newID("ev"),
+		Type:      core.EventRunSkipped,
+		TenantID:  latest.TenantID,
+		Channel:   latest.Channel,
+		SourceKey: latest.SourceKey,
+		MessageID: latest.MessageID,
+		RunID:     runID,
+		At:        p.now(),
+		Payload: map[string]any{
+			"action": action,
+			"reason": reason,
+		},
+	})
+}
+
+func (p *Pipeline) saveAndPublishTask(ctx context.Context, task core.Task) error {
+	if err := p.cfg.Store.SaveTask(ctx, task); err != nil {
+		return err
+	}
+	p.publish(core.Event{
+		ID:        newID("ev"),
+		Type:      core.EventTaskCreated,
+		TenantID:  task.TenantID,
+		Channel:   task.Channel,
+		SourceKey: task.SourceKey,
+		At:        p.now(),
+		Payload: map[string]any{
+			"task_id": task.ID,
+			"kind":    task.Kind,
+			"type":    task.Type,
+			"title":   task.Title,
+		},
+	})
 	return nil
+}
+
+func (p *Pipeline) recordRouterOnlyRun(ctx context.Context, latest core.NormalizedMessage, runID, traceRef string, trace *RunTrace, status string) error {
+	if trace.Analysis != nil {
+		trace.TotalTokens = trace.Analysis.PromptTokens + trace.Analysis.CompletionTokens
+		trace.TotalDurationMs = trace.Analysis.DurationMs
+	}
+	if err := p.saveTrace(ctx, traceRef, trace); err != nil {
+		return err
+	}
+	return p.cfg.Store.SaveRun(ctx, core.Run{
+		ID:               runID,
+		TenantID:         latest.TenantID,
+		Channel:          latest.Channel,
+		SourceKey:        latest.SourceKey,
+		MessageID:        latest.MessageID,
+		Stage:            "router",
+		Status:           status,
+		Model:            p.cfg.AnalysisModel,
+		PromptTokens:     trace.TotalTokens,
+		CompletionTokens: 0,
+		DurationMs:       trace.TotalDurationMs,
+		TraceBlobRef:     traceRef,
+		CreatedAt:        trace.CreatedAt,
+	})
 }
 
 func (p *Pipeline) loadRecentPromptMessages(

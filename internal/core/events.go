@@ -21,9 +21,14 @@ const (
 	EventReplySent         EventType = "reply.sent"
 	EventPipelineFailed    EventType = "pipeline.failed"
 
-	// Reservados para M2/M3:
-	EventEscalated EventType = "escalation.triggered"
-	EventLearned   EventType = "learning.recorded"
+	// Reservados / M2:
+	EventEscalated           EventType = "escalation.triggered"
+	EventLearned             EventType = "learning.recorded"
+	EventSourceStatusUpdated EventType = "source.status_updated"
+	EventRunSkipped          EventType = "run.skipped"
+	EventTaskCreated         EventType = "task.created"
+	EventApprovalPending     EventType = "approval.pending"
+	EventNudgeSent           EventType = "nudge.sent"
 )
 
 // Event representa um acontecimento observável no pipeline cognitivo.

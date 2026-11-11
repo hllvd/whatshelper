@@ -101,13 +101,16 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /readyz", s.handleReadyz)
 
-	// API HTTP (SRV-01)
+	// API HTTP (SRV-01, SAF-01, SAF-02)
 	mux.HandleFunc("POST /api/sim/messages", s.handlePostSimMessage)
 	mux.HandleFunc("GET /api/sources", s.handleListSources)
 	mux.HandleFunc("GET /api/sources/{channel}/{key}/state", s.handleGetSourceState)
+	mux.HandleFunc("POST /api/sources/{channel}/{key}/status", s.handleUpdateSourceStatus)
 	mux.HandleFunc("GET /api/sources/{channel}/{key}/messages", s.handleGetSourceMessages)
 	mux.HandleFunc("GET /api/sources/{channel}/{key}/runs", s.handleGetSourceRuns)
 	mux.HandleFunc("GET /api/runs/{id}/trace", s.handleGetRunTrace)
+	mux.HandleFunc("GET /api/tenants/{id}/policy", s.handleGetTenantPolicy)
+	mux.HandleFunc("PUT /api/tenants/{id}/policy", s.handlePutTenantPolicy)
 
 	// Stream de eventos SSE (SRV-02)
 	mux.HandleFunc("GET /api/events", s.handleEvents)

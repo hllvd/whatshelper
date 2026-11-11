@@ -2,11 +2,14 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"whatshelper/internal/brain"
 	"whatshelper/internal/core"
 	"whatshelper/internal/store"
 )
@@ -205,6 +208,136 @@ func (s *Server) handleGetRunTrace(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(raw)
+}
+
+type updateSourceStatusRequest struct {
+	TenantID string            `json:"tenant_id"`
+	Status   core.SourceStatus `json:"status"`
+	Reason   string            `json:"reason"`
+}
+
+func isValidSourceStatus(s core.SourceStatus) bool {
+	switch s {
+	case core.SourceStatusActive, core.SourceStatusPaused, core.SourceStatusHuman, core.SourceStatusOptedOut, core.SourceStatusArchived:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Server) handleUpdateSourceStatus(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Store == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "store não configurado")
+		return
+	}
+
+	channel := r.PathValue("channel")
+	key := r.PathValue("key")
+	if channel == "" || key == "" {
+		writeJSONError(w, http.StatusBadRequest, "channel e key são obrigatórios")
+		return
+	}
+
+	var req updateSourceStatusRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "JSON inválido")
+		return
+	}
+
+	tenant := strings.TrimSpace(req.TenantID)
+	if tenant == "" {
+		tenant = strings.TrimSpace(r.URL.Query().Get("tenant"))
+	}
+	if tenant == "" {
+		tenant = "demo"
+	}
+
+	if !isValidSourceStatus(req.Status) {
+		writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("status inválido: %q", req.Status))
+		return
+	}
+
+	if err := brain.UpdateSourceStatus(r.Context(), s.deps.Store, time.Now().UTC(), tenant, channel, key, req.Status); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if s.deps.Bus != nil {
+		s.deps.Bus.Publish(core.Event{
+			ID:        fmt.Sprintf("ev-%d", time.Now().UnixNano()),
+			Type:      core.EventSourceStatusUpdated,
+			TenantID:  tenant,
+			Channel:   channel,
+			SourceKey: key,
+			At:        time.Now().UTC(),
+			Payload: map[string]any{
+				"status": string(req.Status),
+				"reason": req.Reason,
+			},
+		})
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"tenant_id":  tenant,
+		"channel":    channel,
+		"source_key": key,
+		"status":     req.Status,
+	})
+}
+
+func (s *Server) handleGetTenantPolicy(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Store == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "store não configurado")
+		return
+	}
+	tenantID := strings.TrimSpace(r.PathValue("id"))
+	if tenantID == "" {
+		writeJSONError(w, http.StatusBadRequest, "tenant id obrigatório")
+		return
+	}
+	var fallback brain.TenantConfigLoader
+	if s.cfg.TenantsDir != "" {
+		fallback = brain.NewLocalTenantLoader(s.cfg.TenantsDir)
+	}
+	loader := brain.NewStoreTenantPolicyLoader(s.deps.Store, fallback)
+	policy, err := loader.LoadTenant(r.Context(), tenantID)
+	if err != nil {
+		if errors.Is(err, core.ErrConfigNotFound) {
+			writeJSONError(w, http.StatusNotFound, "política do tenant não encontrada")
+			return
+		}
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, policy)
+}
+
+func (s *Server) handlePutTenantPolicy(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Store == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "store não configurado")
+		return
+	}
+	tenantID := strings.TrimSpace(r.PathValue("id"))
+	if tenantID == "" {
+		writeJSONError(w, http.StatusBadRequest, "tenant id obrigatório")
+		return
+	}
+	var policy core.TenantPolicy
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&policy); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "JSON inválido")
+		return
+	}
+	policy.ID = tenantID
+	policy = policy.WithDefaults()
+	if err := policy.Validate(); err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := brain.SeedTenantPolicy(r.Context(), s.deps.Store, policy); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, policy)
 }
 
 func parseIntQuery(r *http.Request, name string, fallback int) int {
