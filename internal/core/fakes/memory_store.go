@@ -13,6 +13,7 @@ import (
 // MemoryStore é uma implementação concorrente e puramente em memória da interface core.Store.
 type MemoryStore struct {
 	mu           sync.RWMutex
+	clock        core.Clock
 	sources      map[string]*core.SourceMeta
 	summaries    map[string]*core.Summary
 	facts        map[string]map[string]string
@@ -25,7 +26,15 @@ type MemoryStore struct {
 }
 
 func NewMemoryStore() *MemoryStore {
+	return NewMemoryStoreWithClock(core.SystemClock{})
+}
+
+func NewMemoryStoreWithClock(clock core.Clock) *MemoryStore {
+	if clock == nil {
+		clock = core.SystemClock{}
+	}
 	return &MemoryStore{
+		clock:        clock,
 		sources:      make(map[string]*core.SourceMeta),
 		summaries:    make(map[string]*core.Summary),
 		facts:        make(map[string]map[string]string),
@@ -256,10 +265,11 @@ func (m *MemoryStore) LinkSourceToContact(ctx context.Context, tenant, channel, 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	now := m.clock.Now().UTC()
 	srcID := sourceKeyID(tenant, channel, sourceKey)
 	if existing, ok := m.sources[srcID]; ok {
 		existing.ContactID = contactID
-		existing.UpdatedAt = time.Now().UTC()
+		existing.UpdatedAt = now
 	} else {
 		m.sources[srcID] = &core.SourceMeta{
 			TenantID:  tenant,
@@ -267,8 +277,8 @@ func (m *MemoryStore) LinkSourceToContact(ctx context.Context, tenant, channel, 
 			SourceKey: sourceKey,
 			ContactID: contactID,
 			Status:    core.SourceStatusActive,
-			CreatedAt: time.Now().UTC(),
-			UpdatedAt: time.Now().UTC(),
+			CreatedAt: now,
+			UpdatedAt: now,
 		}
 	}
 
@@ -278,7 +288,7 @@ func (m *MemoryStore) LinkSourceToContact(ctx context.Context, tenant, channel, 
 		ContactID: contactID,
 		Channel:   channel,
 		SourceKey: sourceKey,
-		LinkedAt:  time.Now().UTC(),
+		LinkedAt:  now,
 	}
 
 	// Evita duplicatas na lista de links

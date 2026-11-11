@@ -21,7 +21,7 @@ A ordem de execução está nos milestones M0 → M5, no final do arquivo.
 ## DEC — Decisões e documentação
 
 - [x] **DEC-01 — ADRs iniciais.** Registrar em `docs/adr/` as decisões: Go, canal agnóstico, vertical packs, DynamoDB single-table, S3 para mensagem crua. _Pronto quando:_ um ADR curto por decisão.
-- [x] **DEC-02 — Identidade e PII.** Definir como o `source_key` é derivado por canal (WhatsApp: número E.164; email: hash do endereço normalizado), onde ficam os dados de contato brutos (criptografados) e a política de retenção. _Pronto quando:_ ADR aprovado.
+- [~] **DEC-02 — Identidade e PII.** Definir como o `source_key` é derivado por canal (WhatsApp: número E.164; email: hash do endereço normalizado), onde ficam os dados de contato brutos (criptografados) e a política de retenção. _Pronto quando:_ ADR aprovado. _(Nota: ADR 0006 redigido no M0; aguardando aprovação explícita.)_
 - [ ] **DEC-03 — Connector in-process ou separado.** Decidir se o canal roda no mesmo processo do brain ou em outro, falando por HTTP/WebSocket. Para agora, a decisão vale para rodar local; anotar só de passagem como ficaria no Fargate (um serviço ou dois). _Pronto quando:_ ADR com trade-offs.
 - [ ] **DEC-04 — Sessão do whatsmeow em produção.** Localmente a sessão fica em SQLite num volume do docker-compose. No Fargate o disco do container é efêmero, então escolher entre EFS + SQLite, Postgres/RDS ou store customizado. Só precisa ser decidido no M5. _Pronto quando:_ ADR e plano de implementação.
 
