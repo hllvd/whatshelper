@@ -12,6 +12,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+
+	"whatshelper/internal/core"
 )
 
 // Store implementa core.BlobStore sobre Amazon S3 ou MinIO compatível.
@@ -140,4 +142,51 @@ func (s *Store) List(ctx context.Context, prefix string) ([]string, error) {
 		}
 	}
 	return keys, nil
+}
+
+func (s *Store) ListVersions(ctx context.Context, key string) ([]core.BlobVersion, error) {
+	var versions []core.BlobVersion
+	paginator := s3.NewListObjectVersionsPaginator(s.client, &s3.ListObjectVersionsInput{
+		Bucket: aws.String(s.bucket),
+		Prefix: aws.String(key),
+	})
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("s3 ListVersions(%s) falhou: %w", key, err)
+		}
+		for _, v := range page.Versions {
+			if aws.ToString(v.Key) != key {
+				continue
+			}
+			versions = append(versions, core.BlobVersion{
+				VersionID:    aws.ToString(v.VersionId),
+				IsLatest:     aws.ToBool(v.IsLatest),
+				LastModified: aws.ToTime(v.LastModified),
+				Size:         aws.ToInt64(v.Size),
+			})
+		}
+	}
+	return versions, nil
+}
+
+func (s *Store) GetVersion(ctx context.Context, key, versionID string) ([]byte, error) {
+	input := &s3.GetObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	}
+	if versionID != "" {
+		input.VersionId = aws.String(versionID)
+	}
+	out, err := s.client.GetObject(ctx, input)
+	if err != nil {
+		return nil, fmt.Errorf("s3 GetVersion(%s, %s) falhou: %w", key, versionID, err)
+	}
+	defer out.Body.Close()
+
+	data, err := io.ReadAll(out.Body)
+	if err != nil {
+		return nil, fmt.Errorf("s3 ReadAll(%s) falhou: %w", key, err)
+	}
+	return data, nil
 }

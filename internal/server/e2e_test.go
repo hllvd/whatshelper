@@ -409,4 +409,51 @@ func TestAPI_SourceStatusAndTenantPolicy(t *testing.T) {
 	if contactResp.StatusCode != http.StatusOK || len(contactBody.Sources) != 1 || contactBody.Sources[0].SourceKey != "u-api" {
 		t.Fatalf("expected 1 linked source via GSI1 endpoint, got status=%d body=%+v", contactResp.StatusCode, contactBody)
 	}
+
+	// 6. Testa API de conhecimento (PUT + GET + versions + proteção path traversal) e página /knowledge
+	putKReq1, _ := http.NewRequest(http.MethodPut, tsAppr.URL+"/api/knowledge/guia.md",
+		strings.NewReader(`{"tenant_id":"demo","content":"# Guia v1"}`))
+	putKResp1, err := tsAppr.Client().Do(putKReq1)
+	if err != nil || putKResp1.StatusCode != http.StatusOK {
+		t.Fatalf("PUT knowledge v1 failed: status=%v err=%v", putKResp1, err)
+	}
+	_ = putKResp1.Body.Close()
+
+	putKReq2, _ := http.NewRequest(http.MethodPut, tsAppr.URL+"/api/knowledge/guia.md",
+		strings.NewReader(`{"tenant_id":"demo","content":"# Guia v2"}`))
+	putKResp2, _ := tsAppr.Client().Do(putKReq2)
+	_ = putKResp2.Body.Close()
+
+	verResp, err := tsAppr.Client().Get(tsAppr.URL + "/api/knowledge/guia.md/versions?tenant=demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var verBody struct {
+		Versions []core.BlobVersion `json:"versions"`
+	}
+	_ = json.NewDecoder(verResp.Body).Decode(&verBody)
+	_ = verResp.Body.Close()
+	if verResp.StatusCode != http.StatusOK || len(verBody.Versions) != 2 {
+		t.Fatalf("expected 2 knowledge versions, got status=%d body=%+v", verResp.StatusCode, verBody)
+	}
+
+	// Busca versão antiga v1
+	oldResp, err := tsAppr.Client().Get(tsAppr.URL + "/api/knowledge/guia.md?tenant=demo&version_id=v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var oldDoc struct {
+		Content string `json:"content"`
+	}
+	_ = json.NewDecoder(oldResp.Body).Decode(&oldDoc)
+	_ = oldResp.Body.Close()
+	if oldDoc.Content != "# Guia v1" {
+		t.Fatalf("expected v1 content '# Guia v1', got %q", oldDoc.Content)
+	}
+
+	uiResp, err := tsAppr.Client().Get(tsAppr.URL + "/knowledge")
+	if err != nil || uiResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /knowledge failed: err=%v", err)
+	}
+	_ = uiResp.Body.Close()
 }

@@ -342,3 +342,58 @@ func (s *BlobKnowledgeSource) Load(ctx context.Context, tenantID string) (Knowle
 
 	return bundle, nil
 }
+
+// Invalidate remove o tenant do cache para refletir edições imediatamente.
+func (s *BlobKnowledgeSource) Invalidate(tenantID string) {
+	s.mu.Lock()
+	delete(s.cache, tenantID)
+	s.mu.Unlock()
+}
+
+// SeedLocalKnowledge copia <tenantsDir>/<tenant>/knowledge/*.md para o BlobStore quando ainda não existem.
+func SeedLocalKnowledge(ctx context.Context, tenantsDir string, blobs core.BlobStore) ([]string, error) {
+	entries, err := os.ReadDir(tenantsDir)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao listar tenantsDir (%s): %w", tenantsDir, err)
+	}
+	var seededKeys []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		tenantID := entry.Name()
+		kDir := filepath.Join(tenantsDir, tenantID, "knowledge")
+		kFiles, err := os.ReadDir(kDir)
+		if err != nil {
+			continue
+		}
+		existingList, err := blobs.List(ctx, store.S3KnowledgeKey(tenantID, ""))
+		if err != nil {
+			return nil, err
+		}
+		existingSet := make(map[string]bool, len(existingList))
+		for _, k := range existingList {
+			existingSet[k] = true
+		}
+
+		for _, f := range kFiles {
+			if f.IsDir() || !strings.HasSuffix(strings.ToLower(f.Name()), ".md") {
+				continue
+			}
+			key := store.S3KnowledgeKey(tenantID, f.Name())
+			if existingSet[key] {
+				continue
+			}
+			raw, err := os.ReadFile(filepath.Join(kDir, f.Name()))
+			if err != nil {
+				return nil, err
+			}
+			if err := blobs.Put(ctx, key, raw, "text/markdown; charset=utf-8"); err != nil {
+				return nil, err
+			}
+			seededKeys = append(seededKeys, key)
+		}
+	}
+	sort.Strings(seededKeys)
+	return seededKeys, nil
+}

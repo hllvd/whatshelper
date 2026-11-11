@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <title>Whatshelper — Conhecimento &amp; Política</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>Whatshelper Brain — Conhecimento</h1>
+    <nav aria-label="Navegação principal">
+      <ul class="nav-links">
+        <li><a href="/">Chat Simulador</a></li>
+        <li><a href="/thinking">Pensando (Traces)</a></li>
+        <li><a href="/knowledge" aria-current="page">Conhecimento</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <div class="layout-grid">
+    <aside class="panel" aria-label="Documentos e política do tenant">
+      <h2>Tenant</h2>
+      <div class="session-controls">
+        <label for="knowledge-tenant">ID do Tenant</label>
+        <input id="knowledge-tenant" type="text" value="demo" autocomplete="off">
+        <button id="reload-knowledge-btn" type="button">Carregar</button>
+      </div>
+
+      <h2>Arquivos (.md)</h2>
+      <ul id="files-list" class="source-list"></ul>
+
+      <div class="session-controls" style="margin-top:0.75rem;">
+        <label for="new-filename">Novo arquivo (.md)</label>
+        <input id="new-filename" type="text" placeholder="ex: faq-extra.md" autocomplete="off">
+        <button id="create-file-btn" type="button">Criar / Abrir</button>
+      </div>
+
+      <h2>Política do Tenant</h2>
+      <form id="policy-form" class="session-controls">
+        <label><input id="policy-bot-enabled" type="checkbox"> Bot ativo (bot_enabled)</label>
+        <label><input id="policy-proactive" type="checkbox"> Proativo / Nudge (proactive_enabled)</label>
+        <label for="policy-mode">Modo</label>
+        <select id="policy-mode">
+          <option value="auto">auto</option>
+          <option value="approval">approval</option>
+          <option value="draft">draft</option>
+        </select>
+        <button type="submit" class="btn-sm primary">Salvar Política</button>
+        <span id="policy-status" style="font-size:0.8rem;" aria-live="polite"></span>
+      </form>
+    </aside>
+
+    <main class="panel" style="display:flex;flex-direction:column;gap:0.85rem;">
+      <div class="toolbar-row" style="justify-content:space-between;">
+        <h2 id="active-file-title">Selecione um documento</h2>
+        <div class="toolbar-row">
+          <span id="save-status" class="status-pill" aria-live="polite">Pronto</span>
+          <button id="save-file-btn" type="button" class="btn-sm primary">Salvar no MinIO</button>
+        </div>
+      </div>
+
+      <label for="file-editor" class="visually-hidden">Conteúdo Markdown do documento</label>
+      <textarea id="file-editor" class="editor-textarea" placeholder="Conteúdo Markdown..."></textarea>
+
+      <section aria-label="Histórico de versões no S3/MinIO">
+        <h3>Histórico de Versões</h3>
+        <div id="versions-list"></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/static/knowledge.js"></script>
+</body>
+</html>

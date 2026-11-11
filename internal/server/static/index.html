@@ -14,6 +14,7 @@
       <ul class="nav-links">
         <li><a href="/" aria-current="page">Chat Simulador</a></li>
         <li><a href="/thinking">Pensando (Traces)</a></li>
+        <li><a href="/knowledge">Conhecimento</a></li>
       </ul>
     </nav>
   </header>
@@ -22,18 +23,28 @@
     <aside class="panel" aria-label="Sessões do simulador">
       <h2>Sessão</h2>
       <div class="session-controls">
+        <label for="tenant-input">Tenant</label>
+        <input id="tenant-input" type="text" value="demo" autocomplete="off">
         <label for="session-input">Source Key</label>
         <input id="session-input" type="text" value="sim-user-1" autocomplete="off">
         <button id="new-session-btn" type="button">Nova Sessão</button>
       </div>
       <h2>Conversas Recentes</h2>
       <ul id="sources-list" class="source-list"></ul>
+      <h2>Pendências e Aprovações</h2>
+      <div id="pending-tasks" style="display:flex;flex-direction:column;gap:0.5rem;"></div>
     </aside>
 
     <main class="panel chat-container">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;">
+      <div class="toolbar-row" style="justify-content:space-between;">
         <h2 id="active-session-title">Conversa</h2>
-        <span id="sse-status" class="status-pill" aria-live="polite">Conectando SSE...</span>
+        <div class="toolbar-row">
+          <span id="source-status-badge" class="status-pill">active</span>
+          <button id="btn-pause" type="button" class="btn-sm">Pausar Bot</button>
+          <button id="btn-handoff" type="button" class="btn-sm">Assumir Humano</button>
+          <button id="btn-resume" type="button" class="btn-sm">Reativar</button>
+          <span id="sse-status" class="status-pill" aria-live="polite">Conectando SSE...</span>
+        </div>
       </div>
 
       <section id="chat-messages" class="chat-messages" aria-label="Mensagens da conversa" aria-live="polite"></section>

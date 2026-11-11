@@ -78,6 +78,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	knowledgeSrc := brain.NewBlobKnowledgeSource(blobRepo, clock, 5*time.Second)
+
 	pipeline := brain.NewPipeline(appCtx, brain.PipelineConfig{
 		Store:               storeRepo,
 		Blobs:               blobRepo,
@@ -85,7 +87,7 @@ func main() {
 		Bus:                 bus,
 		Clock:               clock,
 		Tenants:             brain.NewStoreTenantPolicyLoader(storeRepo, brain.NewLocalTenantLoader(cfg.TenantsDir)),
-		Knowledge:           brain.NewLocalKnowledgeSource(cfg.TenantsDir),
+		Knowledge:           knowledgeSrc,
 		PackLoader:          func(name string) (*pack.Pack, error) { return pack.LoadFromDir(filepath.Join(cfg.PacksDir, name)) },
 		AnalysisModel:       analysisModel,
 		ResponseModel:       responseModel,
@@ -126,6 +128,7 @@ func main() {
 		Bus:       bus,
 		Simulator: simCh,
 		Pipeline:  pipeline,
+		Knowledge: knowledgeSrc,
 	})
 
 	serverErrCh := make(chan error, 1)
@@ -228,5 +231,12 @@ func runStoreInit(cfg config.Config, logger *slog.Logger) error {
 		return err
 	}
 	logger.Info("políticas de tenants carregadas", slog.Any("tenants", seeded))
+
+	blobRepo := s3blob.NewStore(s3Client, cfg.S3Bucket)
+	seededDocs, err := brain.SeedLocalKnowledge(ctx, cfg.TenantsDir, blobRepo)
+	if err != nil {
+		return err
+	}
+	logger.Info("documentos de conhecimento semeados", slog.Any("keys", seededDocs))
 	return nil
 }

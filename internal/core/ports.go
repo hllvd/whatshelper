@@ -106,6 +106,21 @@ type BlobStore interface {
 	List(ctx context.Context, prefix string) ([]string, error)
 }
 
+// BlobVersion descreve uma versão histórica de um objeto no BlobStore.
+type BlobVersion struct {
+	VersionID    string    `json:"version_id"`
+	IsLatest     bool      `json:"is_latest"`
+	LastModified time.Time `json:"last_modified"`
+	Size         int64     `json:"size"`
+}
+
+// VersionedBlobStore é uma extensão opcional de BlobStore com leitura de histórico de versões.
+type VersionedBlobStore interface {
+	BlobStore
+	ListVersions(ctx context.Context, key string) ([]BlobVersion, error)
+	GetVersion(ctx context.Context, key, versionID string) ([]byte, error)
+}
+
 // LLMRequest estrutura a chamada para o provedor de modelo de linguagem.
 type LLMRequest struct {
 	Stage       string            `json:"stage"` // "analysis", "response", "nudge", etc.

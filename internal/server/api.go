@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -530,6 +532,182 @@ func (s *Server) handleListContactSources(w http.ResponseWriter, r *http.Request
 		"tenant_id":  tenant,
 		"contact_id": contactID,
 		"sources":    sources,
+	})
+}
+
+type knowledgeFileView struct {
+	Name    string `json:"name"`
+	Key     string `json:"key"`
+	Content string `json:"content"`
+	IsQA    bool   `json:"is_qa"`
+}
+
+func validateKnowledgeFilename(raw string) (string, bool) {
+	name := strings.TrimSpace(raw)
+	if name == "" || strings.ContainsAny(name, `/\`) || strings.Contains(name, "..") {
+		return "", false
+	}
+	clean := filepath.Base(name)
+	if clean != name || !strings.HasSuffix(strings.ToLower(clean), ".md") {
+		return "", false
+	}
+	return clean, true
+}
+
+func (s *Server) handleListKnowledge(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Blobs == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "blob store não configurado")
+		return
+	}
+	tenant := strings.TrimSpace(r.URL.Query().Get("tenant"))
+	if tenant == "" {
+		tenant = "demo"
+	}
+	prefix := store.S3KnowledgeKey(tenant, "")
+	keys, err := s.deps.Blobs.List(r.Context(), prefix)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	sort.Strings(keys)
+
+	files := make([]knowledgeFileView, 0, len(keys))
+	for _, k := range keys {
+		if !strings.HasSuffix(strings.ToLower(k), ".md") {
+			continue
+		}
+		raw, err := s.deps.Blobs.Get(r.Context(), k)
+		if err != nil {
+			continue
+		}
+		name := filepath.Base(k)
+		files = append(files, knowledgeFileView{
+			Name:    name,
+			Key:     k,
+			Content: string(raw),
+			IsQA:    strings.EqualFold(name, "QA.md"),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"tenant": tenant,
+		"files":  files,
+	})
+}
+
+func (s *Server) handleGetKnowledgeFile(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Blobs == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "blob store não configurado")
+		return
+	}
+	file, ok := validateKnowledgeFilename(r.PathValue("file"))
+	if !ok {
+		writeJSONError(w, http.StatusBadRequest, "nome de arquivo .md inválido")
+		return
+	}
+	tenant := strings.TrimSpace(r.URL.Query().Get("tenant"))
+	if tenant == "" {
+		tenant = "demo"
+	}
+	key := store.S3KnowledgeKey(tenant, file)
+	versionID := strings.TrimSpace(r.URL.Query().Get("version_id"))
+
+	var raw []byte
+	var err error
+	if versionID != "" {
+		vbs, ok := s.deps.Blobs.(core.VersionedBlobStore)
+		if !ok {
+			writeJSONError(w, http.StatusNotImplemented, "versionamento não suportado pelo blob store")
+			return
+		}
+		raw, err = vbs.GetVersion(r.Context(), key, versionID)
+	} else {
+		raw, err = s.deps.Blobs.Get(r.Context(), key)
+	}
+	if err != nil {
+		writeJSONError(w, http.StatusNotFound, "arquivo não encontrado")
+		return
+	}
+	writeJSON(w, http.StatusOK, knowledgeFileView{
+		Name:    file,
+		Key:     key,
+		Content: string(raw),
+		IsQA:    strings.EqualFold(file, "QA.md"),
+	})
+}
+
+type putKnowledgeRequest struct {
+	TenantID string `json:"tenant_id"`
+	Content  string `json:"content"`
+}
+
+func (s *Server) handlePutKnowledgeFile(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Blobs == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "blob store não configurado")
+		return
+	}
+	file, ok := validateKnowledgeFilename(r.PathValue("file"))
+	if !ok {
+		writeJSONError(w, http.StatusBadRequest, "nome de arquivo .md inválido")
+		return
+	}
+	var req putKnowledgeRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2<<20)).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "JSON inválido")
+		return
+	}
+	tenant := strings.TrimSpace(req.TenantID)
+	if tenant == "" {
+		tenant = strings.TrimSpace(r.URL.Query().Get("tenant"))
+	}
+	if tenant == "" {
+		tenant = "demo"
+	}
+
+	key := store.S3KnowledgeKey(tenant, file)
+	if err := s.deps.Blobs.Put(r.Context(), key, []byte(req.Content), "text/markdown; charset=utf-8"); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if s.deps.Knowledge != nil {
+		s.deps.Knowledge.Invalidate(tenant)
+	}
+	writeJSON(w, http.StatusOK, knowledgeFileView{
+		Name:    file,
+		Key:     key,
+		Content: req.Content,
+		IsQA:    strings.EqualFold(file, "QA.md"),
+	})
+}
+
+func (s *Server) handleListKnowledgeVersions(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Blobs == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "blob store não configurado")
+		return
+	}
+	file, ok := validateKnowledgeFilename(r.PathValue("file"))
+	if !ok {
+		writeJSONError(w, http.StatusBadRequest, "nome de arquivo .md inválido")
+		return
+	}
+	tenant := strings.TrimSpace(r.URL.Query().Get("tenant"))
+	if tenant == "" {
+		tenant = "demo"
+	}
+	vbs, ok := s.deps.Blobs.(core.VersionedBlobStore)
+	if !ok {
+		writeJSON(w, http.StatusOK, map[string]any{"versions": []core.BlobVersion{}})
+		return
+	}
+	key := store.S3KnowledgeKey(tenant, file)
+	versions, err := vbs.ListVersions(r.Context(), key)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"file":     file,
+		"key":      key,
+		"versions": versions,
 	})
 }
 

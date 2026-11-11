@@ -171,3 +171,38 @@ business_hours:
 		t.Fatalf("expected mode draft from store, got %s", got.Mode)
 	}
 }
+
+func TestSeedLocalKnowledge_And_InvalidateCache(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	kDir := filepath.Join(tmp, "demo", "knowledge")
+	_ = os.MkdirAll(kDir, 0o755)
+	_ = os.WriteFile(filepath.Join(kDir, "info.md"), []byte("Versão 1"), 0o644)
+
+	blobs := fakes.NewMemoryBlobStore()
+	seeded, err := brain.SeedLocalKnowledge(ctx, tmp, blobs)
+	if err != nil || len(seeded) != 1 {
+		t.Fatalf("expected 1 seeded doc, got %v err=%v", seeded, err)
+	}
+
+	// Não sobrescreve documento já existente no BlobStore
+	_ = blobs.Put(ctx, store.S3KnowledgeKey("demo", "info.md"), []byte("Editado no UI"), "text/markdown")
+	seededAgain, err := brain.SeedLocalKnowledge(ctx, tmp, blobs)
+	if err != nil || len(seededAgain) != 0 {
+		t.Fatalf("expected 0 docs re-seeded, got %v err=%v", seededAgain, err)
+	}
+
+	clock := fakes.NewFakeClock(time.Date(2026, 11, 11, 14, 0, 0, 0, time.UTC))
+	ks := brain.NewBlobKnowledgeSource(blobs, clock, 60*time.Second)
+	b1, _ := ks.Load(ctx, "demo")
+	if len(b1.Docs) != 1 || b1.Docs[0].Content != "Editado no UI" {
+		t.Fatalf("unexpected doc content: %+v", b1.Docs)
+	}
+
+	_ = blobs.Put(ctx, store.S3KnowledgeKey("demo", "info.md"), []byte("Editado v3"), "text/markdown")
+	ks.Invalidate("demo")
+	b2, _ := ks.Load(ctx, "demo")
+	if b2.Docs[0].Content != "Editado v3" {
+		t.Fatalf("expected immediate reload after Invalidate, got %q", b2.Docs[0].Content)
+	}
+}

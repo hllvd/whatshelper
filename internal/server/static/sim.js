@@ -1,16 +1,19 @@
 (function () {
+  const tenantInput = document.getElementById('tenant-input');
   const sessionInput = document.getElementById('session-input');
   const newSessionBtn = document.getElementById('new-session-btn');
   const sourcesList = document.getElementById('sources-list');
+  const pendingTasksEl = document.getElementById('pending-tasks');
   const chatMessages = document.getElementById('chat-messages');
   const chatForm = document.getElementById('chat-form');
   const chatInput = document.getElementById('chat-input');
   const sendBtn = document.getElementById('send-button');
   const activeTitle = document.getElementById('active-session-title');
+  const sourceStatusBadge = document.getElementById('source-status-badge');
   const sseStatus = document.getElementById('sse-status');
 
-  const TENANT = 'demo';
   const CHANNEL = 'simulator';
+  let activeTenant = (tenantInput && tenantInput.value.trim()) || 'demo';
   let activeSource = sessionInput.value.trim() || 'sim-user-1';
   let sse = null;
 
@@ -34,14 +37,22 @@
   }
 
   async function loadMessages() {
-    activeTitle.textContent = 'Conversa: ' + activeSource;
+    activeTitle.textContent = `Conversa (${activeTenant}): ${activeSource}`;
     chatMessages.textContent = '';
     try {
-      const res = await fetch(`/api/sources/${encodeURIComponent(CHANNEL)}/${encodeURIComponent(activeSource)}/messages?tenant=${TENANT}`);
-      if (!res.ok) return;
-      const data = await res.json();
-      for (const m of (data.messages || [])) {
-        renderBubble(m.direction, m.text, m.timestamp);
+      const [msgRes, stateRes] = await Promise.all([
+        fetch(`/api/sources/${encodeURIComponent(CHANNEL)}/${encodeURIComponent(activeSource)}/messages?tenant=${encodeURIComponent(activeTenant)}`),
+        fetch(`/api/sources/${encodeURIComponent(CHANNEL)}/${encodeURIComponent(activeSource)}/state?tenant=${encodeURIComponent(activeTenant)}`),
+      ]);
+      if (msgRes.ok) {
+        const data = await msgRes.json();
+        for (const m of (data.messages || [])) {
+          renderBubble(m.direction, m.text, m.timestamp);
+        }
+      }
+      if (stateRes.ok) {
+        const st = await stateRes.json();
+        sourceStatusBadge.textContent = (st.meta && st.meta.status) || 'active';
       }
     } catch (err) {
       console.error('Erro ao carregar mensagens:', err);
@@ -50,7 +61,7 @@
 
   async function loadSources() {
     try {
-      const res = await fetch(`/api/sources?tenant=${TENANT}`);
+      const res = await fetch(`/api/sources?tenant=${encodeURIComponent(activeTenant)}`);
       if (!res.ok) return;
       const data = await res.json();
       sourcesList.textContent = '';
@@ -58,7 +69,7 @@
         const li = document.createElement('li');
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.textContent = `${s.channel}:${s.source_key}`;
+        btn.textContent = `${s.channel}:${s.source_key} (${s.status})`;
         if (s.channel === CHANNEL && s.source_key === activeSource) {
           btn.className = 'active';
         }
@@ -77,9 +88,87 @@
     }
   }
 
+  async function loadPendingTasks() {
+    if (!pendingTasksEl) return;
+    try {
+      const res = await fetch(`/api/tasks/pending?tenant=${encodeURIComponent(activeTenant)}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      pendingTasksEl.textContent = '';
+      const tasks = data.tasks || [];
+      if (tasks.length === 0) {
+        const empty = document.createElement('p');
+        empty.style.fontSize = '0.8rem';
+        empty.textContent = 'Nenhuma pendência.';
+        pendingTasksEl.appendChild(empty);
+        return;
+      }
+      for (const t of tasks) {
+        const card = document.createElement('div');
+        card.className = 'task-card';
+        const title = document.createElement('strong');
+        title.textContent = `[${t.kind || t.type}] ${t.title}`;
+        card.appendChild(title);
+
+        const info = document.createElement('span');
+        info.textContent = `${t.channel}:${t.source_key}` + (t.metadata && t.metadata.preview ? ` — ${t.metadata.preview}` : '');
+        card.appendChild(info);
+
+        const actions = document.createElement('div');
+        actions.className = 'toolbar-row';
+        if (t.kind === 'approval') {
+          const apprBtn = document.createElement('button');
+          apprBtn.type = 'button';
+          apprBtn.className = 'btn-sm primary';
+          apprBtn.textContent = 'Aprovar & Enviar';
+          apprBtn.addEventListener('click', async () => {
+            await fetch(`/api/tasks/${encodeURIComponent(t.id)}/approve?tenant=${encodeURIComponent(activeTenant)}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ tenant_id: activeTenant, channel: t.channel, source_key: t.source_key }),
+            });
+            loadPendingTasks();
+            loadMessages();
+          });
+          actions.appendChild(apprBtn);
+        } else {
+          const doneBtn = document.createElement('button');
+          doneBtn.type = 'button';
+          doneBtn.className = 'btn-sm';
+          doneBtn.textContent = 'Concluir';
+          doneBtn.addEventListener('click', async () => {
+            await fetch(`/api/tasks/${encodeURIComponent(t.id)}/complete?tenant=${encodeURIComponent(activeTenant)}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ tenant_id: activeTenant, channel: t.channel, source_key: t.source_key }),
+            });
+            loadPendingTasks();
+          });
+          actions.appendChild(doneBtn);
+        }
+        card.appendChild(actions);
+        pendingTasksEl.appendChild(card);
+      }
+    } catch (err) {
+      console.error('Erro ao listar tarefas:', err);
+    }
+  }
+
+  async function setSourceStatus(status, reason) {
+    const res = await fetch(`/api/sources/${encodeURIComponent(CHANNEL)}/${encodeURIComponent(activeSource)}/status`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenant_id: activeTenant, status, reason }),
+    });
+    if (res.ok) {
+      sourceStatusBadge.textContent = status;
+      loadSources();
+    }
+  }
+
   function connectSSE() {
     if (sse) sse.close();
-    const url = `/api/events?tenant=${encodeURIComponent(TENANT)}&channel=${encodeURIComponent(CHANNEL)}&source=${encodeURIComponent(activeSource)}`;
+    const url = `/api/events?tenant=${encodeURIComponent(activeTenant)}&channel=${encodeURIComponent(CHANNEL)}&source=${encodeURIComponent(activeSource)}`;
     sse = new EventSource(url);
 
     sse.onopen = () => {
@@ -107,12 +196,33 @@
       sseStatus.textContent = 'SSE conectado';
     });
 
+    sse.addEventListener('approval.pending', () => {
+      sseStatus.textContent = 'Aguardando aprovação';
+      loadPendingTasks();
+    });
+
+    sse.addEventListener('task.created', () => {
+      loadPendingTasks();
+    });
+
+    sse.addEventListener('source.status_updated', (ev) => {
+      const data = JSON.parse(ev.data);
+      if (data.payload && data.payload.status) {
+        sourceStatusBadge.textContent = data.payload.status;
+      }
+      loadSources();
+    });
+
+    sse.addEventListener('run.skipped', (ev) => {
+      const data = JSON.parse(ev.data);
+      sseStatus.textContent = 'Ignorado: ' + ((data.payload && data.payload.reason) || '');
+    });
+
     sse.addEventListener('pipeline.failed', () => {
       sseStatus.textContent = 'Falha na análise (fallback seguro)';
     });
   }
 
-  // IME-safe Enter-to-submit conforme modern-web-guidance
   chatInput.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
@@ -128,6 +238,7 @@
     const text = chatInput.value.trim();
     if (!text) return;
 
+    activeTenant = (tenantInput && tenantInput.value.trim()) || 'demo';
     activeSource = sessionInput.value.trim() || 'sim-user-1';
     sendBtn.disabled = true;
     try {
@@ -135,7 +246,7 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          tenant_id: TENANT,
+          tenant_id: activeTenant,
           source_key: activeSource,
           text: text,
         }),
@@ -148,6 +259,20 @@
       sendBtn.disabled = false;
     }
   });
+
+  document.getElementById('btn-pause').addEventListener('click', () => setSourceStatus('paused', 'pausado pelo operador'));
+  document.getElementById('btn-handoff').addEventListener('click', () => setSourceStatus('human', 'assumido por humano'));
+  document.getElementById('btn-resume').addEventListener('click', () => setSourceStatus('active', 'reativado pelo operador'));
+
+  if (tenantInput) {
+    tenantInput.addEventListener('change', () => {
+      activeTenant = tenantInput.value.trim() || 'demo';
+      connectSSE();
+      loadMessages();
+      loadSources();
+      loadPendingTasks();
+    });
+  }
 
   sessionInput.addEventListener('change', () => {
     activeSource = sessionInput.value.trim() || 'sim-user-1';
@@ -167,4 +292,5 @@
   connectSSE();
   loadMessages();
   loadSources();
+  loadPendingTasks();
 })();

@@ -28,6 +28,7 @@ type Dependencies struct {
 	Bus       core.EventBus
 	Simulator *simulator.Channel
 	Pipeline  *brain.Pipeline
+	Knowledge interface{ Invalidate(tenantID string) }
 }
 
 // Server encapsula o servidor HTTP do Brain com logging estruturado e graceful shutdown.
@@ -115,6 +116,10 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/tasks/{id}/complete", s.handleCompleteTask)
 	mux.HandleFunc("POST /api/tasks/{id}/approve", s.handleApproveTask)
 	mux.HandleFunc("GET /api/contacts/{contact_id}/sources", s.handleListContactSources)
+	mux.HandleFunc("GET /api/knowledge", s.handleListKnowledge)
+	mux.HandleFunc("GET /api/knowledge/{file}", s.handleGetKnowledgeFile)
+	mux.HandleFunc("PUT /api/knowledge/{file}", s.handlePutKnowledgeFile)
+	mux.HandleFunc("GET /api/knowledge/{file}/versions", s.handleListKnowledgeVersions)
 	mux.HandleFunc("GET /api/runs/{id}/trace", s.handleGetRunTrace)
 	mux.HandleFunc("GET /api/tenants/{id}/policy", s.handleGetTenantPolicy)
 	mux.HandleFunc("PUT /api/tenants/{id}/policy", s.handlePutTenantPolicy)
@@ -122,12 +127,13 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	// Stream de eventos SSE (SRV-02)
 	mux.HandleFunc("GET /api/events", s.handleEvents)
 
-	// UIs estáticas (SRV-03, SRV-04)
+	// UIs estáticas (SRV-03, SRV-04, SRV-05)
 	subFS, _ := fs.Sub(staticFS, "static")
 	fileServer := http.FileServer(http.FS(subFS))
 	mux.Handle("GET /static/", http.StripPrefix("/static/", fileServer))
 	mux.HandleFunc("GET /{$}", s.serveStaticFile(subFS, "index.html", "text/html; charset=utf-8"))
 	mux.HandleFunc("GET /thinking", s.serveStaticFile(subFS, "thinking.html", "text/html; charset=utf-8"))
+	mux.HandleFunc("GET /knowledge", s.serveStaticFile(subFS, "knowledge.html", "text/html; charset=utf-8"))
 }
 
 func (s *Server) serveStaticFile(fsys fs.FS, name, contentType string) http.HandlerFunc {
