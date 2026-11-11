@@ -38,26 +38,26 @@ A ordem de execução está nos milestones M0 → M5, no final do arquivo.
 - [x] **CORE-01 — Mensagem normalizada.** Campos: tenant, channel, account, source_key, message_id, timestamp, direction, type (texto/áudio/imagem/doc), text, media_ref, raw_ref.
 - [x] **CORE-02 — Entidades.** Tenant, Source (conversa em um canal), Contact (opcional/futuro), Fact, Signal, Summary, Task, Nudge, Run (trace de processamento).
 - [x] **CORE-03 — Interfaces (ports).** `Channel`, `Store`, `BlobStore`, `LLM`, `Clock`, `AdminNotifier`. Cada uma com implementação in-memory para testes.
-- [ ] **CORE-04 — Barramento de eventos.** Eventos do pipeline (mensagem recebida, análise iniciada/concluída, prompt enviado, resposta gerada/enviada, escalonamento, aprendizado). Alimenta o visualizador.
-- [ ] **CORE-05 — Idempotência e concorrência.** Dedupe por `message_id`, fila/lock por conversa, debounce de mensagens em rajada.
+- [x] **CORE-04 — Barramento de eventos.** Eventos do pipeline (mensagem recebida, análise iniciada/concluída, prompt enviado, resposta gerada/enviada, escalonamento, aprendizado). Alimenta o visualizador.
+- [x] **CORE-05 — Idempotência e concorrência.** Dedupe por `message_id`, fila/lock por conversa, debounce de mensagens em rajada.
 
 ## PACK — Vertical packs (agnosticismo de mercado)
 
-- [ ] **PACK-01 — Formato de pack.** Pasta com `pack.yaml` (nome, idioma, intents, schema de fatos, sinais, contexto), `prompts/*.tmpl` e valores padrão.
-- [ ] **PACK-02 — Schema de fatos configurável.** Chaves, tipos e normalização definidos no pack, no lugar da lista fixa do prompt imobiliário (Intent, Budget, Bedrooms etc.).
+- [x] **PACK-01 — Formato de pack.** Pasta com `pack.yaml` (nome, idioma, intents, schema de fatos, sinais, contexto), `prompts/*.tmpl` e valores padrão.
+- [x] **PACK-02 — Schema de fatos configurável.** Chaves, tipos e normalização definidos no pack, no lugar da lista fixa do prompt imobiliário (Intent, Budget, Bedrooms etc.).
 - [ ] **PACK-03 — Intents configuráveis.** Cada intent com nome, descrição, exemplos e ação associada (responder, escalar, criar task, passar para humano).
-- [ ] **PACK-04 — Sinais e contexto configuráveis.** Gerar o JSON schema de saída da análise a partir do pack e validar a resposta do LLM contra ele.
-- [ ] **PACK-05 — Templates de prompt.** Montar os prompts de análise, resposta e nudge a partir do pack e do estado (resumo, fatos, mensagens recentes, conhecimento).
-- [ ] **PACK-06 — Pack `realestate`.** Migrar os três prompts existentes preservando as regras: não assumir fatos, uma pergunta de qualificação por vez, nunca inventar imóveis ou preços, respostas em PT-BR.
+- [x] **PACK-04 — Sinais e contexto configuráveis.** Gerar o JSON schema de saída da análise a partir do pack e validar a resposta do LLM contra ele.
+- [x] **PACK-05 — Templates de prompt.** Montar os prompts de análise, resposta e nudge a partir do pack e do estado (resumo, fatos, mensagens recentes, conhecimento).
+- [x] **PACK-06 — Pack `realestate`.** Migrar os três prompts existentes preservando as regras: não assumir fatos, uma pergunta de qualificação por vez, nunca inventar imóveis ou preços, respostas em PT-BR.
 - [ ] **PACK-07 — Segundo pack de exemplo.** Ex.: clínica ou suporte genérico, só para provar que o core não depende de imobiliário.
 - [ ] **PACK-08 — Validação de pack.** Comando `brain pack validate` que checa schema, templates e referências.
 
 ## BRAIN — Pipeline do cérebro
 
-- [ ] **BRAIN-01 — Estágio de análise.** Extrair fatos, sinais, contexto e resumo; fazer merge, refinamento e tratar contradições; persistir o estado.
+- [x] **BRAIN-01 — Estágio de análise.** Extrair fatos, sinais, contexto e resumo; fazer merge, refinamento e tratar contradições; persistir o estado.
 - [ ] **BRAIN-02 — Roteamento de intent.** Decidir a ação com base nos intents do pack, nos sinais e no estado da conversa.
-- [ ] **BRAIN-03 — Estágio de resposta.** Gerar a resposta usando `knowledge/*.md`, `QA.md`, resumo e fatos. Respeitar o formato do canal (ex.: texto puro, sem Markdown).
-- [ ] **BRAIN-04 — Conhecimento.** Carregar `.md` por tenant (local ou S3), cachear e recarregar quando mudar.
+- [x] **BRAIN-03 — Estágio de resposta.** Gerar a resposta usando `knowledge/*.md`, `QA.md`, resumo e fatos. Respeitar o formato do canal (ex.: texto puro, sem Markdown).
+- [x] **BRAIN-04 — Conhecimento.** Carregar `.md` por tenant (local ou S3), cachear e recarregar quando mudar.
 - [ ] **BRAIN-05 — Detecção de "não sei".** Critérios (sem fonte no conhecimento, regras do pack, baixa confiança). Responder de forma neutra ao cliente e escalar ao dono.
 - [ ] **BRAIN-06 — Nudge.** Agendador de follow-up para clientes que pararam de responder, com máximo de tentativas e janela de horário.
 - [ ] **BRAIN-07 — Tasks e pendências.** Criar itens a partir do contexto (visita, ligação, documentos) e expô-los via API.
@@ -74,9 +74,9 @@ A ordem de execução está nos milestones M0 → M5, no final do arquivo.
 
 ## CH — Canais (mensageria)
 
-- [ ] **CH-01 — Contrato `Channel`.** Start/Stop, stream de mensagens recebidas, Send, indicador de digitando, health e capacidades declaradas (texto, mídia, reações).
+- [x] **CH-01 — Contrato `Channel`.** Start/Stop, stream de mensagens recebidas, Send, indicador de digitando, health e capacidades declaradas (texto, mídia, reações).
 - [ ] **CH-02 — Protocolo connector ↔ brain.** HTTP/WebSocket com autenticação, versionamento e retries. Documentar em `docs/`.
-- [ ] **CH-03 — Canal simulador.** Chat web para desenvolvimento. É o primeiro canal implementado.
+- [x] **CH-03 — Canal simulador.** Chat web para desenvolvimento. É o primeiro canal implementado.
 - [ ] **CH-04 — Connector WhatsApp (whatsmeow).** Pareamento por QR/código, reconexão, receber e enviar texto, ids e dedupe. Localmente a sessão fica em SQLite num volume do docker-compose.
 - [ ] **CH-05 — Envio humanizado.** Atraso variável, indicador de digitando, fila por conversa e rate limit.
 - [ ] **CH-06 — Mídia.** Áudio com transcrição via provider; imagem e documento salvos no S3 e referenciados. Pode ficar para depois do texto.
@@ -86,10 +86,10 @@ A ordem de execução está nos milestones M0 → M5, no final do arquivo.
 
 ## SRV — Servidor local e visualizador
 
-- [ ] **SRV-01 — API HTTP.** Enviar mensagem como cliente, listar conversas, ver estado (resumo, fatos, sinais, tasks).
-- [ ] **SRV-02 — Stream de eventos.** SSE ou WebSocket com os eventos do pipeline em tempo real.
-- [ ] **SRV-03 — UI de chat simulador.** Conversar com o bot como se fosse um cliente.
-- [ ] **SRV-04 — UI "pensando".** Linha do tempo por mensagem: prompt enviado, resposta crua, JSON parseado, diff de fatos, tempo e tokens.
+- [x] **SRV-01 — API HTTP.** Enviar mensagem como cliente, listar conversas, ver estado (resumo, fatos, sinais, tasks).
+- [x] **SRV-02 — Stream de eventos.** SSE ou WebSocket com os eventos do pipeline em tempo real.
+- [x] **SRV-03 — UI de chat simulador.** Conversar com o bot como se fosse um cliente.
+- [x] **SRV-04 — UI "pensando".** Linha do tempo por mensagem: prompt enviado, resposta crua, JSON parseado, diff de fatos, tempo e tokens.
 - [ ] **SRV-05 — UI de conhecimento.** Ver e editar `knowledge/*.md` e `QA.md`, e ver propostas de aprendizado pendentes.
 - [ ] **SRV-06 — Replay.** Reexecutar uma conversa gravada contra outro prompt ou pack e comparar as saídas.
 - [ ] **SRV-07 — Acesso.** Bind local por padrão; token simples para uso remoto.
@@ -97,21 +97,21 @@ A ordem de execução está nos milestones M0 → M5, no final do arquivo.
 ## STO — Armazenamento (DynamoDB + S3)
 
 - [x] **STO-01 — Padrões de acesso.** Documento em `docs/` listando as consultas necessárias (conversa por fonte, mensagens recentes, pendências vencidas, fontes de um contato). O design da tabela parte dele.
-- [ ] **STO-02 — Tabela única.** `PK`/`SK`, GSI1 (fontes de um contato), GSI2 (trabalho vencido: nudges e tasks), TTL. Local: script que cria a tabela no DynamoDB Local. IaC fica para o M5 (OPS-01).
-- [ ] **STO-03 — Itens por fonte.** Sob a mesma partição: `META`, `SUMMARY`, `FACTS`, `SIGNALS`, `CONTEXT`, `MSG#<ts>#<id>` (metadados e referência ao S3), `TASK#…`, `RUN#…`.
-- [ ] **STO-04 — Repositório Go.** Implementar `Store` sobre DynamoDB, com condition expressions para concorrência, e a versão in-memory.
-- [ ] **STO-05 — Layout no S3.** Mensagem crua, mídia e traces em caminhos previsíveis por tenant, canal e fonte. O item `MSG#` aponta para o objeto.
+- [x] **STO-02 — Tabela única.** `PK`/`SK`, GSI1 (fontes de um contato), GSI2 (trabalho vencido: nudges e tasks), TTL. Local: script que cria a tabela no DynamoDB Local. IaC fica para o M5 (OPS-01).
+- [x] **STO-03 — Itens por fonte.** Sob a mesma partição: `META`, `SUMMARY`, `FACTS`, `SIGNALS`, `CONTEXT`, `MSG#<ts>#<id>` (metadados e referência ao S3), `TASK#…`, `RUN#…`.
+- [x] **STO-04 — Repositório Go.** Implementar `Store` sobre DynamoDB, com condition expressions para concorrência, e a versão in-memory.
+- [x] **STO-05 — Layout no S3.** Mensagem crua, mídia e traces em caminhos previsíveis por tenant, canal e fonte. O item `MSG#` aponta para o objeto.
 - [ ] **STO-06 — Linkagem entre fontes (só estrutura).** Atributo `contact_id` e GSI1 reservados, item de link `CONTACT#…` → `SRC#…`. Sem lógica de merge.
 - [ ] **STO-07 — Retenção e custo.** TTL para traces, lifecycle no S3 e atenção ao limite de tamanho de item do DynamoDB.
-- [ ] **STO-08 — Testes de integração.** Rodar contra DynamoDB Local e MinIO.
+- [x] **STO-08 — Testes de integração.** Rodar contra DynamoDB Local e MinIO.
 
 ## LLM — Camada de modelo
 
-- [ ] **LLM-01 — Interface e provider.** Interface `LLM` com implementação para a API da Anthropic. Modelo configurável por estágio (análise, resposta, nudge).
-- [ ] **LLM-02 — Saída JSON validada.** Validar contra o schema do pack, com retry/repair e fallback seguro.
+- [x] **LLM-01 — Interface e provider.** Interface `LLM` com implementação para a API da Anthropic. Modelo configurável por estágio (análise, resposta, nudge).
+- [x] **LLM-02 — Saída JSON validada.** Validar contra o schema do pack, com retry/repair e fallback seguro.
 - [ ] **LLM-03 — Prompt caching e contexto.** Cachear o conhecimento estático, limitar o histórico enviado e truncar com critério.
 - [ ] **LLM-04 — Métricas e resiliência.** Tokens, custo e latência por estágio; timeouts e circuit breaker.
-- [ ] **LLM-05 — LLM fake.** Implementação determinística para testes.
+- [x] **LLM-05 — LLM fake.** Implementação determinística para testes.
 
 ## SAF — Segurança operacional e anti-ban
 
@@ -139,10 +139,10 @@ A ordem de execução está nos milestones M0 → M5, no final do arquivo.
 
 ## QA — Testes
 
-- [ ] **QA-01 — Unitários do core.** Usando os fakes de CORE-03 e LLM-05.
+- [x] **QA-01 — Unitários do core.** Usando os fakes de CORE-03 e LLM-05.
 - [ ] **QA-02 — Golden tests de prompts.** Entrada → JSON esperado, com opção de rodar contra LLM real.
 - [ ] **QA-03 — Fixtures de conversas.** Conversas realistas (imobiliário e pack de exemplo) usadas em testes e replay.
-- [ ] **QA-04 — End-to-end local.** Simulador → brain → store → visualizador.
+- [x] **QA-04 — End-to-end local.** Simulador → brain → store → visualizador.
 - [ ] **QA-05 — Connector.** Testes de reconexão e mensagens duplicadas.
 
 ## DOC — Documentação

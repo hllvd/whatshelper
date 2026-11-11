@@ -63,7 +63,10 @@ func (s *ScriptedLLM) Calls() []core.LLMRequest {
 	return copied
 }
 
-var numberPattern = regexp.MustCompile(`\b\d{3,7}\b`)
+var (
+	timestampPrefix = regexp.MustCompile(`\[\d{4}-\d{2}-\d{2}T[^\]]+\]\s*`)
+	numberPattern   = regexp.MustCompile(`\b\d{3,7}\b`)
+)
 
 // NewOfflineDemoLLM cria um FakeLLM determinístico para uso no modo offline do simulador (LLM_PROVIDER=fake).
 func NewOfflineDemoLLM() *ScriptedLLM {
@@ -71,7 +74,11 @@ func NewOfflineDemoLLM() *ScriptedLLM {
 		switch req.Stage {
 		case "analysis":
 			facts := map[string]any{}
-			if num := numberPattern.FindString(req.Prompt); num != "" {
+			cleanPrompt := timestampPrefix.ReplaceAllString(req.Prompt, "")
+			if idx := strings.Index(cleanPrompt, "NEW MESSAGE:"); idx != -1 {
+				cleanPrompt = cleanPrompt[idx:]
+			}
+			if num := numberPattern.FindString(cleanPrompt); num != "" {
 				// Extrai número apenas se o schema do prompt possuir chave Budget
 				if strings.Contains(req.System, `"Budget"`) {
 					facts["Budget"] = num
