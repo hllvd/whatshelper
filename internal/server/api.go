@@ -711,6 +711,24 @@ func (s *Server) handleListKnowledgeVersions(w http.ResponseWriter, r *http.Requ
 	})
 }
 
+func (s *Server) handlePostReplay(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Pipeline == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "pipeline não configurado")
+		return
+	}
+	var req brain.ReplayRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2<<20)).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "JSON inválido")
+		return
+	}
+	res, err := s.deps.Pipeline.ReplayIsolated(r.Context(), req)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
 func parseIntQuery(r *http.Request, name string, fallback int) int {
 	raw := strings.TrimSpace(r.URL.Query().Get(name))
 	if raw == "" {

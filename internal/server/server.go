@@ -115,6 +115,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/tasks/pending", s.handleListPendingTasks)
 	mux.HandleFunc("POST /api/tasks/{id}/complete", s.handleCompleteTask)
 	mux.HandleFunc("POST /api/tasks/{id}/approve", s.handleApproveTask)
+	mux.HandleFunc("POST /api/replay", s.handlePostReplay)
 	mux.HandleFunc("GET /api/contacts/{contact_id}/sources", s.handleListContactSources)
 	mux.HandleFunc("GET /api/knowledge", s.handleListKnowledge)
 	mux.HandleFunc("GET /api/knowledge/{file}", s.handleGetKnowledgeFile)

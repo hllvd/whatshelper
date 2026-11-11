@@ -1,0 +1,17 @@
+name: support_bug_and_sla
+tenant_id: demo-support
+pack: support
+turns:
+  - message_id: fq-sup-1
+    text: "Estou recebendo erro 502 ao exportar CSV no plano Pro em produção"
+    mock_analysis: '{"summary":"Usuário no plano Pro relata erro 502 ao exportar CSV em produção.","last_sender":"user","intent":"report_bug","facts":{"Plan":"pro","ErrorCode":"502","Environment":"produção"},"signals":{"has_new_question":false,"has_pending_bug":true,"customer_engaged":true},"context":{"last_action":{"type":"bug_report","actor":"user","description":"Erro 502 ao exportar CSV"},"ticket":{"component":"export-csv","repro_steps":"Exportação em produção"}}}'
+    mock_reply: '{"answerable":true,"sources":["troubleshooting.md"],"reply":"Para erro 502 na exportação CSV acima de 50000 linhas, utilize o endpoint assíncrono /v2/exports. Registramos sua ocorrência."}'
+    expect:
+      intent: report_bug
+      decision_action: create_task
+      facts:
+        Plan: pro
+        ErrorCode: "502"
+        Environment: "produção"
+      tasks_min: 1
+      task_type: investigate_bug

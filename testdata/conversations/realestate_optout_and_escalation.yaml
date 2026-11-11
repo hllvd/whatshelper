@@ -1,0 +1,18 @@
+name: realestate_optout_and_escalation
+tenant_id: demo
+pack: realestate
+turns:
+  - message_id: fq-esc-1
+    text: "Aceitam carro na troca mais desconto de 20% fora da tabela?"
+    mock_analysis: '{"summary":"Cliente propôs permuta com veículo e desconto de 20%.","last_sender":"customer","intent":"negotiation_or_exception","facts":{},"signals":{"has_new_question":true,"customer_engaged":true},"context":{"last_action":{"type":"question","actor":"customer","description":"Propôs carro na troca e desconto de 20%"}}}'
+    expect:
+      intent: negotiation_or_exception
+      decision_action: escalate
+      tasks_min: 1
+      task_type: escalation
+      reply_contains: "equipe"
+  - message_id: fq-opt-2
+    text: "SAIR"
+    expect:
+      source_status: opted_out
+      llm_calls_delta: 0

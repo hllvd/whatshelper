@@ -523,4 +523,29 @@ func TestE2E_MultiPack_RealestateAndSupport(t *testing.T) {
 	if stSup.Facts["SLAHours"] != "50000" {
 		t.Fatalf("expected demo-support fact SLAHours=50000, got %+v", stSup.Facts)
 	}
+
+	// Testa POST /api/replay (SRV-06): deve rodar em MemoryStore isolado sem mutar u-sup no storeRepo real
+	srvReplay := server.NewWithDeps(config.LoadFromEnv(), nil, server.Dependencies{
+		Store: storeRepo, Blobs: blobs, Bus: bus, Pipeline: p,
+	})
+	tsReplay := httptest.NewServer(srvReplay.Handler())
+	defer tsReplay.Close()
+
+	repResp, err := tsReplay.Client().Post(tsReplay.URL+"/api/replay", "application/json",
+		strings.NewReader(`{"tenant_id":"demo-support","channel":"simulator","source_key":"u-sup","messages":[{"text":"Qual o limite de 99999 linhas?"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var repResult brain.ReplayResult
+	_ = json.NewDecoder(repResp.Body).Decode(&repResult)
+	_ = repResp.Body.Close()
+	if repResp.StatusCode != http.StatusOK || len(repResult.Turns) != 1 || repResult.Turns[0].ReplyText == "" {
+		t.Fatalf("unexpected replay result: status=%d res=%+v", repResp.StatusCode, repResult)
+	}
+
+	// Store real deve permanecer com apenas 1 run (sem poluição pelo replay)
+	realRuns, _ := storeRepo.ListRuns(ctx, "demo-support", "simulator", "u-sup", 10)
+	if len(realRuns) != 1 {
+		t.Fatalf("expected real store untouched by replay (1 run), got %d", len(realRuns))
+	}
 }

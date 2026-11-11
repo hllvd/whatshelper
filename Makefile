@@ -1,4 +1,4 @@
-.PHONY: up down build test test-race test-integration lint fmt clean docker-build
+.PHONY: up down build test test-race test-integration test-live llm-check lint fmt clean docker-build
 
 APP_NAME := brain
 BIN_DIR := bin
@@ -22,6 +22,16 @@ test-race:
 
 test-integration:
 	go test -v -tags=integration ./internal/store/...
+
+llm-check:
+	@test -n "$$ANTHROPIC_API_KEY" || (echo "ERRO: ANTHROPIC_API_KEY não definido" && exit 1)
+	@test -n "$$MODEL_ANALYSIS" || (echo "ERRO: MODEL_ANALYSIS não definido" && exit 1)
+	@test -n "$$MODEL_RESPONSE" || (echo "ERRO: MODEL_RESPONSE não definido" && exit 1)
+	@test -n "$$MODEL_NUDGE" || (echo "ERRO: MODEL_NUDGE não definido" && exit 1)
+	go test -v -tags=llm_live -run TestLive_SmokeAnthropicPacks ./internal/brain
+
+test-live: llm-check
+	go test -v -tags=llm_live ./internal/brain/...
 
 lint:
 	go vet ./...

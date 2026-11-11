@@ -1,0 +1,25 @@
+name: realestate_qualify
+tenant_id: demo
+pack: realestate
+turns:
+  - message_id: fq-re-1
+    text: "Olá, procuro apartamento de 3 quartos no Centro até 650 mil"
+    mock_analysis: '{"summary":"Cliente busca apartamento de 3 quartos no Centro com orçamento de 650000.","last_sender":"customer","intent":"ask_info","facts":{"Property Type":"apartamento","Bedrooms":3,"Location":"Centro","Budget":650000},"signals":{"has_new_question":false,"customer_engaged":true},"context":{"last_action":{"type":"other","actor":"customer","description":"Informou preferência de imóvel"}}}'
+    mock_reply: '{"answerable":true,"sources":["catalogo.md"],"reply":"Temos opções de 3 quartos na região central dentro do orçamento de 650000. Gostaria de agendar uma visita?"}'
+    expect:
+      intent: ask_info
+      decision_action: reply
+      facts:
+        Bedrooms: "3"
+        Budget: "650000"
+        Location: Centro
+      tasks_min: 0
+  - message_id: fq-re-2
+    text: "Sim, quero visitar amanhã às 14h!"
+    mock_analysis: '{"summary":"Cliente solicitou visita para amanhã às 14h para imóvel no Centro.","last_sender":"customer","intent":"schedule_visit","facts":{"Viewing Interest":true},"signals":{"has_new_question":false,"has_pending_visit":true,"customer_engaged":true},"context":{"last_action":{"type":"visit","actor":"customer","description":"Solicitou visita amanhã às 14h"},"visit":{"proposed_date":"amanhã","proposed_time":"14h"}}}'
+    mock_reply: '{"answerable":true,"sources":["catalogo.md"],"reply":"Perfeito! Vou encaminhar seu pedido de visita para amanhã às 14h."}'
+    expect:
+      intent: schedule_visit
+      decision_action: create_task
+      tasks_min: 1
+      task_type: schedule_visit
