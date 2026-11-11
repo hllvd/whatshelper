@@ -31,6 +31,7 @@ type RunTrace struct {
 	FactsDiff       []FactChange         `json:"facts_diff,omitempty"`
 	Decision        *Decision            `json:"decision,omitempty"`
 	Reply           *StageTrace          `json:"reply,omitempty"`
+	Grounding       *GroundingResult     `json:"grounding,omitempty"`
 	FinalReply      string               `json:"final_reply,omitempty"`
 	TotalTokens     int                  `json:"total_tokens"`
 	TotalDurationMs int64                `json:"total_duration_ms"`
@@ -58,6 +59,7 @@ type PipelineConfig struct {
 	Blobs               core.BlobStore
 	LLM                 core.LLM
 	Bus                 core.EventBus
+	Notifier            core.AdminNotifier
 	Clock               core.Clock
 	Tenants             TenantConfigLoader
 	Knowledge           KnowledgeSource
@@ -75,6 +77,7 @@ type Pipeline struct {
 	cfg        PipelineConfig
 	dispatcher *SourceDispatcher
 	limiter    *TokenBucketLimiter
+	notifier   core.AdminNotifier
 	channelsMu sync.RWMutex
 	channels   map[string]core.Channel
 	logger     *slog.Logger
@@ -92,10 +95,15 @@ func NewPipeline(ctx context.Context, cfg PipelineConfig) *Pipeline {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	notifier := cfg.Notifier
+	if notifier == nil {
+		notifier = NewDefaultAdminNotifier(cfg.Store, cfg.Bus, logger)
+	}
 
 	p := &Pipeline{
 		cfg:      cfg,
 		limiter:  NewTokenBucketLimiter(cfg.Clock),
+		notifier: notifier,
 		channels: make(map[string]core.Channel),
 		logger:   logger,
 	}
@@ -528,6 +536,30 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 	case DecisionSkip:
 		p.publishRunSkipped(latest, runID, string(decision.Action), decision.Reason)
 		return p.recordRouterOnlyRun(ctx, latest, runID, traceRef, trace, analysisOutcome.Status)
+
+	case DecisionEscalate:
+		_ = p.notifier.Notify(ctx, core.AdminAlert{
+			TenantID:  tenantID,
+			Channel:   channelID,
+			SourceKey: sourceKey,
+			Reason:    decision.Reason,
+			Message:   joinBatchTexts(batch),
+			ContextData: map[string]string{
+				"intent": decision.Intent,
+				"run_id": runID,
+			},
+			CreatedAt: p.now(),
+		})
+		replyText := NeutralEscalationReply
+		if plainTextOnly {
+			replyText = SanitizePlainText(replyText)
+		}
+		trace.FinalReply = replyText
+		if err := p.recordRouterOnlyRun(ctx, latest, runID, traceRef, trace, "escalated"); err != nil {
+			return err
+		}
+		_, err := p.DeliverTextOutbound(ctx, tenantID, channelID, latest.Account, sourceKey, pk.Actors.Business, replyText, runID, traceRef)
+		return err
 	}
 
 	// Estágio de resposta (BRAIN-03)
@@ -587,7 +619,28 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 		return p.failPipeline(ctx, latest, runID, traceRef, trace, err)
 	}
 
-	finalReply := strings.TrimSpace(replyResp.Content)
+	parsedReply, _ := ParseReplyOutput(replyResp.Content)
+	grounding := CheckGrounding(parsedReply, knowledge, recentForReply, replyInput.NewMessage, updatedState.Facts)
+	trace.Grounding = &grounding
+
+	finalReply := parsedReply.Reply
+	replyStatus := "ok"
+	if !grounding.Grounded {
+		replyStatus = "escalated"
+		finalReply = NeutralFallbackReply
+		_ = p.notifier.Notify(ctx, core.AdminAlert{
+			TenantID:  tenantID,
+			Channel:   channelID,
+			SourceKey: sourceKey,
+			Reason:    grounding.Reason,
+			Message:   replyInput.NewMessage.Text,
+			ContextData: map[string]string{
+				"run_id":    runID,
+				"trace_ref": traceRef,
+			},
+			CreatedAt: p.now(),
+		})
+	}
 	if plainTextOnly {
 		finalReply = SanitizePlainText(finalReply)
 	}
@@ -601,7 +654,7 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 		PromptTokens:     replyResp.PromptTokens,
 		CompletionTokens: replyResp.CompletionTokens,
 		DurationMs:       replyResp.DurationMs,
-		Status:           "ok",
+		Status:           replyStatus,
 	}
 	trace.FinalReply = finalReply
 	trace.TotalTokens = trace.Analysis.PromptTokens + trace.Analysis.CompletionTokens + replyResp.PromptTokens + replyResp.CompletionTokens

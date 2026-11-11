@@ -128,6 +128,20 @@ func NewOfflineDemoLLM() *ScriptedLLM {
 			}, nil
 
 		case "response":
+			if strings.Contains(req.System, `"answerable"`) {
+				payload := map[string]any{
+					"answerable": true,
+					"sources":    extractDocNames(req.System),
+					"reply":      "Olá! Recebi sua mensagem no modo offline de demonstração. Como posso te ajudar com as informações disponíveis?",
+				}
+				raw, _ := json.Marshal(payload)
+				return &core.LLMResponse{
+					Content:          string(raw),
+					PromptTokens:     180,
+					CompletionTokens: 32,
+					DurationMs:       22,
+				}, nil
+			}
 			return &core.LLMResponse{
 				Content:          "Olá! Recebi sua mensagem no modo offline de demonstração. Como posso te ajudar com as informações disponíveis?",
 				PromptTokens:     180,
@@ -265,4 +279,19 @@ func isNumericSchemaType(t any) bool {
 		}
 	}
 	return false
+}
+
+func extractDocNames(systemPrompt string) []string {
+	var docs []string
+	for _, line := range strings.Split(systemPrompt, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "### ") {
+			name := strings.TrimSpace(strings.TrimPrefix(trimmed, "### "))
+			if name != "" {
+				docs = append(docs, name)
+				break
+			}
+		}
+	}
+	return docs
 }
