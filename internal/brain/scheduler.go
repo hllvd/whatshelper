@@ -34,11 +34,13 @@ func RealAfterFunc(d time.Duration, fn func()) TimerHandle {
 type BatchHandler func(ctx context.Context, batch []core.NormalizedMessage)
 
 type sourceQueue struct {
+	key     string
 	mu      sync.Mutex
 	execMu  sync.Mutex // garante processamento sequencial por conversa
 	pending []core.NormalizedMessage
 	timer   TimerHandle
 	gen     uint64
+	running int
 }
 
 // SourceDispatcher implementa debounce de rajadas e execução sequencial por fonte (paralela entre fontes).
@@ -81,12 +83,12 @@ func (d *SourceDispatcher) Enqueue(msg core.NormalizedMessage) bool {
 	key := store.SourcePK(msg.TenantID, msg.Channel, msg.SourceKey)
 	q, ok := d.queues[key]
 	if !ok {
-		q = &sourceQueue{}
+		q = &sourceQueue{key: key}
 		d.queues[key] = q
 	}
+	q.mu.Lock()
 	d.mu.Unlock()
 
-	q.mu.Lock()
 	if q.timer != nil {
 		q.timer.Stop()
 		q.timer = nil
@@ -114,6 +116,13 @@ func (d *SourceDispatcher) Enqueue(msg core.NormalizedMessage) bool {
 	return true
 }
 
+// ActiveQueues retorna a quantidade de filas de conversa atualmente em memória.
+func (d *SourceDispatcher) ActiveQueues() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return len(d.queues)
+}
+
 func (d *SourceDispatcher) flush(q *sourceQueue, expectedGen uint64) {
 	d.mu.Lock()
 	if d.closed {
@@ -130,15 +139,25 @@ func (d *SourceDispatcher) flush(q *sourceQueue, expectedGen uint64) {
 	batch := q.pending
 	q.pending = nil
 	q.timer = nil
+	q.running++
 	q.mu.Unlock()
 
 	// Serializa apenas dentro da mesma fonte; fontes diferentes executam em paralelo.
 	q.execMu.Lock()
-	defer q.execMu.Unlock()
-
 	if d.handler != nil {
 		d.handler(d.baseCtx, batch)
 	}
+	q.execMu.Unlock()
+
+	// Remove fila ociosa para evitar vazamento de memória em conversas encerradas
+	d.mu.Lock()
+	q.mu.Lock()
+	q.running--
+	if q.running == 0 && len(q.pending) == 0 && q.timer == nil && d.queues[q.key] == q {
+		delete(d.queues, q.key)
+	}
+	q.mu.Unlock()
+	d.mu.Unlock()
 }
 
 // Stop cancela timers pendentes e aguarda todos os processamentos em andamento encerrarem.

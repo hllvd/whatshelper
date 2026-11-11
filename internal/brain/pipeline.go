@@ -141,6 +141,7 @@ func (p *Pipeline) Ingest(ctx context.Context, msg core.NormalizedMessage) error
 		return fmt.Errorf("erro ao gravar mensagem crua no BlobStore: %w", err)
 	}
 
+	sender := p.resolveSender(ctx, msg)
 	meta := core.MessageMeta{
 		TenantID:  msg.TenantID,
 		Channel:   msg.Channel,
@@ -151,7 +152,7 @@ func (p *Pipeline) Ingest(ctx context.Context, msg core.NormalizedMessage) error
 		Type:      msg.Type,
 		MediaRef:  msg.MediaRef,
 		RawRef:    rawRef,
-		Sender:    string(msg.Direction),
+		Sender:    sender,
 	}
 
 	if err := p.cfg.Store.PutMessageMeta(ctx, meta); err != nil {
@@ -672,9 +673,33 @@ func (p *Pipeline) loadRecentPromptMessages(
 	return result, nil
 }
 
+func (p *Pipeline) resolveSender(ctx context.Context, msg core.NormalizedMessage) string {
+	if p.cfg.Tenants != nil && p.cfg.PackLoader != nil {
+		if tCfg, err := p.cfg.Tenants.LoadTenant(ctx, msg.TenantID); err == nil {
+			if pk, err := p.cfg.PackLoader(tCfg.Pack); err == nil {
+				if msg.Direction == core.DirectionOutbound {
+					return pk.Actors.Business
+				}
+				return pk.Actors.Customer
+			}
+		}
+	}
+	return string(msg.Direction)
+}
+
 func (p *Pipeline) failPipeline(ctx context.Context, msg core.NormalizedMessage, runID, traceRef string, trace *RunTrace, err error) error {
 	now := p.now()
+	runCreatedAt := now
+	stage := "analysis"
+	model := p.cfg.AnalysisModel
 	if trace != nil {
+		if !trace.CreatedAt.IsZero() {
+			runCreatedAt = trace.CreatedAt
+		}
+		if trace.ParsedResult != nil {
+			stage = "response"
+			model = p.cfg.ResponseModel
+		}
 		_ = p.saveTrace(ctx, traceRef, trace)
 	}
 	_ = p.cfg.Store.SaveRun(ctx, core.Run{
@@ -683,11 +708,11 @@ func (p *Pipeline) failPipeline(ctx context.Context, msg core.NormalizedMessage,
 		Channel:      msg.Channel,
 		SourceKey:    msg.SourceKey,
 		MessageID:    msg.MessageID,
-		Stage:        "analysis",
+		Stage:        stage,
 		Status:       "failed",
-		Model:        p.cfg.AnalysisModel,
+		Model:        model,
 		TraceBlobRef: traceRef,
-		CreatedAt:    now,
+		CreatedAt:    runCreatedAt,
 	})
 	p.publish(core.Event{
 		ID:        newID("ev"),

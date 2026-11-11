@@ -158,4 +158,13 @@ func TestSourceDispatcher_ParallelAcrossSourcesAndSequentialPerSource(t *testing
 	if source1MaxConcurrent.Load() != 1 {
 		t.Fatalf("expected sequential execution per source, got maxConcurrent=%d", source1MaxConcurrent.Load())
 	}
+
+	// Aguarda limpeza da fila ociosa após execução
+	deadline := time.Now().Add(time.Second)
+	for d.ActiveQueues() > 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if d.ActiveQueues() != 0 {
+		t.Fatalf("expected 0 active queues after idle cleanup, got %d", d.ActiveQueues())
+	}
 }

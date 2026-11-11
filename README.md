@@ -34,13 +34,13 @@ Isso iniciará:
 
 ### Modo Offline (`fake`) vs Modo Anthropic (`anthropic`)
 - Por padrão (sem `ANTHROPIC_API_KEY`), o `make up` sobe com `LLM_PROVIDER=fake`, usando um modelo determinístico offline para testar o simulador e o visualizador sem chamadas externas.
-- Para usar a API real da Anthropic, defina no ambiente ou em `.env`:
+- Para usar a API real da Anthropic, confira os IDs de modelos atuais na documentação da Anthropic e defina no ambiente ou em `.env`:
   ```bash
   export LLM_PROVIDER=anthropic
   export ANTHROPIC_API_KEY=sk-ant-...
-  export MODEL_ANALYSIS=claude-3-7-sonnet-20250219
-  export MODEL_RESPONSE=claude-3-7-sonnet-20250219
-  export MODEL_NUDGE=claude-3-5-haiku-20241022
+  export MODEL_ANALYSIS=<modelo-anthropic-analise>
+  export MODEL_RESPONSE=<modelo-anthropic-resposta>
+  export MODEL_NUDGE=<modelo-anthropic-nudge>
   make up
   ```
 

@@ -135,6 +135,13 @@ done:
 	if err != nil || len(runs) != 1 {
 		t.Fatalf("expected 1 run, got %d (err=%v)", len(runs), err)
 	}
+	msgsMeta, err := store.ListRecentMessages(ctx, "demo", "simulator", "user-1", 10)
+	if err != nil || len(msgsMeta) != 2 {
+		t.Fatalf("expected 2 message metas, got %d (err=%v)", len(msgsMeta), err)
+	}
+	if msgsMeta[0].Sender != "agent" || msgsMeta[1].Sender != "customer" {
+		t.Fatalf("expected senders agent/customer, got %q/%q", msgsMeta[0].Sender, msgsMeta[1].Sender)
+	}
 	traceBytes, err := blobs.Get(ctx, runs[0].TraceBlobRef)
 	if err != nil {
 		t.Fatalf("expected trace blob at %s: %v", runs[0].TraceBlobRef, err)
@@ -277,5 +284,60 @@ func TestPipeline_VersionConflictRetries(t *testing.T) {
 ok:
 	if len(ch.SentMessages()) != 1 {
 		t.Fatalf("expected 1 sent reply after conflict retry, got %d", len(ch.SentMessages()))
+	}
+}
+
+func TestPipeline_ResponseFailureDoesNotDuplicateRun(t *testing.T) {
+	ctx := context.Background()
+	store := fakes.NewMemoryStore()
+	llm := fakes.NewScriptedLLM(func(ctx context.Context, req core.LLMRequest) (*core.LLMResponse, error) {
+		if req.Stage == "analysis" {
+			return &core.LLMResponse{
+				Content:          `{"summary":"Resumo ok.","last_sender":"customer","facts":{"Budget":1000},"signals":{},"context":{}}`,
+				PromptTokens:     20,
+				CompletionTokens: 10,
+			}, nil
+		}
+		return nil, fmt.Errorf("erro simulado no estágio de resposta")
+	})
+
+	p, _, bus, _ := setupPipelineTestEnv(t, store, llm)
+	defer p.Stop()
+
+	sub := bus.Subscribe(core.EventFilter{TenantID: "demo"})
+	defer sub.Cancel()
+
+	_ = p.Ingest(ctx, core.NormalizedMessage{
+		TenantID:  "demo",
+		Channel:   "simulator",
+		SourceKey: "user-resp-fail",
+		MessageID: "m-rf1",
+		Timestamp: time.Now().UTC(),
+		Direction: core.DirectionInbound,
+		Type:      core.MessageTypeText,
+		Text:      "Oi",
+	})
+
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case ev := <-sub.Events():
+			if ev.Type == core.EventPipelineFailed {
+				goto done
+			}
+		case <-deadline:
+			t.Fatal("timeout waiting for EventPipelineFailed")
+		}
+	}
+done:
+	runs, err := store.ListRuns(ctx, "demo", "simulator", "user-resp-fail", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("expected exactly 1 run (updated, not duplicated), got %d: %+v", len(runs), runs)
+	}
+	if runs[0].Status != "failed" || runs[0].Stage != "response" {
+		t.Fatalf("expected status=failed and stage=response, got status=%s stage=%s", runs[0].Status, runs[0].Stage)
 	}
 }
