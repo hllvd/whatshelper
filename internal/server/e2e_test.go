@@ -239,8 +239,8 @@ func TestE2E_SimulatorToBrainToStoreToVisualizer(t *testing.T) {
 	}
 	_ = json.NewDecoder(runsResp.Body).Decode(&runsBody)
 	_ = runsResp.Body.Close()
-	if len(runsBody.Runs) != 1 {
-		t.Fatalf("expected 1 run, got %d", len(runsBody.Runs))
+	if len(runsBody.Runs) != 1 || runsBody.Runs[0].TTL <= clock.Now().Unix() {
+		t.Fatalf("expected 1 run with future TTL, got %+v", runsBody.Runs)
 	}
 
 	traceResp, err := ts.Client().Get(ts.URL + "/api/runs/" + runsBody.Runs[0].ID + "/trace?channel=simulator&source=e2e-user&tenant=demo")
@@ -393,5 +393,20 @@ func TestAPI_SourceStatusAndTenantPolicy(t *testing.T) {
 	_ = apprResp.Body.Close()
 	if apprResp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 approving task, got %d", apprResp.StatusCode)
+	}
+
+	// 5. Testa leitura GSI1 de fontes vinculadas a um contato (STO-06)
+	_ = storeRepo.LinkSourceToContact(context.Background(), "demo", "simulator", "u-api", "contact-e2e")
+	contactResp, err := ts.Client().Get(ts.URL + "/api/contacts/contact-e2e/sources?tenant=demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var contactBody struct {
+		Sources []core.SourceMeta `json:"sources"`
+	}
+	_ = json.NewDecoder(contactResp.Body).Decode(&contactBody)
+	_ = contactResp.Body.Close()
+	if contactResp.StatusCode != http.StatusOK || len(contactBody.Sources) != 1 || contactBody.Sources[0].SourceKey != "u-api" {
+		t.Fatalf("expected 1 linked source via GSI1 endpoint, got status=%d body=%+v", contactResp.StatusCode, contactBody)
 	}
 }

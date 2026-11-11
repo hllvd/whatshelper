@@ -70,6 +70,7 @@ type PipelineConfig struct {
 	Debounce            time.Duration
 	AfterFunc           AfterFunc
 	RecentMessagesLimit int
+	RunRetentionDays    int
 	Logger              *slog.Logger
 }
 
@@ -91,6 +92,9 @@ func NewPipeline(ctx context.Context, cfg PipelineConfig) *Pipeline {
 	}
 	if cfg.RecentMessagesLimit <= 0 {
 		cfg.RecentMessagesLimit = 20
+	}
+	if cfg.RunRetentionDays <= 0 {
+		cfg.RunRetentionDays = 90
 	}
 	logger := cfg.Logger
 	if logger == nil {
@@ -404,6 +408,7 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 			CompletionTokens: analysisOutcome.CompletionTokens,
 			DurationMs:       analysisOutcome.DurationMs,
 			TraceBlobRef:     traceRef,
+			TTL:              p.runTTL(),
 			CreatedAt:        trace.CreatedAt,
 		}
 
@@ -735,6 +740,7 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 		CompletionTokens: trace.Analysis.CompletionTokens + replyResp.CompletionTokens,
 		DurationMs:       trace.TotalDurationMs,
 		TraceBlobRef:     traceRef,
+		TTL:              p.runTTL(),
 		CreatedAt:        trace.CreatedAt,
 	})
 
@@ -1063,8 +1069,17 @@ func (p *Pipeline) recordRouterOnlyRun(ctx context.Context, latest core.Normaliz
 		CompletionTokens: 0,
 		DurationMs:       trace.TotalDurationMs,
 		TraceBlobRef:     traceRef,
+		TTL:              p.runTTL(),
 		CreatedAt:        trace.CreatedAt,
 	})
+}
+
+func (p *Pipeline) runTTL() int64 {
+	days := p.cfg.RunRetentionDays
+	if days <= 0 {
+		days = 90
+	}
+	return p.now().Add(time.Duration(days) * 24 * time.Hour).Unix()
 }
 
 func (p *Pipeline) loadRecentPromptMessages(
@@ -1150,6 +1165,7 @@ func (p *Pipeline) failPipeline(ctx context.Context, msg core.NormalizedMessage,
 		Status:       "failed",
 		Model:        model,
 		TraceBlobRef: traceRef,
+		TTL:          p.runTTL(),
 		CreatedAt:    runCreatedAt,
 	})
 	p.publish(core.Event{

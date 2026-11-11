@@ -92,6 +92,7 @@ func main() {
 		NudgeModel:          nudgeModel,
 		Debounce:            time.Duration(cfg.DebounceMs) * time.Millisecond,
 		RecentMessagesLimit: cfg.RecentMessagesLimit,
+		RunRetentionDays:    cfg.RunRetentionDays,
 		Logger:              logger,
 	})
 	pipeline.RegisterChannel(simCh)

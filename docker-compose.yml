@@ -50,7 +50,12 @@ services:
         done
         /usr/bin/mc mb --ignore-existing local/whatshelper-blobs
         /usr/bin/mc version enable local/whatshelper-blobs
-        echo 'Bucket whatshelper-blobs criado com versionamento ativo'
+        for prefix in demo/traces/ demo-support/traces/; do
+          if ! /usr/bin/mc ilm rule ls local/whatshelper-blobs 2>/dev/null | grep -q "$$prefix"; then
+            /usr/bin/mc ilm rule add --prefix "$$prefix" --expire-days 90 local/whatshelper-blobs || true
+          fi
+        done
+        echo 'Bucket whatshelper-blobs criado com versionamento ativo e ILM 90d para traces'
         exit 0
 
   store-init:

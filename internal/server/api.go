@@ -507,6 +507,32 @@ func (s *Server) handleApproveTask(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, task)
 }
 
+func (s *Server) handleListContactSources(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Store == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "store não configurado")
+		return
+	}
+	contactID := strings.TrimSpace(r.PathValue("contact_id"))
+	if contactID == "" {
+		writeJSONError(w, http.StatusBadRequest, "contact_id obrigatório")
+		return
+	}
+	tenant := strings.TrimSpace(r.URL.Query().Get("tenant"))
+	if tenant == "" {
+		tenant = "demo"
+	}
+	sources, err := s.deps.Store.ListSourcesByContactGSI1(r.Context(), tenant, contactID)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"tenant_id":  tenant,
+		"contact_id": contactID,
+		"sources":    sources,
+	})
+}
+
 func parseIntQuery(r *http.Request, name string, fallback int) int {
 	raw := strings.TrimSpace(r.URL.Query().Get(name))
 	if raw == "" {

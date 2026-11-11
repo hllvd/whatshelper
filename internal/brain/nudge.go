@@ -183,6 +183,7 @@ func (p *Pipeline) ProcessDueNudges(ctx context.Context, tenantID string) (int, 
 			PromptTokens:     resp.PromptTokens,
 			CompletionTokens: resp.CompletionTokens,
 			DurationMs:       resp.DurationMs,
+			TTL:              p.runTTL(),
 			CreatedAt:        now,
 		})
 

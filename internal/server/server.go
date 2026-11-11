@@ -114,6 +114,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/tasks/pending", s.handleListPendingTasks)
 	mux.HandleFunc("POST /api/tasks/{id}/complete", s.handleCompleteTask)
 	mux.HandleFunc("POST /api/tasks/{id}/approve", s.handleApproveTask)
+	mux.HandleFunc("GET /api/contacts/{contact_id}/sources", s.handleListContactSources)
 	mux.HandleFunc("GET /api/runs/{id}/trace", s.handleGetRunTrace)
 	mux.HandleFunc("GET /api/tenants/{id}/policy", s.handleGetTenantPolicy)
 	mux.HandleFunc("PUT /api/tenants/{id}/policy", s.handlePutTenantPolicy)

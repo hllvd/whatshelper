@@ -30,6 +30,7 @@ type Config struct {
 	NudgeModel          string
 	DebounceMs          int
 	RecentMessagesLimit int
+	RunRetentionDays    int
 	PacksDir            string
 	TenantsDir          string
 }
@@ -74,6 +75,7 @@ func LoadFromEnv() Config {
 		NudgeModel:          strings.TrimSpace(os.Getenv("MODEL_NUDGE")),
 		DebounceMs:          getEnvInt("DEBOUNCE_MS", 1500),
 		RecentMessagesLimit: getEnvInt("RECENT_MESSAGES_LIMIT", 20),
+		RunRetentionDays:    getEnvInt("RUN_RETENTION_DAYS", 90),
 		PacksDir:            getEnv("PACKS_DIR", "packs"),
 		TenantsDir:          getEnv("TENANTS_DIR", "tenants"),
 	}
