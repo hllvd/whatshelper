@@ -96,3 +96,42 @@ func TestLoadRealestatePackAndRender(t *testing.T) {
 		t.Fatalf("expected summary in nudge user prompt")
 	}
 }
+
+func TestLoadSupportPackAndRender(t *testing.T) {
+	p, err := pack.LoadFromDir(filepath.Join("..", "..", "packs", "support"))
+	if err != nil {
+		t.Fatalf("LoadFromDir(support) failed: %v", err)
+	}
+	if p.Name != "support" || p.Actors.Business != "agent" || p.Actors.Customer != "user" {
+		t.Fatalf("unexpected support pack metadata: %+v", p)
+	}
+	if len(p.Intents) == 0 || len(p.TaskRules) == 0 {
+		t.Fatalf("expected intents and task_rules on support pack")
+	}
+
+	input := pack.PromptInput{
+		Summary: "Usuário relata erro 502 no plano pro.",
+		Facts:   map[string]string{"Plan": "pro", "ErrorCode": "502"},
+		Signals: map[string]bool{"has_pending_bug": true},
+		NewMessage: pack.PromptMessage{
+			Sender:    "user",
+			Text:      "Ainda dá erro 502 na exportação.",
+			Timestamp: "2026-11-11T14:00:00Z",
+		},
+		Knowledge:     []pack.KnowledgeDoc{{Name: "troubleshooting.md", Content: "Use /v2/exports acima de 50000 linhas."}},
+		PlainTextOnly: true,
+	}
+
+	ap, err := pack.RenderAnalysis(p, input)
+	if err != nil || !strings.Contains(ap.System, `"Plan"`) || !strings.Contains(ap.System, `"report_bug"`) {
+		t.Fatalf("RenderAnalysis(support) unexpected: err=%v sys=%q", err, ap.System)
+	}
+	rp, err := pack.RenderReply(p, input)
+	if err != nil || !strings.Contains(rp.System, "troubleshooting.md") {
+		t.Fatalf("RenderReply(support) unexpected: err=%v", err)
+	}
+	np, err := pack.RenderNudge(p, input)
+	if err != nil || !strings.Contains(np.User, "erro 502") {
+		t.Fatalf("RenderNudge(support) unexpected: err=%v", err)
+	}
+}

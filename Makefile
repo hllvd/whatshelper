@@ -25,6 +25,7 @@ test-integration:
 
 lint:
 	go vet ./...
+	go run ./cmd/brain pack validate packs/realestate packs/support
 
 fmt:
 	go fmt ./...

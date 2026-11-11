@@ -20,8 +20,10 @@ jobs:
           go-version: '1.24'
           cache: true
 
-      - name: Vet / Lint
-        run: go vet ./...
+      - name: Vet / Lint & Validate Packs
+        run: |
+          go vet ./...
+          go run ./cmd/brain pack validate packs/realestate packs/support
 
       - name: Run Tests with Race Detector
         run: go test -v -race ./...

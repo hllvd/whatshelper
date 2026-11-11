@@ -1,0 +1,19 @@
+id: demo-support
+name: Suporte SaaS Demo
+pack: support
+mode: auto
+timezone: America/Sao_Paulo
+bot_enabled: true
+proactive_enabled: false
+business_hours:
+  enabled: true
+  days: [mon, tue, wed, thu, fri]
+  start: "08:00"
+  end: "20:00"
+out_of_hours_reply: "Nosso suporte técnico funciona de segunda a sexta, das 8h às 20h. Registramos seu chamado e retornaremos no próximo horário útil."
+rate_limit:
+  global_per_minute: 60
+  per_source_per_minute: 10
+nudge:
+  delay_minutes: 45
+  max_attempts: 2

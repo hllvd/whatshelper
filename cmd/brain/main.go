@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -29,6 +30,14 @@ func main() {
 	if len(os.Args) >= 3 && os.Args[1] == "store" && os.Args[2] == "init" {
 		if err := runStoreInit(cfg, logger); err != nil {
 			logger.Error("falha ao inicializar armazenamento", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return
+	}
+
+	if len(os.Args) >= 4 && os.Args[1] == "pack" && os.Args[2] == "validate" {
+		if err := runPackValidate(os.Args[3:]); err != nil {
+			logger.Error("validação de pack falhou", slog.Any("error", err))
 			os.Exit(1)
 		}
 		return
@@ -238,5 +247,41 @@ func runStoreInit(cfg config.Config, logger *slog.Logger) error {
 		return err
 	}
 	logger.Info("documentos de conhecimento semeados", slog.Any("keys", seededDocs))
+	return nil
+}
+
+func runPackValidate(dirs []string) error {
+	for _, dir := range dirs {
+		pk, err := pack.LoadFromDir(dir)
+		if err != nil {
+			return fmt.Errorf("%s: %w", dir, err)
+		}
+		if _, err := pack.BuildAnalysisSchema(pk); err != nil {
+			return fmt.Errorf("%s schema: %w", dir, err)
+		}
+		sampleInput := pack.PromptInput{
+			Pack:    pk,
+			Summary: "Validação sintática",
+			NewMessage: pack.PromptMessage{
+				Sender:    pk.Actors.Customer,
+				Text:      "Mensagem de validação",
+				Timestamp: "2026-11-11T12:00:00Z",
+			},
+			PlainTextOnly: true,
+		}
+		if _, err := pack.RenderAnalysis(pk, sampleInput); err != nil {
+			return fmt.Errorf("%s render analysis: %w", dir, err)
+		}
+		if _, err := pack.RenderReply(pk, sampleInput); err != nil {
+			return fmt.Errorf("%s render reply: %w", dir, err)
+		}
+		if pk.NudgeTmpl != nil {
+			if _, err := pack.RenderNudge(pk, sampleInput); err != nil {
+				return fmt.Errorf("%s render nudge: %w", dir, err)
+			}
+		}
+		fmt.Printf("OK: pack %q (%s) válido (%d facts, %d signals, %d intents, %d task_rules)\n",
+			pk.Name, dir, len(pk.Facts), len(pk.Signals), len(pk.Intents), len(pk.TaskRules))
+	}
 	return nil
 }

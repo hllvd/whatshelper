@@ -457,3 +457,70 @@ func TestAPI_SourceStatusAndTenantPolicy(t *testing.T) {
 	}
 	_ = uiResp.Body.Close()
 }
+
+func TestE2E_MultiPack_RealestateAndSupport(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 11, 11, 14, 0, 0, 0, time.UTC)
+	clock := fakes.NewFakeClock(now)
+	storeRepo := fakes.NewMemoryStoreWithClock(clock)
+	blobs := fakes.NewMemoryBlobStore()
+	bus := core.NewInMemoryEventBus(64)
+
+	tenantsDir := filepath.Join("..", "..", "tenants")
+	packsDir := filepath.Join("..", "..", "packs")
+	if _, err := brain.SeedLocalTenants(ctx, tenantsDir, storeRepo); err != nil {
+		t.Fatalf("SeedLocalTenants failed: %v", err)
+	}
+	if _, err := brain.SeedLocalKnowledge(ctx, tenantsDir, blobs); err != nil {
+		t.Fatalf("SeedLocalKnowledge failed: %v", err)
+	}
+
+	ch := fakes.NewMemoryChannel("simulator", 16)
+	_ = ch.Start(ctx)
+
+	p := brain.NewPipeline(ctx, brain.PipelineConfig{
+		Store:         storeRepo,
+		Blobs:         blobs,
+		LLM:           fakes.NewOfflineDemoLLM(),
+		Bus:           bus,
+		Clock:         clock,
+		Tenants:       brain.NewStoreTenantPolicyLoader(storeRepo, nil),
+		Knowledge:     brain.NewBlobKnowledgeSource(blobs, clock, 5*time.Second),
+		PackLoader:    func(name string) (*pack.Pack, error) { return pack.LoadFromDir(filepath.Join(packsDir, name)) },
+		AnalysisModel: "fake-a",
+		ResponseModel: "fake-r",
+	})
+	p.RegisterChannel(ch)
+	defer p.Stop()
+
+	// Processa mensagem no tenant "demo" (pack realestate) e em "demo-support" (pack support)
+	msgs := []core.NormalizedMessage{
+		{
+			TenantID: "demo", Channel: "simulator", SourceKey: "u-re",
+			MessageID: "m-re-1", Timestamp: now, Direction: core.DirectionInbound, Type: core.MessageTypeText,
+			Text: "Qual o orçamento 500000 disponível?",
+		},
+		{
+			TenantID: "demo-support", Channel: "simulator", SourceKey: "u-sup",
+			MessageID: "m-sup-1", Timestamp: now, Direction: core.DirectionInbound, Type: core.MessageTypeText,
+			Text: "Exportação de 50000 linhas deu erro no plano Starter!",
+		},
+	}
+	for _, m := range msgs {
+		if err := p.ProcessBatch(ctx, []core.NormalizedMessage{m}); err != nil {
+			t.Fatalf("ProcessBatch(%s) failed: %v", m.TenantID, err)
+		}
+	}
+
+	if len(ch.SentMessages()) != 2 {
+		t.Fatalf("expected 2 outbound replies across both packs, got %d", len(ch.SentMessages()))
+	}
+	stRe, _ := storeRepo.GetSourceState(ctx, "demo", "simulator", "u-re")
+	stSup, _ := storeRepo.GetSourceState(ctx, "demo-support", "simulator", "u-sup")
+	if len(stRe.Facts) == 0 {
+		t.Fatalf("expected at least 1 extracted fact for demo, got %+v", stRe.Facts)
+	}
+	if stSup.Facts["SLAHours"] != "50000" {
+		t.Fatalf("expected demo-support fact SLAHours=50000, got %+v", stSup.Facts)
+	}
+}

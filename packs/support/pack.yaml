@@ -1,0 +1,133 @@
+name: support
+language: pt-BR
+
+actors:
+  business: agent
+  customer: user
+
+facts:
+  - key: Product
+    type: string
+    description: Produto ou módulo mencionado pelo usuário
+  - key: Plan
+    type: enum
+    values: [free, starter, pro, enterprise]
+    description: Plano de assinatura do cliente
+  - key: Severity
+    type: enum
+    values: [low, medium, high, critical]
+    description: Gravidade do incidente relatado
+  - key: ErrorCode
+    type: string
+    description: Código de erro explícito (ex. ERR-403, HTTP 500)
+  - key: Environment
+    type: string
+    description: Ambiente ou sistema operacional informado (ex. produção, macOS, Chrome)
+  - key: SLAHours
+    type: integer
+    description: SLA esperado ou informado em horas
+  - key: HasScreenshot
+    type: boolean
+    description: Se o usuário enviou captura de tela ou log
+
+signals:
+  - key: has_new_question
+    description: true se a NOVA MENSAGEM contém uma dúvida objetiva
+  - key: has_pending_question
+    description: true se há dúvida recente ainda não respondida
+  - key: has_pending_bug
+    description: true se foi relatada uma falha reproduzível pendente de investigação
+  - key: has_pending_callback
+    description: true se um retorno de técnico foi solicitado mas não agendado
+  - key: customer_engaged
+    description: true se o usuário está interagindo ativamente
+
+intents:
+  - name: ask_howto
+    description: Dúvida sobre uso, configuração, limites de plano ou SLA
+    examples:
+      - "Qual o SLA do plano Pro?"
+      - "Como configuro SSO no workspace?"
+    action: reply
+  - name: report_bug
+    description: Relato de erro, bug ou indisponibilidade no sistema
+    examples:
+      - "Estou recebendo erro 502 ao exportar relatório em produção"
+    action: create_task
+  - name: billing_exception
+    description: Solicitação de estorno, desconto fora da tabela ou exceção contratual
+    examples:
+      - "Preciso de reembolso retroativo de 6 meses"
+    action: escalate
+  - name: request_human
+    description: Usuário pede para falar com um engenheiro ou atendente humano
+    examples:
+      - "Quero falar com suporte humano"
+    action: handoff
+  - name: opt_out
+    description: Usuário pede para parar de receber mensagens
+    examples:
+      - "Não quero mais receber notificações"
+      - "SAIR"
+    action: opt_out
+  - name: greeting
+    description: Saudação ou agradecimento curto
+    examples:
+      - "Oi, obrigado pela ajuda!"
+    action: reply
+
+opt_out_keywords:
+  - parar
+  - sair
+  - stop
+  - unsubscribe
+  - "cancelar mensagens"
+
+task_rules:
+  - type: investigate_bug
+    title: "Investigar falha relatada pelo usuário"
+    trigger_signal: has_pending_bug
+    trigger_intent: report_bug
+    context_section: ticket
+    due_in_minutes: 30
+  - type: schedule_callback
+    title: "Agendar retorno com especialista técnico"
+    trigger_signal: has_pending_callback
+    context_section: callback
+    due_in_minutes: 60
+
+context:
+  - key: last_action
+    description: Ação principal identificada na última mensagem
+    fields:
+      - key: type
+        type: enum
+        values: [question, bug_report, billing, callback, other]
+      - key: actor
+        type: enum
+        values: [agent, user]
+      - key: description
+        type: string
+  - key: ticket
+    description: Detalhes técnicos de bug relatado
+    fields:
+      - key: component
+        type: string
+      - key: repro_steps
+        type: string
+  - key: callback
+    description: Preferência de horário para retorno técnico
+    fields:
+      - key: preferred_window
+        type: string
+
+prompts:
+  analysis: prompts/analysis.tmpl
+  reply: prompts/reply.tmpl
+  nudge: prompts/nudge.tmpl
+
+rules:
+  - Nunca invente SLAs, preços, limites ou soluções técnicas fora do conhecimento.
+  - Sempre peça o ambiente e código de erro caso faltem para diagnóstico.
+  - Responda sempre em Português (PT-BR).
+  - Quando não tiver certeza na base de conhecimento, informe que vai encaminhar ao time responsável sem chutar.
