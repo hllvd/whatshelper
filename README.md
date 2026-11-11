@@ -100,6 +100,14 @@ make test-live
 
 # Compilar binários locais em bin/
 make build
+
+# Ou executar a suíte completa automatizada por categoria (logs em artifacts/)
+./scripts/tests.sh           # tudo: lint, unit, brain, api, build, integration
+./scripts/tests.sh unit      # unitários e contratos in-memory (-race)
+./scripts/tests.sh brain     # pipeline cognitivo e golden fixtures (-race)
+./scripts/tests.sh api       # HTTP API, SSE e replay (-race)
+./scripts/tests.sh build     # sobe/valida containers e logs de startup
+./scripts/tests.sh integration
 ```
 
 ---

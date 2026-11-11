@@ -3,6 +3,7 @@
 *~
 bin/
 tmp/
+artifacts/
 .env
 .env.*
 !.env.example
