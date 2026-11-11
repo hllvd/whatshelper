@@ -34,7 +34,13 @@ Signals must be OBJECTIVE and based ONLY on explicit conversation flow. Prefer f
 {{- range .Pack.Signals}}
 - {{.Key}}: {{.Description}}
 {{- end}}
-
+{{if .Pack.Intents}}
+INTENT RULES:
+Classify the customer's main intent in the NEW MESSAGE using one of:
+{{- range .Pack.Intents}}
+- {{.Name}}: {{.Description}}{{if .Examples}} (ex: {{index .Examples 0}}){{end}}
+{{- end}}
+{{end}}
 CONTEXT EXTRACTION RULES:
 - DO NOT infer missing data.
 - KEEP human expressions for proposed dates/times (e.g., "amanhã", "sexta", "25/03"); do not convert to exact dates.

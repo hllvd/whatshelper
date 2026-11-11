@@ -259,3 +259,61 @@ func TestValidateAnalysis(t *testing.T) {
 		})
 	}
 }
+
+func TestIntents_SchemaAndValidation(t *testing.T) {
+	yamlWithIntents := samplePackYAML + `
+intents:
+  - name: ask_info
+    description: Pergunta informativa
+    examples: ["Qual o prazo?"]
+    action: reply
+  - name: stop
+    description: Descadastrar
+    action: opt_out
+`
+	p, err := pack.ParsePackYAML([]byte(yamlWithIntents))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	schemaBytes, err := pack.BuildAnalysisSchema(p)
+	if err != nil {
+		t.Fatalf("BuildAnalysisSchema failed: %v", err)
+	}
+	var schemaMap map[string]any
+	if err := json.Unmarshal(schemaBytes, &schemaMap); err != nil {
+		t.Fatalf("invalid schema json: %v", err)
+	}
+	props := schemaMap["properties"].(map[string]any)
+	intentField, ok := props["intent"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected intent field in schema")
+	}
+	enum := intentField["enum"].([]any)
+	if len(enum) != 2 || enum[0] != "ask_info" || enum[1] != "stop" {
+		t.Fatalf("unexpected intent enum: %v", enum)
+	}
+
+	// Falha se intent ausente quando pack define intents
+	if _, errs := pack.ValidateAnalysis(p, []byte(`{"summary":"ok","last_sender":"customer","facts":{},"signals":{},"context":{}}`)); len(errs) == 0 {
+		t.Fatalf("expected error when intent is missing")
+	}
+	// Falha se intent desconhecida
+	if _, errs := pack.ValidateAnalysis(p, []byte(`{"summary":"ok","last_sender":"customer","intent":"unknown","facts":{},"signals":{},"context":{}}`)); len(errs) == 0 {
+		t.Fatalf("expected error for unknown intent")
+	}
+	// Sucesso com intent válida
+	res, errs := pack.ValidateAnalysis(p, []byte(`{"summary":"ok","last_sender":"customer","intent":"ask_info","facts":{},"signals":{},"context":{}}`))
+	if len(errs) != 0 || res.Intent != "ask_info" {
+		t.Fatalf("expected valid intent ask_info, got res=%+v errs=%v", res, errs)
+	}
+
+	// Rejeita action inválida no YAML
+	badYAML := samplePackYAML + `
+intents:
+  - name: broken
+    action: delete_everything
+`
+	if _, err := pack.ParsePackYAML([]byte(badYAML)); err == nil {
+		t.Fatalf("expected invalid intent action error")
+	}
+}

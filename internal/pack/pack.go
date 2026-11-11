@@ -51,6 +51,34 @@ type SignalDef struct {
 	Description string `yaml:"description" json:"description"`
 }
 
+// IntentAction define a ação padrão associada a uma intenção classificada.
+type IntentAction string
+
+const (
+	IntentActionReply      IntentAction = "reply"
+	IntentActionEscalate   IntentAction = "escalate"
+	IntentActionCreateTask IntentAction = "create_task"
+	IntentActionHandoff    IntentAction = "handoff"
+	IntentActionOptOut     IntentAction = "opt_out"
+)
+
+func (a IntentAction) IsValid() bool {
+	switch a {
+	case IntentActionReply, IntentActionEscalate, IntentActionCreateTask, IntentActionHandoff, IntentActionOptOut:
+		return true
+	default:
+		return false
+	}
+}
+
+// IntentDef define uma intenção classificável pela etapa de análise.
+type IntentDef struct {
+	Name        string       `yaml:"name" json:"name"`
+	Description string       `yaml:"description" json:"description"`
+	Examples    []string     `yaml:"examples,omitempty" json:"examples,omitempty"`
+	Action      IntentAction `yaml:"action" json:"action"`
+}
+
 // ContextFieldDef define um campo dentro de uma seção de contexto.
 type ContextFieldDef struct {
 	Key         string   `yaml:"key" json:"key"`
@@ -80,6 +108,7 @@ type Pack struct {
 	Actors   ActorsDef           `yaml:"actors" json:"actors"`
 	Facts    []FactDef           `yaml:"facts" json:"facts"`
 	Signals  []SignalDef         `yaml:"signals" json:"signals"`
+	Intents  []IntentDef         `yaml:"intents,omitempty" json:"intents,omitempty"`
 	Context  []ContextSectionDef `yaml:"context" json:"context"`
 	Prompts  PromptsDef          `yaml:"prompts" json:"prompts"`
 	Rules    []string            `yaml:"rules,omitempty" json:"rules,omitempty"`
@@ -92,6 +121,7 @@ type Pack struct {
 	// Índices imutáveis derivados para consulta O(1)
 	factByKey    map[string]FactDef
 	signalByKey  map[string]SignalDef
+	intentByName map[string]IntentDef
 	contextByKey map[string]ContextSectionDef
 }
 
@@ -216,6 +246,20 @@ func (p *Pack) Validate() error {
 		seenSignals[s.Key] = true
 	}
 
+	seenIntents := make(map[string]bool)
+	for _, in := range p.Intents {
+		if strings.TrimSpace(in.Name) == "" {
+			return fmt.Errorf("%w: intenção com name vazio", ErrInvalidPack)
+		}
+		if seenIntents[in.Name] {
+			return fmt.Errorf("%w: intenção duplicada %q", ErrInvalidPack, in.Name)
+		}
+		seenIntents[in.Name] = true
+		if !in.Action.IsValid() {
+			return fmt.Errorf("%w: action inválida %q para intenção %q", ErrInvalidPack, in.Action, in.Name)
+		}
+	}
+
 	seenCtx := make(map[string]bool)
 	for _, c := range p.Context {
 		if strings.TrimSpace(c.Key) == "" {
@@ -256,10 +300,24 @@ func (p *Pack) buildIndexes() {
 	for _, s := range p.Signals {
 		p.signalByKey[s.Key] = s
 	}
+	p.intentByName = make(map[string]IntentDef, len(p.Intents))
+	for _, in := range p.Intents {
+		p.intentByName[in.Name] = in
+	}
 	p.contextByKey = make(map[string]ContextSectionDef, len(p.Context))
 	for _, c := range p.Context {
 		p.contextByKey[c.Key] = c
 	}
+}
+
+// IntentByName consulta uma intenção definida no pack.
+func (p *Pack) IntentByName(name string) (IntentDef, bool) {
+	if p == nil {
+		return IntentDef{}, false
+	}
+	p.ensureIndexes()
+	def, ok := p.intentByName[name]
+	return def, ok
 }
 
 func (p *Pack) ensureIndexes() {

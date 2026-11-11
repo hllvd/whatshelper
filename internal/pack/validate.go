@@ -24,6 +24,7 @@ func (e ValidationError) Error() string {
 type AnalysisResult struct {
 	Summary      string                       `json:"summary"`
 	LastSender   string                       `json:"last_sender"`
+	Intent       string                       `json:"intent,omitempty"`
 	Facts        map[string]string            `json:"facts"`
 	ClearedFacts []string                     `json:"cleared_facts,omitempty"`
 	Signals      map[string]bool              `json:"signals"`
@@ -54,6 +55,7 @@ func ValidateAnalysis(p *Pack, raw []byte) (*AnalysisResult, []ValidationError) 
 	allowedTop := map[string]bool{
 		"summary":     true,
 		"last_sender": true,
+		"intent":      true,
 		"facts":       true,
 		"signals":     true,
 		"context":     true,
@@ -96,6 +98,26 @@ func ValidateAnalysis(p *Pack, raw []byte) (*AnalysisResult, []ValidationError) 
 		})
 	} else {
 		res.LastSender = s
+	}
+
+	// 2b. intent (obrigatório quando o pack declara intents)
+	rawIntent, hasIntent := doc["intent"]
+	if len(p.Intents) > 0 {
+		if !hasIntent {
+			errs = append(errs, ValidationError{Field: "intent", Message: "campo obrigatório ausente"})
+		} else if s, ok := rawIntent.(string); !ok {
+			errs = append(errs, ValidationError{Field: "intent", Message: "deve ser string"})
+		} else if _, exists := p.intentByName[s]; !exists {
+			errs = append(errs, ValidationError{Field: "intent", Message: fmt.Sprintf("intenção %q não declarada no pack", s)})
+		} else {
+			res.Intent = s
+		}
+	} else if hasIntent && rawIntent != nil {
+		if s, ok := rawIntent.(string); ok {
+			res.Intent = strings.TrimSpace(s)
+		} else {
+			errs = append(errs, ValidationError{Field: "intent", Message: "deve ser string"})
+		}
 	}
 
 	// 3. facts

@@ -69,6 +69,50 @@ signals:
   - key: customer_engaged
     description: true se o cliente está respondendo ativamente, perguntando ou interagindo
 
+intents:
+  - name: ask_info
+    description: Cliente pergunta sobre imóveis disponíveis, preços, bairro ou condições
+    examples:
+      - "Tem apartamento de 2 quartos no Centro?"
+      - "Qual o valor do condomínio?"
+    action: reply
+  - name: schedule_visit
+    description: Cliente quer agendar ou confirmar visita a um imóvel
+    examples:
+      - "Quero agendar uma visita amanhã às 14h"
+      - "Podemos visitar no sábado?"
+    action: create_task
+  - name: send_documents
+    description: Cliente pergunta sobre envio de documentos ou aprovação de crédito
+    examples:
+      - "Quais documentos preciso mandar para financiar?"
+      - "Enviei meu holerite"
+    action: create_task
+  - name: negotiation_or_exception
+    description: Proposta fora da tabela, permuta ou condição comercial especial
+    examples:
+      - "Aceita carro na troca e desconto de 15%?"
+    action: escalate
+  - name: request_human
+    description: Cliente pede explicitamente para falar com um atendente/corretor humano
+    examples:
+      - "Quero falar com um corretor"
+      - "Pode me passar um atendente?"
+    action: handoff
+  - name: opt_out
+    description: Cliente pede para parar de receber mensagens ou sair do atendimento
+    examples:
+      - "Não quero mais receber mensagens"
+      - "SAIR"
+      - "Pode parar de mandar"
+    action: opt_out
+  - name: greeting_or_followup
+    description: Saudação inicial ou resposta curta de acompanhamento
+    examples:
+      - "Oi, tudo bem?"
+      - "Obrigado!"
+    action: reply
+
 context:
   - key: last_action
     description: Ação principal identificada na última mensagem

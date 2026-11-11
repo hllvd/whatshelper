@@ -46,37 +46,53 @@ func BuildAnalysisSchema(p *Pack) ([]byte, error) {
 		contextProps[sec.Key] = secObj
 	}
 
+	required := []string{"summary", "last_sender", "facts", "signals", "context"}
+	properties := map[string]any{
+		"summary": map[string]any{
+			"type":        "string",
+			"description": "Resumo conciso e factual (1 a 3 frases) no idioma do pack",
+		},
+		"last_sender": map[string]any{
+			"type": "string",
+			"enum": []string{p.Actors.Business, p.Actors.Customer},
+		},
+		"facts": map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"properties":           factProps,
+		},
+		"signals": map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"required":             signalRequired,
+			"properties":           signalProps,
+		},
+		"context": map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"properties":           contextProps,
+		},
+	}
+
+	if len(p.Intents) > 0 {
+		intentNames := make([]string, 0, len(p.Intents))
+		for _, in := range p.Intents {
+			intentNames = append(intentNames, in.Name)
+		}
+		required = append(required, "intent")
+		properties["intent"] = map[string]any{
+			"type":        "string",
+			"enum":        intentNames,
+			"description": "Intenção principal identificada na última mensagem",
+		}
+	}
+
 	schema := map[string]any{
 		"$schema":              "https://json-schema.org/draft/2020-12/schema",
 		"type":                 "object",
 		"additionalProperties": false,
-		"required":             []string{"summary", "last_sender", "facts", "signals", "context"},
-		"properties": map[string]any{
-			"summary": map[string]any{
-				"type":        "string",
-				"description": "Resumo conciso e factual (1 a 3 frases) no idioma do pack",
-			},
-			"last_sender": map[string]any{
-				"type": "string",
-				"enum": []string{p.Actors.Business, p.Actors.Customer},
-			},
-			"facts": map[string]any{
-				"type":                 "object",
-				"additionalProperties": false,
-				"properties":           factProps,
-			},
-			"signals": map[string]any{
-				"type":                 "object",
-				"additionalProperties": false,
-				"required":             signalRequired,
-				"properties":           signalProps,
-			},
-			"context": map[string]any{
-				"type":                 "object",
-				"additionalProperties": false,
-				"properties":           contextProps,
-			},
-		},
+		"required":             required,
+		"properties":           properties,
 	}
 
 	return json.MarshalIndent(schema, "", "  ")
