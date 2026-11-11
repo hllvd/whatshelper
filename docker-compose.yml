@@ -15,7 +15,7 @@ services:
       retries: 5
 
   minio:
-    image: minio/minio:latest
+    image: cleanstart/minio@sha256:c79d95411873282e192209a7af1a7d7524aeae2371bf53737b1e6ae6baa0c06d
     container_name: whatshelper-minio
     restart: unless-stopped
     user: root
@@ -35,7 +35,7 @@ services:
       retries: 10
 
   minio-init:
-    image: minio/mc:latest
+    image: drpsychick/minio-client@sha256:8fb24fd225727f183710eaed1fd6ed378ee87a152a47002e65c22f9383a3d807
     depends_on:
       minio:
         condition: service_healthy
@@ -79,7 +79,12 @@ services:
       AWS_SECRET_ACCESS_KEY: "minioadmin"
       AWS_REGION: "us-east-1"
       S3_USE_SSL: "false"
+      LLM_PROVIDER: "${LLM_PROVIDER:-fake}"
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      MODEL_ANALYSIS: "${MODEL_ANALYSIS:-}"
+      MODEL_RESPONSE: "${MODEL_RESPONSE:-}"
+      MODEL_NUDGE: "${MODEL_NUDGE:-}"
+      DEBOUNCE_MS: "${DEBOUNCE_MS:-1500}"
 
 volumes:
   dynamodb_data:
