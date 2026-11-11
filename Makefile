@@ -1,4 +1,4 @@
-.PHONY: up down build test test-race lint fmt clean docker-build
+.PHONY: up down build test test-race test-integration lint fmt clean docker-build
 
 APP_NAME := brain
 BIN_DIR := bin
@@ -19,6 +19,9 @@ test:
 
 test-race:
 	go test -v -race ./...
+
+test-integration:
+	go test -v -tags=integration ./internal/store/...
 
 lint:
 	go vet ./...

@@ -3,6 +3,7 @@ services:
     image: amazon/dynamodb-local:latest
     container_name: whatshelper-dynamodb
     restart: unless-stopped
+    user: root
     ports:
       - "8000:8000"
     command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-dbPath", "/home/dynamodblocal/data"]
@@ -52,6 +53,25 @@ services:
         echo 'Bucket whatshelper-blobs criado com versionamento ativo'
         exit 0
 
+  store-init:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      dynamodb-local:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      DYNAMODB_ENDPOINT: "http://dynamodb-local:8000"
+      DYNAMODB_TABLE: "whatshelper-brain"
+      S3_ENDPOINT: "http://minio:9000"
+      S3_BUCKET: "whatshelper-blobs"
+      AWS_ACCESS_KEY_ID: "minioadmin"
+      AWS_SECRET_ACCESS_KEY: "minioadmin"
+      AWS_REGION: "us-east-1"
+    entrypoint: ["/app/brain", "store", "init"]
+
   brain:
     build:
       context: .
@@ -61,9 +81,7 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      dynamodb-local:
-        condition: service_healthy
-      minio-init:
+      store-init:
         condition: service_completed_successfully
     environment:
       HTTP_HOST: "0.0.0.0"

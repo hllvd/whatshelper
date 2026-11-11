@@ -2,6 +2,7 @@ package fakes_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -11,64 +12,60 @@ import (
 
 func TestMemoryStore_SourceLifecycle(t *testing.T) {
 	ctx := context.Background()
-	store := fakes.NewMemoryStore()
-	now := time.Now().UTC()
+	now := time.Date(2026, 11, 11, 10, 0, 0, 0, time.UTC)
+	store := fakes.NewMemoryStoreWithClock(fakes.NewFakeClock(now))
 
 	// 1. Initial State
 	state, err := store.GetSourceState(ctx, "tenant-1", "simulator", "user-1")
 	if err != nil {
 		t.Fatalf("unexpected error getting initial state: %v", err)
 	}
-	if state.Meta.Status != core.SourceStatusActive {
-		t.Fatalf("expected default status active, got %s", state.Meta.Status)
-	}
-	if len(state.Facts) != 0 {
-		t.Fatalf("expected 0 facts, got %d", len(state.Facts))
+	if state.Meta.Status != core.SourceStatusActive || state.Version != 0 {
+		t.Fatalf("expected active status and version 0, got %s / %d", state.Meta.Status, state.Version)
 	}
 
-	// 2. Save Meta
-	meta := core.SourceMeta{
-		TenantID:  "tenant-1",
-		Channel:   "simulator",
-		SourceKey: "user-1",
-		Status:    core.SourceStatusPaused,
-		CreatedAt: now,
+	// 2. CommitAnalysis (versão 0 -> 1)
+	err = store.CommitAnalysis(ctx, core.CommitAnalysisInput{
+		TenantID:        "tenant-1",
+		Channel:         "simulator",
+		SourceKey:       "user-1",
+		ExpectedVersion: 0,
+		Summary: core.Summary{
+			TenantID:  "tenant-1",
+			Channel:   "simulator",
+			SourceKey: "user-1",
+			Text:      "Cliente procura plano para 2 usuários até 5000.",
+			TurnCount: 1,
+			UpdatedAt: now,
+		},
+		Facts:     map[string]string{"Budget": "5000", "Seats": "2"},
+		Signals:   map[string]bool{"has_new_question": true},
+		Context:   core.ConversationContext{LastActionType: "question", UpdatedAt: now},
+		Run:       core.Run{ID: "run-1", TenantID: "tenant-1", Channel: "simulator", SourceKey: "user-1", Stage: "analysis", Status: "ok", CreatedAt: now},
 		UpdatedAt: now,
-	}
-	if err := store.SaveSourceMeta(ctx, meta); err != nil {
-		t.Fatalf("SaveSourceMeta failed: %v", err)
-	}
-
-	// 3. Save Facts & Signals & Summary
-	facts := map[string]string{"Budget": "5000", "Seats": "2"}
-	if err := store.SaveFacts(ctx, "tenant-1", "simulator", "user-1", facts); err != nil {
-		t.Fatalf("SaveFacts failed: %v", err)
+	})
+	if err != nil {
+		t.Fatalf("CommitAnalysis failed: %v", err)
 	}
 
-	signals := map[string]bool{"has_new_question": true}
-	if err := store.SaveSignals(ctx, "tenant-1", "simulator", "user-1", signals); err != nil {
-		t.Fatalf("SaveSignals failed: %v", err)
+	// Conflito de versão ao tentar comitar com ExpectedVersion=0 novamente
+	err = store.CommitAnalysis(ctx, core.CommitAnalysisInput{
+		TenantID:        "tenant-1",
+		Channel:         "simulator",
+		SourceKey:       "user-1",
+		ExpectedVersion: 0,
+	})
+	if !errors.Is(err, core.ErrVersionConflict) {
+		t.Fatalf("expected ErrVersionConflict, got %v", err)
 	}
 
-	summary := core.Summary{
-		TenantID:  "tenant-1",
-		Channel:   "simulator",
-		SourceKey: "user-1",
-		Text:      "Cliente procura plano para 2 usuários até 5000.",
-		TurnCount: 1,
-		UpdatedAt: now,
-	}
-	if err := store.SaveSummary(ctx, summary); err != nil {
-		t.Fatalf("SaveSummary failed: %v", err)
-	}
-
-	// 4. Verify Updated State
+	// 3. Verify Updated State
 	state, err = store.GetSourceState(ctx, "tenant-1", "simulator", "user-1")
 	if err != nil {
 		t.Fatalf("GetSourceState failed: %v", err)
 	}
-	if state.Meta.Status != core.SourceStatusPaused {
-		t.Fatalf("expected status paused, got %s", state.Meta.Status)
+	if state.Version != 1 {
+		t.Fatalf("expected version 1, got %d", state.Version)
 	}
 	if state.Facts["Budget"] != "5000" || state.Facts["Seats"] != "2" {
 		t.Fatalf("facts mismatch: %v", state.Facts)
@@ -76,8 +73,8 @@ func TestMemoryStore_SourceLifecycle(t *testing.T) {
 	if !state.Signals["has_new_question"] {
 		t.Fatalf("expected has_new_question to be true")
 	}
-	if state.Summary.Text != summary.Text {
-		t.Fatalf("expected summary %q, got %q", summary.Text, state.Summary.Text)
+	if state.Summary.Text != "Cliente procura plano para 2 usuários até 5000." {
+		t.Fatalf("unexpected summary: %q", state.Summary.Text)
 	}
 }
 
@@ -106,10 +103,16 @@ func TestMemoryStore_MessagesDeduplicationAndOrder(t *testing.T) {
 		Type:      core.MessageTypeText,
 	}
 
-	_ = store.SaveMessageMeta(ctx, msg1)
-	_ = store.SaveMessageMeta(ctx, msg2)
-	// Salva msg1 novamente para testar deduplicação
-	_ = store.SaveMessageMeta(ctx, msg1)
+	if err := store.PutMessageMeta(ctx, msg1); err != nil {
+		t.Fatalf("PutMessageMeta msg1 failed: %v", err)
+	}
+	if err := store.PutMessageMeta(ctx, msg2); err != nil {
+		t.Fatalf("PutMessageMeta msg2 failed: %v", err)
+	}
+	// Duplicata deve retornar ErrDuplicateMessage
+	if err := store.PutMessageMeta(ctx, msg1); !errors.Is(err, core.ErrDuplicateMessage) {
+		t.Fatalf("expected ErrDuplicateMessage, got %v", err)
+	}
 
 	msgs, err := store.ListRecentMessages(ctx, "tenant-1", "simulator", "user-1", 10)
 	if err != nil {
@@ -118,7 +121,6 @@ func TestMemoryStore_MessagesDeduplicationAndOrder(t *testing.T) {
 	if len(msgs) != 2 {
 		t.Fatalf("expected 2 unique messages, got %d", len(msgs))
 	}
-	// A mais recente deve vir primeiro
 	if msgs[0].MessageID != "msg-2" || msgs[1].MessageID != "msg-1" {
 		t.Fatalf("unexpected message order: [0]=%s, [1]=%s", msgs[0].MessageID, msgs[1].MessageID)
 	}

@@ -32,6 +32,7 @@ type SourceMeta struct {
 	SourceKey            string       `json:"source_key"`
 	ContactID            string       `json:"contact_id,omitempty"`
 	Status               SourceStatus `json:"status"`
+	Version              int64        `json:"version"`
 	EncryptedContactInfo string       `json:"encrypted_contact_info,omitempty"`
 	CreatedAt            time.Time    `json:"created_at"`
 	UpdatedAt            time.Time    `json:"updated_at"`
@@ -72,11 +73,12 @@ type Signal struct {
 
 // ConversationContext guarda o contexto estruturado da conversa (última ação, agendamentos).
 type ConversationContext struct {
-	LastActionType string            `json:"last_action_type,omitempty"`
-	LastActionBy   string            `json:"last_action_by,omitempty"`
-	Description    string            `json:"description,omitempty"`
-	Details        map[string]string `json:"details,omitempty"`
-	UpdatedAt      time.Time         `json:"updated_at"`
+	LastActionType string                       `json:"last_action_type,omitempty"`
+	LastActionBy   string                       `json:"last_action_by,omitempty"`
+	Description    string                       `json:"description,omitempty"`
+	Details        map[string]string            `json:"details,omitempty"`
+	Sections       map[string]map[string]string `json:"sections,omitempty"`
+	UpdatedAt      time.Time                    `json:"updated_at"`
 }
 
 // TaskStatus define o estado de uma tarefa ou pendência.
@@ -133,7 +135,8 @@ type Run struct {
 	Channel          string    `json:"channel"`
 	SourceKey        string    `json:"source_key"`
 	MessageID        string    `json:"message_id"`
-	Stage            string    `json:"stage"` // ex: "analysis", "response", "nudge"
+	Stage            string    `json:"stage"`  // ex: "analysis", "response", "nudge"
+	Status           string    `json:"status"` // ex: "ok", "repaired", "failed"
 	Model            string    `json:"model"`
 	PromptTokens     int       `json:"prompt_tokens"`
 	CompletionTokens int       `json:"completion_tokens"`
@@ -158,6 +161,7 @@ type MessageMeta struct {
 
 // SourceState agrega todo o estado conhecido de uma conversa em um instante.
 type SourceState struct {
+	Version int64               `json:"version"`
 	Meta    SourceMeta          `json:"meta"`
 	Summary Summary             `json:"summary"`
 	Facts   map[string]string   `json:"facts"`

@@ -16,7 +16,8 @@ O desenvolvimento e testes locais exigem instâncias de DynamoDB Local e MinIO (
    - Utilizar `cleanstart/minio@sha256:c79d95411873282e192209a7af1a7d7524aeae2371bf53737b1e6ae6baa0c06d` (build Chainguard-forked de MinIO, rodando com `user: root` localmente para escrita no volume `/data`) e healthcheck via `wget -q --spider http://localhost:9000/minio/health/live`.
    - Utilizar `drpsychick/minio-client@sha256:8fb24fd225727f183710eaed1fd6ed378ee87a152a47002e65c22f9383a3d807` para o contêiner efêmero `minio-init` que cria o bucket `whatshelper-blobs` e ativa o S3 Versioning.
 2. **DynamoDB Local**:
-   - Utilizar a imagem oficial `amazon/dynamodb-local:latest` com healthcheck HTTP `curl -s http://localhost:8000/ > /dev/null || exit 1`.
+   - Utilizar a imagem oficial `amazon/dynamodb-local:latest` (rodando com `user: root` localmente para escrita em volume `/home/dynamodblocal/data`) com healthcheck HTTP `curl -s http://localhost:8000/ > /dev/null || exit 1`.
+   - Inicializar a tabela única, GSIs e TTL via serviço `store-init` (`brain store init`) antes da subida do `brain`.
 
 ## Riscos e Mitigação (Supply Chain)
 - O uso de imagens de terceiros (`cleanstart/minio`, `drpsychick/minio-client`) traz risco de supply chain em comparação ao mantenedor oficial.

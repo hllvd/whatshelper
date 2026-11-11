@@ -115,6 +115,19 @@ func (c *MemoryChannel) ID() string {
 	return c.id
 }
 
+func (c *MemoryChannel) Capabilities() core.ChannelCapabilities {
+	return core.ChannelCapabilities{
+		PlainTextOnly: true,
+		Typing:        true,
+	}
+}
+
+func (c *MemoryChannel) Health() core.ChannelHealth {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return core.ChannelHealth{Healthy: c.started}
+}
+
 func (c *MemoryChannel) Start(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()

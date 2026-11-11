@@ -2,12 +2,36 @@ package core
 
 import (
 	"context"
+	"errors"
 	"time"
 )
+
+var (
+	// ErrVersionConflict indica concorrência otimista detectada ao comitar estado da fonte.
+	ErrVersionConflict = errors.New("store: conflito de versão otimista na fonte")
+	// ErrDuplicateMessage indica que o message_id já foi persistido para esta fonte.
+	ErrDuplicateMessage = errors.New("store: mensagem duplicada")
+)
+
+// ChannelCapabilities declara os recursos suportados pelo canal.
+type ChannelCapabilities struct {
+	PlainTextOnly bool `json:"plain_text_only"`
+	Media         bool `json:"media"`
+	Typing        bool `json:"typing"`
+	Reactions     bool `json:"reactions"`
+}
+
+// ChannelHealth descreve o estado operacional de um canal.
+type ChannelHealth struct {
+	Healthy bool   `json:"healthy"`
+	Detail  string `json:"detail,omitempty"`
+}
 
 // Channel define a abstração para qualquer meio de mensageria (Simulador, WhatsApp, Email, etc.).
 type Channel interface {
 	ID() string
+	Capabilities() ChannelCapabilities
+	Health() ChannelHealth
 	Start(ctx context.Context) error
 	Stop(ctx context.Context) error
 	Messages() <-chan NormalizedMessage
@@ -15,16 +39,29 @@ type Channel interface {
 	SendTyping(ctx context.Context, sourceKey string, typing bool) error
 }
 
+// CommitAnalysisInput agrupa a atualização atômica de estado após o estágio de análise.
+type CommitAnalysisInput struct {
+	TenantID        string
+	Channel         string
+	SourceKey       string
+	ExpectedVersion int64
+	Summary         Summary
+	Facts           map[string]string
+	Signals         map[string]bool
+	Context         ConversationContext
+	Run             Run
+	UpdatedAt       time.Time
+}
+
 // Store define o contrato de persistência do estado estruturado no DynamoDB (ou in-memory).
 type Store interface {
 	GetSourceState(ctx context.Context, tenant, channel, sourceKey string) (*SourceState, error)
 	SaveSourceMeta(ctx context.Context, meta SourceMeta) error
-	SaveSummary(ctx context.Context, summary Summary) error
-	SaveFacts(ctx context.Context, tenant, channel, sourceKey string, facts map[string]string) error
-	SaveSignals(ctx context.Context, tenant, channel, sourceKey string, signals map[string]bool) error
-	SaveContext(ctx context.Context, tenant, channel, sourceKey string, ctxData ConversationContext) error
-	SaveMessageMeta(ctx context.Context, msg MessageMeta) error
+	CommitAnalysis(ctx context.Context, input CommitAnalysisInput) error
+	PutMessageMeta(ctx context.Context, msg MessageMeta) error
 	ListRecentMessages(ctx context.Context, tenant, channel, sourceKey string, limit int) ([]MessageMeta, error)
+	ListSources(ctx context.Context, tenant string) ([]SourceMeta, error)
+	ListRuns(ctx context.Context, tenant, channel, sourceKey string, limit int) ([]Run, error)
 	SaveTask(ctx context.Context, task Task) error
 	ListDueTasks(ctx context.Context, tenant string, dueBefore time.Time) ([]Task, error)
 	SaveRun(ctx context.Context, run Run) error

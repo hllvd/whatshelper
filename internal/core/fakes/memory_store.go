@@ -20,6 +20,7 @@ type MemoryStore struct {
 	signals      map[string]map[string]bool
 	contexts     map[string]*core.ConversationContext
 	messages     map[string][]core.MessageMeta
+	msgIndex     map[string]map[string]bool // sourceID -> messageID -> seen
 	tasks        map[string]map[string]core.Task
 	runs         map[string][]core.Run
 	contactLinks map[string][]core.SourceLink // key: tenant#contact_id
@@ -41,6 +42,7 @@ func NewMemoryStoreWithClock(clock core.Clock) *MemoryStore {
 		signals:      make(map[string]map[string]bool),
 		contexts:     make(map[string]*core.ConversationContext),
 		messages:     make(map[string][]core.MessageMeta),
+		msgIndex:     make(map[string]map[string]bool),
 		tasks:        make(map[string]map[string]core.Task),
 		runs:         make(map[string][]core.Run),
 		contactLinks: make(map[string][]core.SourceLink),
@@ -62,6 +64,7 @@ func (m *MemoryStore) GetSourceState(ctx context.Context, tenant, channel, sourc
 		Channel:   channel,
 		SourceKey: sourceKey,
 		Status:    core.SourceStatusActive,
+		Version:   0,
 	}
 	if existing, ok := m.sources[id]; ok {
 		meta = *existing
@@ -90,18 +93,10 @@ func (m *MemoryStore) GetSourceState(ctx context.Context, tenant, channel, sourc
 		}
 	}
 
-	convCtx := core.ConversationContext{}
-	if existing, ok := m.contexts[id]; ok {
-		convCtx = *existing
-		if existing.Details != nil {
-			convCtx.Details = make(map[string]string)
-			for k, v := range existing.Details {
-				convCtx.Details[k] = v
-			}
-		}
-	}
+	convCtx := copyContext(m.contexts[id])
 
 	return &core.SourceState{
+		Version: meta.Version,
 		Meta:    meta,
 		Summary: summary,
 		Facts:   copiedFacts,
@@ -116,76 +111,102 @@ func (m *MemoryStore) SaveSourceMeta(ctx context.Context, meta core.SourceMeta) 
 
 	id := sourceKeyID(meta.TenantID, meta.Channel, meta.SourceKey)
 	copied := meta
+	if existing, ok := m.sources[id]; ok && copied.Version == 0 {
+		copied.Version = existing.Version
+	}
 	m.sources[id] = &copied
 	return nil
 }
 
-func (m *MemoryStore) SaveSummary(ctx context.Context, summary core.Summary) error {
+// CommitAnalysis grava atomicamente SUMMARY, FACTS, SIGNALS, CONTEXT e RUN, validando ExpectedVersion em META.
+func (m *MemoryStore) CommitAnalysis(ctx context.Context, input core.CommitAnalysisInput) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	id := sourceKeyID(summary.TenantID, summary.Channel, summary.SourceKey)
-	copied := summary
-	m.summaries[id] = &copied
-	return nil
-}
-
-func (m *MemoryStore) SaveFacts(ctx context.Context, tenant, channel, sourceKey string, facts map[string]string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	id := sourceKeyID(tenant, channel, sourceKey)
-	if _, ok := m.facts[id]; !ok {
-		m.facts[id] = make(map[string]string)
+	id := sourceKeyID(input.TenantID, input.Channel, input.SourceKey)
+	now := input.UpdatedAt
+	if now.IsZero() {
+		now = m.clock.Now().UTC()
 	}
-	for k, v := range facts {
-		m.facts[id][k] = v
-	}
-	return nil
-}
 
-func (m *MemoryStore) SaveSignals(ctx context.Context, tenant, channel, sourceKey string, signals map[string]bool) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	id := sourceKeyID(tenant, channel, sourceKey)
-	if _, ok := m.signals[id]; !ok {
-		m.signals[id] = make(map[string]bool)
-	}
-	for k, v := range signals {
-		m.signals[id][k] = v
-	}
-	return nil
-}
-
-func (m *MemoryStore) SaveContext(ctx context.Context, tenant, channel, sourceKey string, ctxData core.ConversationContext) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	id := sourceKeyID(tenant, channel, sourceKey)
-	copied := ctxData
-	if ctxData.Details != nil {
-		copied.Details = make(map[string]string)
-		for k, v := range ctxData.Details {
-			copied.Details[k] = v
+	var currentVersion int64
+	var meta core.SourceMeta
+	if existing, ok := m.sources[id]; ok {
+		currentVersion = existing.Version
+		meta = *existing
+	} else {
+		meta = core.SourceMeta{
+			TenantID:  input.TenantID,
+			Channel:   input.Channel,
+			SourceKey: input.SourceKey,
+			Status:    core.SourceStatusActive,
+			CreatedAt: now,
 		}
 	}
-	m.contexts[id] = &copied
+
+	if currentVersion != input.ExpectedVersion {
+		return fmt.Errorf("%w: esperado %d, atual %d", core.ErrVersionConflict, input.ExpectedVersion, currentVersion)
+	}
+
+	meta.Version = currentVersion + 1
+	meta.UpdatedAt = now
+	m.sources[id] = &meta
+
+	summaryCopy := input.Summary
+	m.summaries[id] = &summaryCopy
+
+	factsCopy := make(map[string]string, len(input.Facts))
+	for k, v := range input.Facts {
+		factsCopy[k] = v
+	}
+	m.facts[id] = factsCopy
+
+	signalsCopy := make(map[string]bool, len(input.Signals))
+	for k, v := range input.Signals {
+		signalsCopy[k] = v
+	}
+	m.signals[id] = signalsCopy
+
+	ctxCopy := copyContext(&input.Context)
+	m.contexts[id] = &ctxCopy
+
+	if input.Run.ID != "" {
+		m.runs[id] = append(m.runs[id], input.Run)
+	}
+
 	return nil
 }
 
-func (m *MemoryStore) SaveMessageMeta(ctx context.Context, msg core.MessageMeta) error {
+func (m *MemoryStore) PutMessageMeta(ctx context.Context, msg core.MessageMeta) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	id := sourceKeyID(msg.TenantID, msg.Channel, msg.SourceKey)
-	// deduplicação por message_id
-	for _, existing := range m.messages[id] {
-		if existing.MessageID == msg.MessageID {
-			return nil
+	if _, ok := m.msgIndex[id]; !ok {
+		m.msgIndex[id] = make(map[string]bool)
+	}
+	if m.msgIndex[id][msg.MessageID] {
+		return fmt.Errorf("%w: %s", core.ErrDuplicateMessage, msg.MessageID)
+	}
+	m.msgIndex[id][msg.MessageID] = true
+	m.messages[id] = append(m.messages[id], msg)
+
+	// Garante existência de META inicial quando a primeira mensagem entra
+	if _, ok := m.sources[id]; !ok {
+		now := msg.Timestamp
+		if now.IsZero() {
+			now = m.clock.Now().UTC()
+		}
+		m.sources[id] = &core.SourceMeta{
+			TenantID:  msg.TenantID,
+			Channel:   msg.Channel,
+			SourceKey: msg.SourceKey,
+			Status:    core.SourceStatusActive,
+			Version:   0,
+			CreatedAt: now,
+			UpdatedAt: now,
 		}
 	}
-	m.messages[id] = append(m.messages[id], msg)
 	return nil
 }
 
@@ -202,8 +223,11 @@ func (m *MemoryStore) ListRecentMessages(ctx context.Context, tenant, channel, s
 	result := make([]core.MessageMeta, len(msgs))
 	copy(result, msgs)
 
-	// Ordena por timestamp descendente
+	// Ordena por timestamp descendente (desempate por message_id)
 	sort.Slice(result, func(i, j int) bool {
+		if result[i].Timestamp.Equal(result[j].Timestamp) {
+			return result[i].MessageID > result[j].MessageID
+		}
 		return result[i].Timestamp.After(result[j].Timestamp)
 	})
 
@@ -211,6 +235,48 @@ func (m *MemoryStore) ListRecentMessages(ctx context.Context, tenant, channel, s
 		result = result[:limit]
 	}
 
+	return result, nil
+}
+
+func (m *MemoryStore) ListSources(ctx context.Context, tenant string) ([]core.SourceMeta, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	result := make([]core.SourceMeta, 0)
+	for _, src := range m.sources {
+		if src.TenantID == tenant {
+			result = append(result, *src)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].UpdatedAt.After(result[j].UpdatedAt)
+	})
+	return result, nil
+}
+
+func (m *MemoryStore) ListRuns(ctx context.Context, tenant, channel, sourceKey string, limit int) ([]core.Run, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	id := sourceKeyID(tenant, channel, sourceKey)
+	runs, ok := m.runs[id]
+	if !ok || len(runs) == 0 {
+		return []core.Run{}, nil
+	}
+
+	result := make([]core.Run, len(runs))
+	copy(result, runs)
+
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].CreatedAt.Equal(result[j].CreatedAt) {
+			return result[i].ID > result[j].ID
+		}
+		return result[i].CreatedAt.After(result[j].CreatedAt)
+	})
+
+	if limit > 0 && len(result) > limit {
+		result = result[:limit]
+	}
 	return result, nil
 }
 
@@ -291,7 +357,6 @@ func (m *MemoryStore) LinkSourceToContact(ctx context.Context, tenant, channel, 
 		LinkedAt:  now,
 	}
 
-	// Evita duplicatas na lista de links
 	for _, l := range m.contactLinks[linkKey] {
 		if l.Channel == channel && l.SourceKey == sourceKey {
 			return nil
@@ -314,4 +379,28 @@ func (m *MemoryStore) ListContactSources(ctx context.Context, tenant, contactID 
 	result := make([]core.SourceLink, len(links))
 	copy(result, links)
 	return result, nil
+}
+
+func copyContext(src *core.ConversationContext) core.ConversationContext {
+	if src == nil {
+		return core.ConversationContext{}
+	}
+	copied := *src
+	if src.Details != nil {
+		copied.Details = make(map[string]string, len(src.Details))
+		for k, v := range src.Details {
+			copied.Details[k] = v
+		}
+	}
+	if src.Sections != nil {
+		copied.Sections = make(map[string]map[string]string, len(src.Sections))
+		for sec, fields := range src.Sections {
+			secCopy := make(map[string]string, len(fields))
+			for k, v := range fields {
+				secCopy[k] = v
+			}
+			copied.Sections[sec] = secCopy
+		}
+	}
+	return copied
 }
