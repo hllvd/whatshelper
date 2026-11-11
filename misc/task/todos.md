@@ -45,23 +45,23 @@ A ordem de execução está nos milestones M0 → M5, no final do arquivo.
 
 - [x] **PACK-01 — Formato de pack.** Pasta com `pack.yaml` (nome, idioma, intents, schema de fatos, sinais, contexto), `prompts/*.tmpl` e valores padrão.
 - [x] **PACK-02 — Schema de fatos configurável.** Chaves, tipos e normalização definidos no pack, no lugar da lista fixa do prompt imobiliário (Intent, Budget, Bedrooms etc.).
-- [ ] **PACK-03 — Intents configuráveis.** Cada intent com nome, descrição, exemplos e ação associada (responder, escalar, criar task, passar para humano).
+- [x] **PACK-03 — Intents configuráveis.** Cada intent com nome, descrição, exemplos e ação associada (responder, escalar, criar task, passar para humano).
 - [x] **PACK-04 — Sinais e contexto configuráveis.** Gerar o JSON schema de saída da análise a partir do pack e validar a resposta do LLM contra ele.
 - [x] **PACK-05 — Templates de prompt.** Montar os prompts de análise, resposta e nudge a partir do pack e do estado (resumo, fatos, mensagens recentes, conhecimento).
 - [x] **PACK-06 — Pack `realestate`.** Migrar os três prompts existentes preservando as regras: não assumir fatos, uma pergunta de qualificação por vez, nunca inventar imóveis ou preços, respostas em PT-BR.
-- [ ] **PACK-07 — Segundo pack de exemplo.** Ex.: clínica ou suporte genérico, só para provar que o core não depende de imobiliário.
-- [ ] **PACK-08 — Validação de pack.** Comando `brain pack validate` que checa schema, templates e referências.
+- [x] **PACK-07 — Segundo pack de exemplo.** Ex.: clínica ou suporte genérico, só para provar que o core não depende de imobiliário.
+- [x] **PACK-08 — Validação de pack.** Comando `brain pack validate` que checa schema, templates e referências.
 
 ## BRAIN — Pipeline do cérebro
 
 - [x] **BRAIN-01 — Estágio de análise.** Extrair fatos, sinais, contexto e resumo; fazer merge, refinamento e tratar contradições; persistir o estado.
-- [ ] **BRAIN-02 — Roteamento de intent.** Decidir a ação com base nos intents do pack, nos sinais e no estado da conversa.
+- [x] **BRAIN-02 — Roteamento de intent.** Decidir a ação com base nos intents do pack, nos sinais e no estado da conversa.
 - [x] **BRAIN-03 — Estágio de resposta.** Gerar a resposta usando `knowledge/*.md`, `QA.md`, resumo e fatos. Respeitar o formato do canal (ex.: texto puro, sem Markdown).
 - [x] **BRAIN-04 — Conhecimento.** Carregar `.md` por tenant (local ou S3), cachear e recarregar quando mudar.
-- [ ] **BRAIN-05 — Detecção de "não sei".** Critérios (sem fonte no conhecimento, regras do pack, baixa confiança). Responder de forma neutra ao cliente e escalar ao dono.
-- [ ] **BRAIN-06 — Nudge.** Agendador de follow-up para clientes que pararam de responder, com máximo de tentativas e janela de horário.
-- [ ] **BRAIN-07 — Tasks e pendências.** Criar itens a partir do contexto (visita, ligação, documentos) e expô-los via API.
-- [ ] **BRAIN-08 — Políticas por tenant.** Horário de atendimento e modo de operação: automático, com aprovação humana ou só rascunho.
+- [x] **BRAIN-05 — Detecção de "não sei".** Critérios (sem fonte no conhecimento, regras do pack, baixa confiança). Responder de forma neutra ao cliente e escalar ao dono.
+- [x] **BRAIN-06 — Nudge.** Agendador de follow-up para clientes que pararam de responder, com máximo de tentativas e janela de horário.
+- [x] **BRAIN-07 — Tasks e pendências.** Criar itens a partir do contexto (visita, ligação, documentos) e expô-los via API.
+- [x] **BRAIN-08 — Políticas por tenant.** Horário de atendimento e modo de operação: automático, com aprovação humana ou só rascunho.
 
 ## LRN — Aprendizado (QA.md)
 
@@ -90,9 +90,9 @@ A ordem de execução está nos milestones M0 → M5, no final do arquivo.
 - [x] **SRV-02 — Stream de eventos.** SSE ou WebSocket com os eventos do pipeline em tempo real.
 - [x] **SRV-03 — UI de chat simulador.** Conversar com o bot como se fosse um cliente.
 - [x] **SRV-04 — UI "pensando".** Linha do tempo por mensagem: prompt enviado, resposta crua, JSON parseado, diff de fatos, tempo e tokens.
-- [ ] **SRV-05 — UI de conhecimento.** Ver e editar `knowledge/*.md` e `QA.md`, e ver propostas de aprendizado pendentes.
-- [ ] **SRV-06 — Replay.** Reexecutar uma conversa gravada contra outro prompt ou pack e comparar as saídas.
-- [ ] **SRV-07 — Acesso.** Bind local por padrão; token simples para uso remoto.
+- [x] **SRV-05 — UI de conhecimento.** Ver e editar `knowledge/*.md` e `QA.md`, e ver propostas de aprendizado pendentes.
+- [x] **SRV-06 — Replay.** Reexecutar uma conversa gravada contra outro prompt ou pack e comparar as saídas.
+- [x] **SRV-07 — Acesso.** Bind local por padrão; token simples para uso remoto.
 
 ## STO — Armazenamento (DynamoDB + S3)
 
@@ -101,8 +101,8 @@ A ordem de execução está nos milestones M0 → M5, no final do arquivo.
 - [x] **STO-03 — Itens por fonte.** Sob a mesma partição: `META`, `SUMMARY`, `FACTS`, `SIGNALS`, `CONTEXT`, `MSG#<ts>#<id>` (metadados e referência ao S3), `TASK#…`, `RUN#…`.
 - [x] **STO-04 — Repositório Go.** Implementar `Store` sobre DynamoDB, com condition expressions para concorrência, e a versão in-memory.
 - [x] **STO-05 — Layout no S3.** Mensagem crua, mídia e traces em caminhos previsíveis por tenant, canal e fonte. O item `MSG#` aponta para o objeto.
-- [ ] **STO-06 — Linkagem entre fontes (só estrutura).** Atributo `contact_id` e GSI1 reservados, item de link `CONTACT#…` → `SRC#…`. Sem lógica de merge.
-- [ ] **STO-07 — Retenção e custo.** TTL para traces, lifecycle no S3 e atenção ao limite de tamanho de item do DynamoDB.
+- [x] **STO-06 — Linkagem entre fontes (só estrutura).** Atributo `contact_id` e GSI1 reservados, item de link `CONTACT#…` → `SRC#…`. Sem lógica de merge.
+- [x] **STO-07 — Retenção e custo.** TTL para traces, lifecycle no S3 e atenção ao limite de tamanho de item do DynamoDB.
 - [x] **STO-08 — Testes de integração.** Rodar contra DynamoDB Local e MinIO.
 
 ## LLM — Camada de modelo
@@ -115,11 +115,11 @@ A ordem de execução está nos milestones M0 → M5, no final do arquivo.
 
 ## SAF — Segurança operacional e anti-ban
 
-- [ ] **SAF-01 — Só responder a quem escreveu primeiro.** Flag por tenant para permitir mensagens proativas, desligada por padrão.
-- [ ] **SAF-02 — Rate limit e horários.** Limites globais e por conversa, com janelas de horário.
-- [ ] **SAF-03 — Kill switch e handoff.** Pausar o bot globalmente ou por conversa, e comando do admin para assumir a conversa.
-- [ ] **SAF-04 — Opt-out.** Respeitar e persistir pedidos de parar de receber mensagens.
-- [ ] **SAF-05 — Guardrails de conteúdo.** Nunca inventar dados fora do conhecimento; aplicar as regras do pack na validação da resposta.
+- [x] **SAF-01 — Só responder a quem escreveu primeiro.** Flag por tenant para permitir mensagens proativas, desligada por padrão.
+- [x] **SAF-02 — Rate limit e horários.** Limites globais e por conversa, com janelas de horário.
+- [x] **SAF-03 — Kill switch e handoff.** Pausar o bot globalmente ou por conversa, e comando do admin para assumir a conversa.
+- [x] **SAF-04 — Opt-out.** Respeitar e persistir pedidos de parar de receber mensagens.
+- [x] **SAF-05 — Guardrails de conteúdo.** Nunca inventar dados fora do conhecimento; aplicar as regras do pack na validação da resposta.
 
 ## SEC — Segurança e privacidade
 
@@ -140,15 +140,15 @@ A ordem de execução está nos milestones M0 → M5, no final do arquivo.
 ## QA — Testes
 
 - [x] **QA-01 — Unitários do core.** Usando os fakes de CORE-03 e LLM-05.
-- [ ] **QA-02 — Golden tests de prompts.** Entrada → JSON esperado, com opção de rodar contra LLM real.
-- [ ] **QA-03 — Fixtures de conversas.** Conversas realistas (imobiliário e pack de exemplo) usadas em testes e replay.
+- [x] **QA-02 — Golden tests de prompts.** Entrada → JSON esperado, com opção de rodar contra LLM real.
+- [x] **QA-03 — Fixtures de conversas.** Conversas realistas (imobiliário e pack de exemplo) usadas em testes e replay.
 - [x] **QA-04 — End-to-end local.** Simulador → brain → store → visualizador.
 - [ ] **QA-05 — Connector.** Testes de reconexão e mensagens duplicadas.
 
 ## DOC — Documentação
 
-- [ ] **DOC-01 — README.** Arquitetura, como subir local e como rodar os testes.
-- [ ] **DOC-02 — Guia de novo pack.** Passo a passo para adaptar o brain a outro mercado.
+- [x] **DOC-01 — README.** Arquitetura, como subir local e como rodar os testes.
+- [x] **DOC-02 — Guia de novo pack.** Passo a passo para adaptar o brain a outro mercado.
 - [ ] **DOC-03 — Guia de operação.** Parear número, rotina de operação e como trocar para a API oficial no futuro.
 
 ---
