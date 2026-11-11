@@ -171,7 +171,7 @@ func (m *MemoryStore) CommitAnalysis(ctx context.Context, input core.CommitAnaly
 	m.contexts[id] = &ctxCopy
 
 	if input.Run.ID != "" {
-		m.runs[id] = append(m.runs[id], input.Run)
+		upsertRun(m.runs, id, input.Run)
 	}
 
 	return nil
@@ -323,8 +323,19 @@ func (m *MemoryStore) SaveRun(ctx context.Context, run core.Run) error {
 	defer m.mu.Unlock()
 
 	id := sourceKeyID(run.TenantID, run.Channel, run.SourceKey)
-	m.runs[id] = append(m.runs[id], run)
+	upsertRun(m.runs, id, run)
 	return nil
+}
+
+func upsertRun(runsMap map[string][]core.Run, sourceID string, run core.Run) {
+	list := runsMap[sourceID]
+	for i := range list {
+		if list[i].ID == run.ID {
+			list[i] = run
+			return
+		}
+	}
+	runsMap[sourceID] = append(list, run)
 }
 
 func (m *MemoryStore) LinkSourceToContact(ctx context.Context, tenant, channel, sourceKey, contactID string) error {
