@@ -24,6 +24,13 @@ INTENT RULES:
 - {{.Name}}: {{.Description}}{{if .Examples}} (ex: {{index .Examples 0}}){{end}}
 {{- end}}
 {{end}}
+{{if .Pack.Dimensions}}
+DIMENSION RULES:
+Classify each dimension below strictly using its allowed values (use "unknown" if there is no clear evidence):
+{{- range .Pack.Dimensions}}
+- {{.Key}} ({{.Values}}): {{.Description}}
+{{- end}}
+{{end}}
 <!-- USER_PROMPT -->
 SUMMARY:
 {{if .Summary}}{{.Summary}}{{else}}(nenhum resumo anterior){{end}}

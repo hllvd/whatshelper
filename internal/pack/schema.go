@@ -84,6 +84,40 @@ func BuildAnalysisSchema(p *Pack) ([]byte, error) {
 		},
 	}
 
+	if len(p.Dimensions) > 0 {
+		dimProps := make(map[string]any, len(p.Dimensions))
+		dimRequired := make([]string, 0, len(p.Dimensions))
+		for _, d := range p.Dimensions {
+			vals := append([]string(nil), d.Values...)
+			hasUnknown := false
+			for _, v := range vals {
+				if v == "unknown" {
+					hasUnknown = true
+					break
+				}
+			}
+			if !hasUnknown {
+				vals = append(vals, "unknown")
+			}
+			prop := map[string]any{
+				"type": "string",
+				"enum": vals,
+			}
+			if d.Description != "" {
+				prop["description"] = d.Description
+			}
+			dimProps[d.Key] = prop
+			dimRequired = append(dimRequired, d.Key)
+		}
+		properties["dimensions"] = map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"required":             dimRequired,
+			"properties":           dimProps,
+			"description":          "Dimensões categóricas extraídas (use 'unknown' se não houver evidência)",
+		}
+	}
+
 	if p.FSM != nil && len(p.FSM.States) > 0 {
 		properties["suggested_state"] = map[string]any{
 			"type":        "string",

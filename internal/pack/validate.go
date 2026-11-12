@@ -27,6 +27,7 @@ type AnalysisResult struct {
 	Intent         string                       `json:"intent,omitempty"`
 	UrgencyLevel   string                       `json:"urgency_level,omitempty"`
 	Sentiment      string                       `json:"sentiment,omitempty"`
+	Dimensions     map[string]string            `json:"dimensions,omitempty"`
 	SuggestedState string                       `json:"suggested_state,omitempty"`
 	Facts          map[string]string            `json:"facts"`
 	ClearedFacts   []string                     `json:"cleared_facts,omitempty"`
@@ -96,6 +97,7 @@ func ValidateAnalysis(p *Pack, raw []byte) (*AnalysisResult, []ValidationError) 
 		"context":            true,
 		"urgency_level":      true,
 		"sentiment":          true,
+		"dimensions":         true,
 		"suggested_state":    true,
 		"message_analysis":   true,
 		"extracted_entities": true,
@@ -279,6 +281,74 @@ func ValidateAnalysis(p *Pack, raw []byte) (*AnalysisResult, []ValidationError) 
 					res.Context[secKey] = parsedSec
 				}
 			}
+		}
+	}
+
+	// 6. dimensions (configuradas no pack, sempre aceitando "unknown")
+	if len(p.Dimensions) > 0 {
+		res.Dimensions = make(map[string]string, len(p.Dimensions))
+		dimByKey := make(map[string]DimensionDef, len(p.Dimensions))
+		for _, d := range p.Dimensions {
+			dimByKey[d.Key] = d
+			def := d.Default
+			if def == "" {
+				def = "unknown"
+			}
+			res.Dimensions[d.Key] = def
+		}
+		if rawDims, ok := doc["dimensions"]; ok && rawDims != nil {
+			dimsObj, ok := rawDims.(map[string]any)
+			if !ok {
+				errs = append(errs, ValidationError{Field: "dimensions", Message: "deve ser um objeto JSON"})
+			} else {
+				for dk, dv := range dimsObj {
+					dDef, exists := dimByKey[dk]
+					if !exists {
+						errs = append(errs, ValidationError{
+							Field:   "dimensions." + dk,
+							Message: "dimensão desconhecida",
+						})
+						continue
+					}
+					if dv == nil {
+						continue
+					}
+					s, ok := dv.(string)
+					if !ok {
+						errs = append(errs, ValidationError{
+							Field:   "dimensions." + dk,
+							Message: "deve ser string",
+						})
+						continue
+					}
+					allowed := append([]string(nil), dDef.Values...)
+					allowed = append(allowed, "unknown")
+					norm, errMsg := normalizeTypedValue(FactTypeEnum, allowed, s)
+					if errMsg != "" {
+						errs = append(errs, ValidationError{
+							Field:   "dimensions." + dk,
+							Message: errMsg,
+						})
+						continue
+					}
+					res.Dimensions[dk] = norm
+				}
+			}
+		}
+		// Mantém compatibilidade bidirecional com sentiment e urgency_level
+		if res.Sentiment == "" {
+			if v := res.Dimensions["sentiment"]; v != "" {
+				res.Sentiment = v
+			}
+		} else if res.Dimensions["sentiment"] == "" || res.Dimensions["sentiment"] == "unknown" {
+			res.Dimensions["sentiment"] = res.Sentiment
+		}
+		if res.UrgencyLevel == "" {
+			if v := res.Dimensions["urgency"]; v != "" {
+				res.UrgencyLevel = v
+			}
+		} else if res.Dimensions["urgency"] == "" || res.Dimensions["urgency"] == "unknown" {
+			res.Dimensions["urgency"] = res.UrgencyLevel
 		}
 	}
 

@@ -51,6 +51,14 @@ type SignalDef struct {
 	Description string `yaml:"description" json:"description"`
 }
 
+// DimensionDef define uma dimensão categórica extraída pelo sensor (ex: sentiment, urgency).
+type DimensionDef struct {
+	Key         string   `yaml:"key" json:"key"`
+	Values      []string `yaml:"values" json:"values"`
+	Default     string   `yaml:"default,omitempty" json:"default,omitempty"`
+	Description string   `yaml:"description,omitempty" json:"description,omitempty"`
+}
+
 // IntentAction define a ação padrão associada a uma intenção classificada.
 type IntentAction string
 
@@ -182,6 +190,7 @@ type Pack struct {
 	Actors         ActorsDef           `yaml:"actors" json:"actors"`
 	Facts          []FactDef           `yaml:"facts" json:"facts"`
 	Signals        []SignalDef         `yaml:"signals" json:"signals"`
+	Dimensions     []DimensionDef      `yaml:"dimensions,omitempty" json:"dimensions,omitempty"`
 	Intents        []IntentDef         `yaml:"intents,omitempty" json:"intents,omitempty"`
 	TaskRules      []TaskRuleDef       `yaml:"task_rules,omitempty" json:"task_rules,omitempty"`
 	OptOutKeywords []string            `yaml:"opt_out_keywords,omitempty" json:"opt_out_keywords,omitempty"`
@@ -322,6 +331,20 @@ func (p *Pack) Validate() error {
 			return fmt.Errorf("%w: sinal duplicado %q", ErrInvalidPack, s.Key)
 		}
 		seenSignals[s.Key] = true
+	}
+
+	seenDims := make(map[string]bool)
+	for _, d := range p.Dimensions {
+		if strings.TrimSpace(d.Key) == "" {
+			return fmt.Errorf("%w: dimensão com key vazia", ErrInvalidPack)
+		}
+		if seenDims[d.Key] {
+			return fmt.Errorf("%w: dimensão duplicada %q", ErrInvalidPack, d.Key)
+		}
+		seenDims[d.Key] = true
+		if len(d.Values) == 0 {
+			return fmt.Errorf("%w: dimensão %q deve declarar values", ErrInvalidPack, d.Key)
+		}
 	}
 
 	seenIntents := make(map[string]bool)

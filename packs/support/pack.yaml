@@ -42,6 +42,16 @@ signals:
   - key: customer_engaged
     description: true se o usuário está interagindo ativamente
 
+dimensions:
+  - key: sentiment
+    values: [positive, neutral, negative, frustrated, unknown]
+    default: unknown
+    description: Sentimento percebido na última interação (use unknown se não houver evidência)
+  - key: urgency
+    values: [low, medium, high, critical, unknown]
+    default: unknown
+    description: Nível de urgência percebido (use unknown se não houver evidência)
+
 intents:
   - name: ask_howto
     description: Dúvida sobre uso, configuração, limites de plano ou SLA

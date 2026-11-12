@@ -41,6 +41,13 @@ Classify the customer's main intent in the NEW MESSAGE using one of:
 - {{.Name}}: {{.Description}}{{if .Examples}} (ex: {{index .Examples 0}}){{end}}
 {{- end}}
 {{end}}
+{{if .Pack.Dimensions}}
+DIMENSION RULES:
+Classify each dimension below strictly using its allowed values (use "unknown" if there is no clear evidence):
+{{- range .Pack.Dimensions}}
+- {{.Key}} ({{.Values}}): {{.Description}}
+{{- end}}
+{{end}}
 CONTEXT EXTRACTION RULES:
 - DO NOT infer missing data.
 - KEEP human expressions for proposed dates/times (e.g., "amanhã", "sexta", "25/03"); do not convert to exact dates.
