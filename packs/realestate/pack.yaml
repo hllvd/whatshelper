@@ -189,3 +189,19 @@ rules:
   - Nunca invente imóveis, preços, condições ou informações que não estejam no conhecimento ou na conversa.
   - Responda sempre em Português (PT-BR).
   - Quando não souber a resposta com base no conhecimento, responda de forma neutra sem chutar.
+
+context_module:
+  providers: [summary, facts, signals, recent_messages, knowledge]
+  exposed_fields:
+    facts: [Intent, Property Type, Location, Budget, Min Price, Max Price, Bedrooms, Garage, Approved Financing, Purpose, Purchase Timeline, Viewing Interest, Mentioned Property, Lead Score, Children, Pet]
+    signals: [has_new_question, has_pending_question, has_pending_visit, has_pending_documents, has_pending_call, customer_engaged]
+    context_sections: [last_action, visit, call, documents]
+  views:
+    external_agent:
+      blocks: [summary, facts, signals, structured_context, recent_messages]
+      format: delimited
+      max_tokens: 2000
+    summary_only:
+      blocks: [summary]
+      format: json
+      max_tokens: 400

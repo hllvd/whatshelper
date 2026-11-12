@@ -112,6 +112,28 @@ type TaskRuleDef struct {
 	DueInMinutes   int    `yaml:"due_in_minutes,omitempty" json:"due_in_minutes,omitempty"`
 }
 
+// ExposedFieldsDef define a allowlist de campos do pack expostos externamente (ex.: external_agent).
+type ExposedFieldsDef struct {
+	Facts           []string `yaml:"facts,omitempty" json:"facts,omitempty"`
+	Signals         []string `yaml:"signals,omitempty" json:"signals,omitempty"`
+	ContextSections []string `yaml:"context_sections,omitempty" json:"context_sections,omitempty"`
+}
+
+// ContextViewDef configura blocos, formato e orçamento padrão de uma view do módulo de contexto.
+type ContextViewDef struct {
+	Blocks          []string `yaml:"blocks,omitempty" json:"blocks,omitempty"`
+	Format          string   `yaml:"format,omitempty" json:"format,omitempty"`
+	MaxTokens       int      `yaml:"max_tokens,omitempty" json:"max_tokens,omitempty"`
+	IncludeMessages *bool    `yaml:"include_messages,omitempty" json:"include_messages,omitempty"`
+}
+
+// ContextModuleDef declara no pack.yaml as views, providers habilitados e campos expostos (CTX-16).
+type ContextModuleDef struct {
+	Providers     []string                  `yaml:"providers,omitempty" json:"providers,omitempty"`
+	ExposedFields ExposedFieldsDef          `yaml:"exposed_fields,omitempty" json:"exposed_fields,omitempty"`
+	Views         map[string]ContextViewDef `yaml:"views,omitempty" json:"views,omitempty"`
+}
+
 // Pack representa um vertical pack carregado e validado.
 type Pack struct {
 	Name           string              `yaml:"name" json:"name"`
@@ -123,6 +145,7 @@ type Pack struct {
 	TaskRules      []TaskRuleDef       `yaml:"task_rules,omitempty" json:"task_rules,omitempty"`
 	OptOutKeywords []string            `yaml:"opt_out_keywords,omitempty" json:"opt_out_keywords,omitempty"`
 	Context        []ContextSectionDef `yaml:"context" json:"context"`
+	ContextModule  *ContextModuleDef   `yaml:"context_module,omitempty" json:"context_module,omitempty"`
 	Prompts        PromptsDef          `yaml:"prompts" json:"prompts"`
 	Rules          []string            `yaml:"rules,omitempty" json:"rules,omitempty"`
 
@@ -324,6 +347,73 @@ func (p *Pack) Validate() error {
 		}
 	}
 
+	if p.ContextModule != nil {
+		if err := validateContextModule(p.ContextModule, seenFacts, seenSignals, seenCtx); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func validateContextModule(cm *ContextModuleDef, facts, signals, sections map[string]bool) error {
+	validProviders := map[string]bool{
+		"summary": true, "facts": true, "signals": true, "recent_messages": true, "knowledge": true,
+	}
+	validViews := map[string]bool{
+		"analysis": true, "response": true, "admin": true, "external_agent": true, "summary_only": true,
+	}
+	validBlocks := map[string]bool{
+		"summary": true, "facts": true, "signals": true, "structured_context": true,
+		"recent_messages": true, "knowledge": true, "qa": true,
+	}
+	validFormats := map[string]bool{
+		"": true, "prompt": true, "json": true, "markdown": true, "delimited": true,
+	}
+
+	seenProviders := make(map[string]bool)
+	for _, prov := range cm.Providers {
+		if !validProviders[prov] {
+			return fmt.Errorf("%w: context_module.providers contém provider desconhecido %q", ErrInvalidPack, prov)
+		}
+		if seenProviders[prov] {
+			return fmt.Errorf("%w: context_module.providers duplicado %q", ErrInvalidPack, prov)
+		}
+		seenProviders[prov] = true
+	}
+
+	for _, fk := range cm.ExposedFields.Facts {
+		if !facts[fk] {
+			return fmt.Errorf("%w: context_module.exposed_fields.facts referencia fato desconhecido %q", ErrInvalidPack, fk)
+		}
+	}
+	for _, sk := range cm.ExposedFields.Signals {
+		if !signals[sk] {
+			return fmt.Errorf("%w: context_module.exposed_fields.signals referencia sinal desconhecido %q", ErrInvalidPack, sk)
+		}
+	}
+	for _, ck := range cm.ExposedFields.ContextSections {
+		if !sections[ck] {
+			return fmt.Errorf("%w: context_module.exposed_fields.context_sections referencia seção desconhecida %q", ErrInvalidPack, ck)
+		}
+	}
+
+	for viewName, view := range cm.Views {
+		if !validViews[viewName] {
+			return fmt.Errorf("%w: context_module.views contém view inválida %q", ErrInvalidPack, viewName)
+		}
+		if view.MaxTokens < 0 {
+			return fmt.Errorf("%w: context_module.views.%s.max_tokens não pode ser negativo", ErrInvalidPack, viewName)
+		}
+		if !validFormats[view.Format] {
+			return fmt.Errorf("%w: context_module.views.%s.format inválido %q", ErrInvalidPack, viewName, view.Format)
+		}
+		for _, blk := range view.Blocks {
+			if !validBlocks[blk] {
+				return fmt.Errorf("%w: context_module.views.%s.blocks contém bloco desconhecido %q", ErrInvalidPack, viewName, blk)
+			}
+		}
+	}
 	return nil
 }
 

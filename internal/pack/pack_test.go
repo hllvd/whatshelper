@@ -317,3 +317,60 @@ intents:
 		t.Fatalf("expected invalid intent action error")
 	}
 }
+
+func TestContextModule_ConfigValidation(t *testing.T) {
+	validYAML := samplePackYAML + `
+context_module:
+  providers: [summary, facts, signals, recent_messages, knowledge]
+  exposed_fields:
+    facts: [Budget, Plan]
+    signals: [has_new_question]
+    context_sections: [last_action]
+  views:
+    external_agent:
+      blocks: [summary, facts, recent_messages]
+      format: delimited
+      max_tokens: 1500
+`
+	p, err := pack.ParsePackYAML([]byte(validYAML))
+	if err != nil {
+		t.Fatalf("expected valid context_module config, got %v", err)
+	}
+	if p.ContextModule == nil || len(p.ContextModule.ExposedFields.Facts) != 2 {
+		t.Fatalf("expected parsed ContextModule, got %+v", p.ContextModule)
+	}
+
+	invalidCases := []struct {
+		name string
+		yaml string
+	}{
+		{
+			name: "unknown provider",
+			yaml: samplePackYAML + "\ncontext_module:\n  providers: [unknown_prov]\n",
+		},
+		{
+			name: "unknown exposed fact",
+			yaml: samplePackYAML + "\ncontext_module:\n  exposed_fields:\n    facts: [DoesNotExist]\n",
+		},
+		{
+			name: "unknown exposed signal",
+			yaml: samplePackYAML + "\ncontext_module:\n  exposed_fields:\n    signals: [no_such_signal]\n",
+		},
+		{
+			name: "unknown view",
+			yaml: samplePackYAML + "\ncontext_module:\n  views:\n    secret_view:\n      blocks: [summary]\n",
+		},
+		{
+			name: "negative max_tokens",
+			yaml: samplePackYAML + "\ncontext_module:\n  views:\n    summary_only:\n      max_tokens: -10\n",
+		},
+	}
+
+	for _, tc := range invalidCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := pack.ParsePackYAML([]byte(tc.yaml)); err == nil {
+				t.Fatalf("expected validation error for %s", tc.name)
+			}
+		})
+	}
+}

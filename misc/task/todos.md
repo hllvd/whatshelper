@@ -168,7 +168,7 @@ A ordem de execução está nos milestones M0 → M5, no final do arquivo.
 - [ ] **CTX-13 — Testes de contrato.** Suíte única rodando contra os adapters (in-process, REST e MCP) com o mesmo resultado esperado; isolamento entre tenants; conflito de versão; paginação; golden tests e replay verdes.
 - [ ] **CTX-14 — Leitura agregada por contato (preparação).** `Scope` aceita `contact_id` opcional e retorna contexto de várias fontes só em leitura, sem merge nem escrita (liga ao `STO-06`).
 - [ ] **CTX-15 — Execução local.** Serviço da API/MCP no `docker-compose`, porta própria, config por env e README com comandos. Sem AWS.
-- [ ] **CTX-16 — Configuração no pack.** `pack.yaml` declara views, providers habilitados e campos expostos externamente. O `brain pack validate` passa a validar isso.
+- [x] **CTX-16 — Configuração no pack.** `pack.yaml` declara views, providers habilitados e campos expostos externamente. O `brain pack validate` passa a validar isso.
 
 > **Ideia futura (fora dos milestones):** `CTX-17` — providers externos, para o brain consumir contexto de outras fontes (CRM, agenda, pedidos) via HTTP ou cliente MCP, com timeout, cache e falha isolada.
 

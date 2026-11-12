@@ -131,3 +131,19 @@ rules:
   - Sempre peça o ambiente e código de erro caso faltem para diagnóstico.
   - Responda sempre em Português (PT-BR).
   - Quando não tiver certeza na base de conhecimento, informe que vai encaminhar ao time responsável sem chutar.
+
+context_module:
+  providers: [summary, facts, signals, recent_messages, knowledge]
+  exposed_fields:
+    facts: [Product, Plan, Severity, ErrorCode, Environment, SLAHours, HasScreenshot]
+    signals: [has_new_question, has_pending_question, has_pending_bug, has_pending_callback, customer_engaged]
+    context_sections: [last_action, ticket, callback]
+  views:
+    external_agent:
+      blocks: [summary, facts, signals, structured_context, recent_messages]
+      format: delimited
+      max_tokens: 2000
+    summary_only:
+      blocks: [summary]
+      format: json
+      max_tokens: 400
