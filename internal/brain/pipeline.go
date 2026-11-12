@@ -142,8 +142,14 @@ func (p *Pipeline) Stop() {
 
 // Ingest valida na fronteira, salva payload cru no BlobStore, deduplica no Store e enfileira no debounce.
 func (p *Pipeline) Ingest(ctx context.Context, msg core.NormalizedMessage) error {
+	_, err := p.IngestWithStatus(ctx, msg)
+	return err
+}
+
+// IngestWithStatus executa Ingest informando se a mensagem já havia sido processada (dedupe idempotente).
+func (p *Pipeline) IngestWithStatus(ctx context.Context, msg core.NormalizedMessage) (duplicate bool, err error) {
 	if err := msg.Validate(); err != nil {
-		return fmt.Errorf("mensagem inválida: %w", err)
+		return false, fmt.Errorf("mensagem inválida: %w", err)
 	}
 
 	rawRef := msg.RawRef
@@ -154,10 +160,10 @@ func (p *Pipeline) Ingest(ctx context.Context, msg core.NormalizedMessage) error
 
 	rawBytes, err := json.Marshal(msg)
 	if err != nil {
-		return fmt.Errorf("erro ao serializar mensagem crua: %w", err)
+		return false, fmt.Errorf("erro ao serializar mensagem crua: %w", err)
 	}
 	if err := p.cfg.Blobs.Put(ctx, rawRef, rawBytes, "application/json"); err != nil {
-		return fmt.Errorf("erro ao gravar mensagem crua no BlobStore: %w", err)
+		return false, fmt.Errorf("erro ao gravar mensagem crua no BlobStore: %w", err)
 	}
 
 	sender := p.resolveSender(ctx, msg)
@@ -185,9 +191,9 @@ func (p *Pipeline) Ingest(ctx context.Context, msg core.NormalizedMessage) error
 				MessageID: msg.MessageID,
 				At:        p.now(),
 			})
-			return nil
+			return true, nil
 		}
-		return fmt.Errorf("erro ao persistir metadados da mensagem: %w", err)
+		return false, fmt.Errorf("erro ao persistir metadados da mensagem: %w", err)
 	}
 
 	p.publish(core.Event{
@@ -228,12 +234,12 @@ func (p *Pipeline) Ingest(ctx context.Context, msg core.NormalizedMessage) error
 					"text":      msg.Text,
 				},
 			})
-			return p.HandleAdminInbound(ctx, msg)
+			return false, p.HandleAdminInbound(ctx, msg)
 		}
 		_ = p.CancelPendingNudges(ctx, msg.TenantID, msg.Channel, msg.SourceKey)
 		p.dispatcher.Enqueue(msg)
 	}
-	return nil
+	return false, nil
 }
 
 func (p *Pipeline) ensureEncryptedContactInfo(ctx context.Context, msg core.NormalizedMessage) error {

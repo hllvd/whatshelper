@@ -12,6 +12,7 @@ import (
 
 	"whatshelper/internal/brain"
 	"whatshelper/internal/channels/admin"
+	"whatshelper/internal/channels/bridge"
 	"whatshelper/internal/channels/simulator"
 	"whatshelper/internal/config"
 	"whatshelper/internal/core"
@@ -93,6 +94,11 @@ func main() {
 		logger.Error("falha ao iniciar canal admin", slog.Any("error", err))
 		os.Exit(1)
 	}
+	whatsappRemoteCh := bridge.NewRemoteChannel("whatsapp", core.ChannelCapabilities{
+		Typing: true,
+		Media:  true,
+	}, logger)
+	_ = whatsappRemoteCh.Start(appCtx)
 
 	knowledgeSrc := brain.NewBlobKnowledgeSource(blobRepo, clock, 5*time.Second)
 	piiCipher, err := security.NewPIICipherFromEnv(cfg.PIIEncryptionKey, cfg.Environment)
@@ -122,6 +128,7 @@ func main() {
 	})
 	pipeline.RegisterChannel(simCh)
 	pipeline.RegisterChannel(adminCh)
+	pipeline.RegisterChannel(whatsappRemoteCh)
 	pipeline.StartNudgeWorker(appCtx, 30*time.Second, func() []string {
 		return discoverLocalTenants(cfg.TenantsDir)
 	})
@@ -130,13 +137,14 @@ func main() {
 	go consumeChannel(appCtx, adminCh, pipeline, logger)
 
 	srv := server.NewWithDeps(cfg, logger, server.Dependencies{
-		Store:        storeRepo,
-		Blobs:        blobRepo,
-		Bus:          bus,
-		Simulator:    simCh,
-		AdminChannel: adminCh,
-		Pipeline:     pipeline,
-		Knowledge:    knowledgeSrc,
+		Store:          storeRepo,
+		Blobs:          blobRepo,
+		Bus:            bus,
+		Simulator:      simCh,
+		AdminChannel:   adminCh,
+		RemoteChannels: map[string]*bridge.RemoteChannel{"whatsapp": whatsappRemoteCh},
+		Pipeline:       pipeline,
+		Knowledge:      knowledgeSrc,
 	})
 
 	serverErrCh := make(chan error, 1)
@@ -160,6 +168,7 @@ func main() {
 	appCancel()
 	_ = simCh.Stop(context.Background())
 	_ = adminCh.Stop(context.Background())
+	_ = whatsappRemoteCh.Stop(context.Background())
 	pipeline.Stop()
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

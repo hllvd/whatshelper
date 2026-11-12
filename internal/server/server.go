@@ -16,6 +16,7 @@ import (
 
 	"whatshelper/internal/brain"
 	"whatshelper/internal/channels/admin"
+	"whatshelper/internal/channels/bridge"
 	"whatshelper/internal/channels/simulator"
 	"whatshelper/internal/config"
 	"whatshelper/internal/core"
@@ -27,13 +28,14 @@ var staticFS embed.FS
 
 // Dependencies agrupa as portas de domínio necessárias para a API HTTP e SSE.
 type Dependencies struct {
-	Store        core.Store
-	Blobs        core.BlobStore
-	Bus          core.EventBus
-	Simulator    *simulator.Channel
-	AdminChannel *admin.Channel
-	Pipeline     *brain.Pipeline
-	Knowledge    interface{ Invalidate(tenantID string) }
+	Store          core.Store
+	Blobs          core.BlobStore
+	Bus            core.EventBus
+	Simulator      *simulator.Channel
+	AdminChannel   *admin.Channel
+	RemoteChannels map[string]*bridge.RemoteChannel
+	Pipeline       *brain.Pipeline
+	Knowledge      interface{ Invalidate(tenantID string) }
 }
 
 // Server encapsula o servidor HTTP do Brain com logging estruturado e graceful shutdown.
@@ -106,13 +108,21 @@ func NewWithDeps(cfg config.Config, logger *slog.Logger, deps Dependencies) *Ser
 }
 
 func (s *Server) authMiddleware(next http.Handler) http.Handler {
-	token := strings.TrimSpace(s.cfg.APIToken)
-	if token == "" {
+	apiToken := strings.TrimSpace(s.cfg.APIToken)
+	connToken := strings.TrimSpace(s.cfg.EffectiveConnectorToken())
+	if apiToken == "" && connToken == "" {
 		return next
 	}
-	expected := []byte(token)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasPrefix(r.URL.Path, "/api/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		expectedToken := apiToken
+		if strings.HasPrefix(r.URL.Path, "/api/connectors/v1/") {
+			expectedToken = connToken
+		}
+		if expectedToken == "" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -122,7 +132,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		} else if qToken := strings.TrimSpace(r.URL.Query().Get("token")); qToken != "" {
 			provided = qToken
 		}
-		if len(provided) == 0 || subtle.ConstantTimeCompare([]byte(provided), expected) != 1 {
+		if len(provided) == 0 || subtle.ConstantTimeCompare([]byte(provided), []byte(expectedToken)) != 1 {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="whatshelper"`)
 			writeJSONError(w, http.StatusUnauthorized, "token de autenticação inválido ou ausente")
 			return
@@ -161,6 +171,11 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/runs/{id}/trace", s.handleGetRunTrace)
 	mux.HandleFunc("GET /api/tenants/{id}/policy", s.handleGetTenantPolicy)
 	mux.HandleFunc("PUT /api/tenants/{id}/policy", s.handlePutTenantPolicy)
+
+	// Protocolo Connector <-> Brain v1 (CH-02)
+	mux.HandleFunc("POST /api/connectors/v1/inbound", s.handleConnectorInbound)
+	mux.HandleFunc("POST /api/connectors/v1/media", s.handleConnectorMedia)
+	mux.HandleFunc("GET /api/connectors/v1/ws", s.handleConnectorWS)
 
 	// Stream de eventos SSE (SRV-02)
 	mux.HandleFunc("GET /api/events", s.handleEvents)
