@@ -91,6 +91,7 @@ type Pipeline struct {
 	dispatcher   *SourceDispatcher
 	limiter      *TokenBucketLimiter
 	notifier     core.AdminNotifier
+	outboxWorker *OutboxWorker
 	sessionCache *sessioncache.Cache
 	channelsMu   sync.RWMutex
 	channels     map[string]core.Channel
@@ -125,6 +126,7 @@ func NewPipeline(ctx context.Context, cfg PipelineConfig) *Pipeline {
 	if p.notifier == nil {
 		p.notifier = NewDefaultAdminNotifier(cfg.Store, cfg.Bus, logger).WithAdminDelivery(cfg.Blobs, p.getChannel)
 	}
+	p.outboxWorker = NewOutboxWorker(cfg.Store, p.notifier, cfg.Bus, p.now)
 	if p.cfg.ContextSvc == nil && p.cfg.Store != nil {
 		p.cfg.ContextSvc = buildDefaultContextService(p)
 	}
@@ -151,6 +153,11 @@ func (p *Pipeline) RegisterChannel(ch core.Channel) {
 // ContextService retorna o módulo de contexto utilizado pelo Pipeline.
 func (p *Pipeline) ContextService() contextmod.Service {
 	return p.cfg.ContextSvc
+}
+
+// OutboxWorker retorna o worker de outbox transacional do Pipeline.
+func (p *Pipeline) OutboxWorker() *OutboxWorker {
+	return p.outboxWorker
 }
 
 // Stop encerra o dispatcher aguardando lotes em execução.
@@ -811,6 +818,21 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 		},
 	})
 
+	var journeyDirective *pack.ResponseDirectiveDef
+	if pk.Journey != nil && p.cfg.Store != nil {
+		jOut := p.evaluateAndCommitJourney(ctx, pk, tenantID, channelID, sourceKey, runID, analysisOutcome.Result, updatedState, core.SystemEvent{
+			EventID:    runID,
+			Type:       core.SysEventUserMessage,
+			Origin:     latest.Origin,
+			TenantID:   tenantID,
+			Channel:    channelID,
+			SourceKey:  sourceKey,
+			MessageID:  latest.MessageID,
+			OccurredAt: p.now(),
+		})
+		journeyDirective = jOut.Directive
+	}
+
 	withinHours := core.IsWithinBusinessHours(tenantCfg, p.now())
 	decision := Route(RouteInput{
 		Pack:               pk,
@@ -979,6 +1001,7 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 		Knowledge:     knowledge.Docs,
 		QAContent:     knowledge.QAContent,
 		PlainTextOnly: plainTextOnly,
+		Directive:     journeyDirective,
 	}
 
 	renderedReply, err := pack.RenderReply(pk, replyInput)

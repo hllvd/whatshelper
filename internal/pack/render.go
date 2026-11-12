@@ -35,6 +35,7 @@ type PromptInput struct {
 	QAContent      string
 	OutputSchema   string
 	PlainTextOnly  bool
+	Directive      *ResponseDirectiveDef
 }
 
 // RenderedPrompt separa o prompt em instruções de sistema e entrada do turno atual.
@@ -65,7 +66,37 @@ func RenderReply(p *Pack, input PromptInput) (RenderedPrompt, error) {
 		return RenderedPrompt{}, fmt.Errorf("%w: template de resposta não carregado", ErrInvalidPack)
 	}
 	input.Pack = p
-	return executeTemplate(p.ReplyTmpl, input)
+	rendered, err := executeTemplate(p.ReplyTmpl, input)
+	if err != nil {
+		return rendered, err
+	}
+	if input.Directive != nil {
+		var b strings.Builder
+		b.WriteString("\n\nRESPONSE DIRECTIVE (FSM):\n")
+		if strings.TrimSpace(input.Directive.Goal) != "" {
+			b.WriteString("Goal: ")
+			b.WriteString(strings.TrimSpace(input.Directive.Goal))
+			b.WriteByte('\n')
+		}
+		if len(input.Directive.MustAsk) > 0 {
+			b.WriteString("Must ask:\n")
+			for _, q := range input.Directive.MustAsk {
+				b.WriteString("- ")
+				b.WriteString(q)
+				b.WriteByte('\n')
+			}
+		}
+		if len(input.Directive.Constraints) > 0 {
+			b.WriteString("Constraints:\n")
+			for _, c := range input.Directive.Constraints {
+				b.WriteString("- ")
+				b.WriteString(c)
+				b.WriteByte('\n')
+			}
+		}
+		rendered.System = strings.TrimRight(rendered.System, "\n") + b.String()
+	}
+	return rendered, nil
 }
 
 // RenderNudge monta o prompt de follow-up proativo a partir do template do pack.
