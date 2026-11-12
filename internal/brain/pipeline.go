@@ -74,6 +74,7 @@ type PipelineConfig struct {
 	RecentMessagesLimit int
 	RunRetentionDays    int
 	PIICipher           security.PIICipher
+	Transcriber         core.AudioTranscriber
 	Logger              *slog.Logger
 }
 
@@ -242,6 +243,91 @@ func (p *Pipeline) IngestWithStatus(ctx context.Context, msg core.NormalizedMess
 	return false, nil
 }
 
+// NeutralAudioFallbackReply é enviada ao cliente quando um áudio chega e a transcrição automática não está disponível.
+const NeutralAudioFallbackReply = "Recebi seu áudio, mas no momento não consegui transcrevê-lo automaticamente. Já avisei nossa equipe para responder por aqui."
+
+func (p *Pipeline) prepareMediaBatch(
+	ctx context.Context,
+	businessActor string,
+	batch []core.NormalizedMessage,
+	runID, traceRef string,
+) ([]core.NormalizedMessage, bool, error) {
+	out := make([]core.NormalizedMessage, len(batch))
+	copy(out, batch)
+
+	for i := range out {
+		msg := out[i]
+		if strings.TrimSpace(msg.Text) != "" {
+			continue
+		}
+		switch msg.Type {
+		case core.MessageTypeAudio:
+			transcript, err := p.transcribeAudioMessage(ctx, msg)
+			if err != nil || strings.TrimSpace(transcript) == "" {
+				if p.notifier != nil {
+					_ = p.notifier.Notify(ctx, core.AdminAlert{
+						TenantID:  msg.TenantID,
+						Channel:   msg.Channel,
+						SourceKey: msg.SourceKey,
+						Reason:    "áudio recebido sem transcrição automática",
+						Message:   fmt.Sprintf("Áudio em %s (%s)", msg.Channel, msg.MediaRef),
+						ContextData: map[string]string{
+							"media_ref":  msg.MediaRef,
+							"message_id": msg.MessageID,
+						},
+						CreatedAt: p.now(),
+					})
+				}
+				if _, sendErr := p.DeliverTextOutbound(
+					ctx,
+					msg.TenantID,
+					msg.Channel,
+					msg.Account,
+					msg.SourceKey,
+					businessActor,
+					NeutralAudioFallbackReply,
+					runID,
+					traceRef,
+				); sendErr != nil {
+					return nil, false, sendErr
+				}
+				return nil, true, nil
+			}
+			out[i].Text = "[Áudio transcrito]: " + strings.TrimSpace(transcript)
+		case core.MessageTypeImage:
+			out[i].Text = "[Imagem recebida]"
+		case core.MessageTypeDoc:
+			out[i].Text = "[Documento recebido]"
+		}
+	}
+	return out, false, nil
+}
+
+func (p *Pipeline) transcribeAudioMessage(ctx context.Context, msg core.NormalizedMessage) (string, error) {
+	if p.cfg.Transcriber == nil || p.cfg.Blobs == nil || strings.TrimSpace(msg.MediaRef) == "" {
+		return "", errors.New("transcrição indisponível")
+	}
+	audioBytes, err := p.cfg.Blobs.Get(ctx, msg.MediaRef)
+	if err != nil {
+		return "", err
+	}
+	return p.cfg.Transcriber.Transcribe(ctx, audioBytes, inferAudioMime(msg.MediaRef))
+}
+
+func inferAudioMime(mediaRef string) string {
+	lower := strings.ToLower(mediaRef)
+	switch {
+	case strings.HasSuffix(lower, ".mp3"):
+		return "audio/mpeg"
+	case strings.HasSuffix(lower, ".m4a"):
+		return "audio/mp4"
+	case strings.HasSuffix(lower, ".wav"):
+		return "audio/wav"
+	default:
+		return "audio/ogg"
+	}
+}
+
 func (p *Pipeline) ensureEncryptedContactInfo(ctx context.Context, msg core.NormalizedMessage) error {
 	if p.cfg.PIICipher == nil {
 		return nil
@@ -305,6 +391,16 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 	if err != nil {
 		return p.failPipeline(ctx, latest, runID, traceRef, nil, err)
 	}
+
+	preparedBatch, handled, err := p.prepareMediaBatch(ctx, pk.Actors.Business, batch, runID, traceRef)
+	if err != nil {
+		return p.failPipeline(ctx, latest, runID, traceRef, nil, err)
+	}
+	if handled {
+		return nil
+	}
+	batch = preparedBatch
+	latest = batch[len(batch)-1]
 
 	batchTexts := make([]string, len(batch))
 	for i, m := range batch {

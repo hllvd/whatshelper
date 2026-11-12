@@ -36,6 +36,9 @@ type Config struct {
 	ResponseModel       string
 	NudgeModel          string
 	LearningModel       string
+	TranscriptionURL    string
+	TranscriptionAPIKey string
+	TranscriptionModel  string
 	DebounceMs          int
 	RecentMessagesLimit int
 	RunRetentionDays    int
@@ -87,6 +90,9 @@ func LoadFromEnv() Config {
 		ResponseModel:       strings.TrimSpace(os.Getenv("MODEL_RESPONSE")),
 		NudgeModel:          strings.TrimSpace(os.Getenv("MODEL_NUDGE")),
 		LearningModel:       strings.TrimSpace(os.Getenv("MODEL_LEARNING")),
+		TranscriptionURL:    strings.TrimSpace(os.Getenv("TRANSCRIPTION_URL")),
+		TranscriptionAPIKey: strings.TrimSpace(os.Getenv("TRANSCRIPTION_API_KEY")),
+		TranscriptionModel:  strings.TrimSpace(os.Getenv("TRANSCRIPTION_MODEL")),
 		DebounceMs:          getEnvInt("DEBOUNCE_MS", 1500),
 		RecentMessagesLimit: getEnvInt("RECENT_MESSAGES_LIMIT", 20),
 		RunRetentionDays:    getEnvInt("RUN_RETENTION_DAYS", 90),
@@ -111,6 +117,7 @@ func (c Config) Secrets() []string {
 		c.AnthropicAPIKey,
 		c.PIIEncryptionKey,
 		c.S3SecretKey,
+		c.TranscriptionAPIKey,
 	}
 	out := make([]string, 0, len(candidates))
 	for _, s := range candidates {

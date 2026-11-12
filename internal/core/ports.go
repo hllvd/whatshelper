@@ -173,3 +173,8 @@ type AdminAlert struct {
 type AdminNotifier interface {
 	Notify(ctx context.Context, alert AdminAlert) error
 }
+
+// AudioTranscriber converte mídia de áudio em texto quando um serviço de transcrição está habilitado.
+type AudioTranscriber interface {
+	Transcribe(ctx context.Context, audio []byte, mimeType string) (string, error)
+}

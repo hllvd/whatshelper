@@ -18,6 +18,7 @@ import (
 	"whatshelper/internal/core"
 	"whatshelper/internal/core/fakes"
 	"whatshelper/internal/llm/anthropic"
+	"whatshelper/internal/media"
 	"whatshelper/internal/pack"
 	"whatshelper/internal/security"
 	"whatshelper/internal/server"
@@ -107,6 +108,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	var transcriber core.AudioTranscriber
+	if t := media.NewHTTPTranscriber(cfg.TranscriptionURL, cfg.TranscriptionAPIKey, cfg.TranscriptionModel, nil); t != nil {
+		transcriber = t
+	}
+
 	pipeline := brain.NewPipeline(appCtx, brain.PipelineConfig{
 		Store:               storeRepo,
 		Blobs:               blobRepo,
@@ -124,6 +130,7 @@ func main() {
 		RecentMessagesLimit: cfg.RecentMessagesLimit,
 		RunRetentionDays:    cfg.RunRetentionDays,
 		PIICipher:           piiCipher,
+		Transcriber:         transcriber,
 		Logger:              logger,
 	})
 	pipeline.RegisterChannel(simCh)

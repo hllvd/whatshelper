@@ -86,6 +86,7 @@ func setupLearningEnv(t *testing.T, clock *fakes.FakeClock, llm core.LLM) (*brai
 		AnalysisModel: "m-a",
 		ResponseModel: "m-r",
 		LearningModel: "m-l",
+		Debounce:      time.Hour,
 	})
 	p.RegisterChannel(simCh)
 	p.RegisterChannel(adminCh)
