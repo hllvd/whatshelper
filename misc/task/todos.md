@@ -109,7 +109,7 @@ A ordem de execução está nos milestones M0 → M5, no final do arquivo.
 
 - [x] **LLM-01 — Interface e provider.** Interface `LLM` com implementação para a API da Anthropic. Modelo configurável por estágio (análise, resposta, nudge).
 - [x] **LLM-02 — Saída JSON validada.** Validar contra o schema do pack, com retry/repair e fallback seguro.
-- [ ] **LLM-03 — Prompt caching e contexto.** Cachear o conhecimento estático, limitar o histórico enviado e truncar com critério.
+- [ ] **LLM-03 — Prompt caching e contexto.** Cachear o conhecimento estático, limitar o histórico enviado e truncar com critério. _(Nota: após CTX-05, o truncamento por orçamento passa a viver no módulo de contexto; LLM-03 fica restrito ao prompt caching do provider.)_
 - [ ] **LLM-04 — Métricas e resiliência.** Tokens, custo e latência por estágio; timeouts e circuit breaker.
 - [x] **LLM-05 — LLM fake.** Implementação determinística para testes.
 
@@ -151,6 +151,27 @@ A ordem de execução está nos milestones M0 → M5, no final do arquivo.
 - [x] **DOC-02 — Guia de novo pack.** Passo a passo para adaptar o brain a outro mercado.
 - [ ] **DOC-03 — Guia de operação.** Parear número, rotina de operação e como trocar para a API oficial no futuro.
 
+## CTX — Módulo de Contexto
+
+- [x] **CTX-01 — ADR do módulo de contexto.** Fronteiras, chave de escopo, views, versionamento v1, segurança e preparo para `contact_id` (ADR 0018).
+- [ ] **CTX-02 — Contrato ContextService v1.** Operações: `GetContext(scope, view, budget)`, `ListMessages(scope, cursor)`, `GetFacts`, `ApplyFacts(expected_version)`, `GetSummary`, `GetSignals`/`GetContext` estruturado, `ListKnowledge`, `GetKnowledgeDoc`, `SearchKnowledge`, `ListLearningProposals`, `Approve`/`RejectProposal`, `GetRun`, `ListRuns`. DTOs próprios, versionados.
+- [ ] **CTX-03 — Adapter in-process e brain consumindo o módulo.** `ProcessBatch` lê e escreve memória só via `ContextService`, sem acessar o `Store` diretamente para isso.
+- [ ] **CTX-04 — Views de contexto.** `analysis`, `response`, `admin`, `external_agent`, `summary_only`. Cada view define blocos, ordem e formato.
+- [ ] **CTX-05 — Montagem com orçamento.** `ContextBuilder` com orçamento de tokens por view e truncamento determinístico por prioridade (ex.: fatos e resumo antes de mensagens antigas). Retorna o que foi cortado, para aparecer no `/thinking`.
+- [ ] **CTX-06 — Providers de contexto plugáveis.** Interface `ContextProvider` (nome, schema, `Fetch(scope, budget)`). Embutidos: `summary`, `facts`, `signals`, `recent_messages`, `knowledge`. Registro por pack/tenant. A falha de um provider não derruba o turno.
+- [ ] **CTX-07 — API REST v1 com OpenAPI.** Contexto por view/orçamento, mensagens com cursor, fatos (`PUT` com `If-Match`), resumo, conhecimento (listar, ler, buscar), propostas de aprendizado, runs e traces. Auth por API key com escopos por tenant, `ETag`, erros padronizados.
+- [ ] **CTX-08 — Busca no conhecimento.** Interface `KnowledgeSearcher` com implementação simples (palavra-chave/BM25 em memória sobre os `.md`), usada pela API e pelo MCP. Ponto de extensão para embeddings no futuro; sem banco vetorial agora.
+- [ ] **CTX-09 — MCP server.** Comando próprio usando o SDK oficial em Go (`github.com/modelcontextprotocol/go-sdk`), transportes stdio e Streamable HTTP, tools de leitura e escrita opt-in (`update_facts`, `propose_qa_entry`), resources com URIs estáveis.
+- [ ] **CTX-10 — Segurança da API e do MCP.** Tenant vindo da credencial; escopos (`read:context`, `write:facts`, `learn:propose`, `learn:decide`); allowlist de campos no pack; `encrypted_contact_info` nunca exposto; redação opcional de PII; conteúdo delimitado; audit log; rate limit.
+- [ ] **CTX-11 — Eventos de contexto.** Fato alterado, resumo atualizado, proposta criada por SSE e opcionalmente webhooks assinados, reaproveitando o barramento do `CORE-04`.
+- [ ] **CTX-12 — Cliente e documentação.** Cliente Go gerado a partir do OpenAPI, `docs/context-module.md`, guia para conectar um cliente MCP local e exemplos de chamadas.
+- [ ] **CTX-13 — Testes de contrato.** Suíte única rodando contra os adapters (in-process, REST e MCP) com o mesmo resultado esperado; isolamento entre tenants; conflito de versão; paginação; golden tests e replay verdes.
+- [ ] **CTX-14 — Leitura agregada por contato (preparação).** `Scope` aceita `contact_id` opcional e retorna contexto de várias fontes só em leitura, sem merge nem escrita (liga ao `STO-06`).
+- [ ] **CTX-15 — Execução local.** Serviço da API/MCP no `docker-compose`, porta própria, config por env e README com comandos. Sem AWS.
+- [ ] **CTX-16 — Configuração no pack.** `pack.yaml` declara views, providers habilitados e campos expostos externamente. O `brain pack validate` passa a validar isso.
+
+> **Ideia futura (fora dos milestones):** `CTX-17` — providers externos, para o brain consumir contexto de outras fontes (CRM, agenda, pedidos) via HTTP ou cliente MCP, com timeout, cache e falha isolada.
+
 ---
 
 ## Milestones
@@ -162,4 +183,6 @@ Do M0 ao M4 tudo roda 100% local. AWS e Fargate só aparecem no M5.
 - **M2 — Agnosticismo e políticas:** PACK-03, PACK-07, PACK-08, BRAIN-02, BRAIN-05 a BRAIN-08, SAF-01 a SAF-05, STO-06, STO-07, SRV-05 a SRV-07, QA-02, QA-03, DOC-01, DOC-02.
 - **M3 — Aprendizado (QA.md):** LRN-01 a LRN-06, CH-08.
 - **M4 — WhatsApp real, ainda local:** DEC-03, CH-02, CH-04, CH-05, CH-06, QA-05, SEC-01, SEC-02.
+- **M4a — Núcleo modular (Contexto):** CTX-01 a CTX-06, CTX-08, CTX-13 (parte in-process), CTX-16.
+- **M4b — Exposição por API e MCP:** CTX-07, CTX-09 a CTX-12, CTX-14, CTX-15, CTX-13 (restante).
 - **M5 — Produção (Fargate):** DEC-04, OPS-01 a OPS-05, SEC-03, LLM-03, LLM-04, CH-07, CH-09, DOC-03.
