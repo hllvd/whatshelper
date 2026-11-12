@@ -1,5 +1,5 @@
 # Estágio de compilação
-FROM golang:1.24-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 WORKDIR /src
 
@@ -13,11 +13,15 @@ RUN go mod download 2>/dev/null || true
 # Copia todo o código fonte
 COPY . .
 
-# Compilação estática do binário
+# Compilação estática dos binários (sem CGO, SQLite puro em Go)
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -trimpath \
     -ldflags="-s -w" \
-    -o /bin/brain ./cmd/brain
+    -o /bin/brain ./cmd/brain && \
+    CGO_ENABLED=0 GOOS=linux go build \
+    -trimpath \
+    -ldflags="-s -w" \
+    -o /bin/connectors ./cmd/connectors
 
 # Estágio final enxuto
 FROM alpine:3.21
@@ -28,8 +32,11 @@ RUN apk add --no-cache ca-certificates curl tzdata && \
 WORKDIR /app
 
 COPY --from=builder /bin/brain /app/brain
+COPY --from=builder /bin/connectors /app/connectors
 COPY --from=builder /src/packs /app/packs
 COPY --from=builder /src/tenants /app/tenants
+
+RUN mkdir -p /data && chown brain:brain /data
 
 USER brain
 

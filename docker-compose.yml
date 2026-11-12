@@ -92,6 +92,8 @@ services:
       HTTP_HOST: "0.0.0.0"
       HTTP_PORT: "8080"
       API_TOKEN: "${API_TOKEN:-}"
+      CONNECTOR_TOKEN: "${CONNECTOR_TOKEN:-}"
+      PII_ENCRYPTION_KEY: "${PII_ENCRYPTION_KEY:-}"
       ALLOW_INSECURE_BIND: "true" # Porta no host está restrita a 127.0.0.1:8080
       APP_ENV: "development"
       LOG_LEVEL: "info"
@@ -109,13 +111,57 @@ services:
       MODEL_ANALYSIS: "${MODEL_ANALYSIS:-}"
       MODEL_RESPONSE: "${MODEL_RESPONSE:-}"
       MODEL_NUDGE: "${MODEL_NUDGE:-}"
+      MODEL_LEARNING: "${MODEL_LEARNING:-}"
+      TRANSCRIPTION_URL: "${TRANSCRIPTION_URL:-}"
+      TRANSCRIPTION_API_KEY: "${TRANSCRIPTION_API_KEY:-}"
+      TRANSCRIPTION_MODEL: "${TRANSCRIPTION_MODEL:-}"
       DEBOUNCE_MS: "${DEBOUNCE_MS:-1500}"
       PACKS_DIR: "/app/packs"
       TENANTS_DIR: "/app/tenants"
     volumes:
       - ./packs:/app/packs:ro
       - ./tenants:/app/tenants:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/healthz >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  connector:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: whatshelper-connector
+    restart: unless-stopped
+    entrypoint: ["/app/connectors"]
+    ports:
+      - "127.0.0.1:8081:8081"
+    depends_on:
+      brain:
+        condition: service_healthy
+    environment:
+      BRAIN_URL: "http://brain:8080"
+      API_TOKEN: "${API_TOKEN:-}"
+      CONNECTOR_TOKEN: "${CONNECTOR_TOKEN:-}"
+      CONNECTOR_HTTP_ADDR: "0.0.0.0:8081"
+      WHATSAPP_ENABLED: "${WHATSAPP_ENABLED:-true}"
+      WHATSAPP_DB_PATH: "/data/whatsapp.db"
+      WHATSAPP_TENANT_ID: "${WHATSAPP_TENANT_ID:-demo}"
+      WHATSAPP_ACCOUNT: "${WHATSAPP_ACCOUNT:-main}"
+      ADMIN_PHONE_E164: "${ADMIN_PHONE_E164:-}"
+      WHATSAPP_ALLOW_GROUPS: "${WHATSAPP_ALLOW_GROUPS:-false}"
+      WHATSAPP_PAIR_PHONE: "${WHATSAPP_PAIR_PHONE:-}"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      LOG_FORMAT: "${LOG_FORMAT:-text}"
+    volumes:
+      - whatsapp_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8081/healthz >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
 volumes:
   dynamodb_data:
   minio_data:
+  whatsapp_data:
