@@ -155,7 +155,7 @@ A ordem de execução está nos milestones M0 → M5, no final do arquivo.
 
 - [x] **CTX-01 — ADR do módulo de contexto.** Fronteiras, chave de escopo, views, versionamento v1, segurança e preparo para `contact_id` (ADR 0018).
 - [x] **CTX-02 — Contrato ContextService v1.** Operações: `GetContext(scope, view, budget)`, `ListMessages(scope, cursor)`, `GetFacts`, `ApplyFacts(expected_version)`, `GetSummary`, `GetSignals`/`GetContext` estruturado, `ListKnowledge`, `GetKnowledgeDoc`, `SearchKnowledge`, `ListLearningProposals`, `Approve`/`RejectProposal`, `GetRun`, `ListRuns`. DTOs próprios, versionados.
-- [ ] **CTX-03 — Adapter in-process e brain consumindo o módulo.** `ProcessBatch` lê e escreve memória só via `ContextService`, sem acessar o `Store` diretamente para isso.
+- [x] **CTX-03 — Adapter in-process e brain consumindo o módulo.** `ProcessBatch` lê e escreve memória só via `ContextService`, sem acessar o `Store` diretamente para isso.
 - [x] **CTX-04 — Views de contexto.** `analysis`, `response`, `admin`, `external_agent`, `summary_only`. Cada view define blocos, ordem e formato.
 - [x] **CTX-05 — Montagem com orçamento.** `ContextBuilder` com orçamento de tokens por view e truncamento determinístico por prioridade (ex.: fatos e resumo antes de mensagens antigas). Retorna o que foi cortado, para aparecer no `/thinking`.
 - [x] **CTX-06 — Providers de contexto plugáveis.** Interface `ContextProvider` (nome, schema, `Fetch(scope, budget)`). Embutidos: `summary`, `facts`, `signals`, `recent_messages`, `knowledge`. Registro por pack/tenant. A falha de um provider não derruba o turno.
@@ -165,7 +165,7 @@ A ordem de execução está nos milestones M0 → M5, no final do arquivo.
 - [ ] **CTX-10 — Segurança da API e do MCP.** Tenant vindo da credencial; escopos (`read:context`, `write:facts`, `learn:propose`, `learn:decide`); allowlist de campos no pack; `encrypted_contact_info` nunca exposto; redação opcional de PII; conteúdo delimitado; audit log; rate limit.
 - [ ] **CTX-11 — Eventos de contexto.** Fato alterado, resumo atualizado, proposta criada por SSE e opcionalmente webhooks assinados, reaproveitando o barramento do `CORE-04`.
 - [ ] **CTX-12 — Cliente e documentação.** Cliente Go gerado a partir do OpenAPI, `docs/context-module.md`, guia para conectar um cliente MCP local e exemplos de chamadas.
-- [ ] **CTX-13 — Testes de contrato.** Suíte única rodando contra os adapters (in-process, REST e MCP) com o mesmo resultado esperado; isolamento entre tenants; conflito de versão; paginação; golden tests e replay verdes.
+- [~] **CTX-13 — Testes de contrato.** Suíte única rodando contra os adapters (in-process, REST e MCP) com o mesmo resultado esperado; isolamento entre tenants; conflito de versão; paginação; golden tests e replay verdes. _(In-process validado no M4a; REST e MCP ficam para o M4b.)_
 - [ ] **CTX-14 — Leitura agregada por contato (preparação).** `Scope` aceita `contact_id` opcional e retorna contexto de várias fontes só em leitura, sem merge nem escrita (liga ao `STO-06`).
 - [ ] **CTX-15 — Execução local.** Serviço da API/MCP no `docker-compose`, porta própria, config por env e README com comandos. Sem AWS.
 - [x] **CTX-16 — Configuração no pack.** `pack.yaml` declara views, providers habilitados e campos expostos externamente. O `brain pack validate` passa a validar isso.

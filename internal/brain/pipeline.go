@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"whatshelper/internal/contextmod"
 	"whatshelper/internal/core"
 	"whatshelper/internal/pack"
 	"whatshelper/internal/security"
@@ -20,22 +21,24 @@ import (
 
 // RunTrace armazena no BlobStore todos os detalhes de pensamento do bot para o visualizador.
 type RunTrace struct {
-	RunID           string               `json:"run_id"`
-	TenantID        string               `json:"tenant_id"`
-	Channel         string               `json:"channel"`
-	SourceKey       string               `json:"source_key"`
-	MessageID       string               `json:"message_id"`
-	PackName        string               `json:"pack_name"`
-	CreatedAt       time.Time            `json:"created_at"`
-	Analysis        *StageTrace          `json:"analysis,omitempty"`
-	ParsedResult    *pack.AnalysisResult `json:"parsed_result,omitempty"`
-	FactsDiff       []FactChange         `json:"facts_diff,omitempty"`
-	Decision        *Decision            `json:"decision,omitempty"`
-	Reply           *StageTrace          `json:"reply,omitempty"`
-	Grounding       *GroundingResult     `json:"grounding,omitempty"`
-	FinalReply      string               `json:"final_reply,omitempty"`
-	TotalTokens     int                  `json:"total_tokens"`
-	TotalDurationMs int64                `json:"total_duration_ms"`
+	RunID              string                       `json:"run_id"`
+	TenantID           string                       `json:"tenant_id"`
+	Channel            string                       `json:"channel"`
+	SourceKey          string                       `json:"source_key"`
+	MessageID          string                       `json:"message_id"`
+	PackName           string                       `json:"pack_name"`
+	CreatedAt          time.Time                    `json:"created_at"`
+	AnalysisTruncation *contextmod.TruncationReport `json:"analysis_truncation,omitempty"`
+	Analysis           *StageTrace                  `json:"analysis,omitempty"`
+	ParsedResult       *pack.AnalysisResult         `json:"parsed_result,omitempty"`
+	FactsDiff          []FactChange                 `json:"facts_diff,omitempty"`
+	Decision           *Decision                    `json:"decision,omitempty"`
+	ReplyTruncation    *contextmod.TruncationReport `json:"reply_truncation,omitempty"`
+	Reply              *StageTrace                  `json:"reply,omitempty"`
+	Grounding          *GroundingResult             `json:"grounding,omitempty"`
+	FinalReply         string                       `json:"final_reply,omitempty"`
+	TotalTokens        int                          `json:"total_tokens"`
+	TotalDurationMs    int64                        `json:"total_duration_ms"`
 }
 
 // StageTrace detalha a execução de um estágio (análise ou resposta).
@@ -75,6 +78,7 @@ type PipelineConfig struct {
 	RunRetentionDays    int
 	PIICipher           security.PIICipher
 	Transcriber         core.AudioTranscriber
+	ContextSvc          contextmod.Service
 	Logger              *slog.Logger
 }
 
@@ -116,6 +120,9 @@ func NewPipeline(ctx context.Context, cfg PipelineConfig) *Pipeline {
 	if p.notifier == nil {
 		p.notifier = NewDefaultAdminNotifier(cfg.Store, cfg.Bus, logger).WithAdminDelivery(cfg.Blobs, p.getChannel)
 	}
+	if p.cfg.ContextSvc == nil && p.cfg.Store != nil {
+		p.cfg.ContextSvc = buildDefaultContextService(p)
+	}
 	p.dispatcher = NewSourceDispatcher(ctx, cfg.Debounce, cfg.AfterFunc, func(batchCtx context.Context, batch []core.NormalizedMessage) {
 		if err := p.ProcessBatch(batchCtx, batch); err != nil {
 			p.logger.Error("falha no processamento do lote",
@@ -134,6 +141,11 @@ func (p *Pipeline) RegisterChannel(ch core.Channel) {
 	p.channelsMu.Lock()
 	defer p.channelsMu.Unlock()
 	p.channels[ch.ID()] = ch
+}
+
+// ContextService retorna o módulo de contexto utilizado pelo Pipeline.
+func (p *Pipeline) ContextService() contextmod.Service {
+	return p.cfg.ContextSvc
 }
 
 // Stop encerra o dispatcher aguardando lotes em execução.
@@ -412,11 +424,6 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 		return nil
 	}
 
-	knowledge, err := p.cfg.Knowledge.Load(ctx, tenantID)
-	if err != nil {
-		return p.failPipeline(ctx, latest, runID, traceRef, nil, err)
-	}
-
 	trace := &RunTrace{
 		RunID:     runID,
 		TenantID:  tenantID,
@@ -433,9 +440,14 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 		plainTextOnly = ch.Capabilities().PlainTextOnly
 	}
 
-	batchIDs := make(map[string]bool, len(batch))
+	scope := contextmod.Scope{
+		TenantID:  tenantID,
+		Channel:   channelID,
+		SourceKey: sourceKey,
+	}
+	excludeIDs := make([]string, 0, len(batch))
 	for _, m := range batch {
-		batchIDs[m.MessageID] = true
+		excludeIDs = append(excludeIDs, m.MessageID)
 	}
 
 	// Retry de leitura+análise+commit se houver ErrVersionConflict (máximo 2 tentativas)
@@ -445,16 +457,19 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 
 	const maxVersionRetries = 2
 	for attempt := 0; attempt < maxVersionRetries; attempt++ {
-		state, err := p.cfg.Store.GetSourceState(ctx, tenantID, channelID, sourceKey)
-		if err != nil {
-			return p.failPipeline(ctx, latest, runID, traceRef, trace, err)
+		analysisBundle, ctxErr := p.cfg.ContextSvc.GetContext(ctx, contextmod.GetContextRequest{
+			Scope:             scope,
+			View:              contextmod.ViewAnalysis,
+			ExcludeMessageIDs: excludeIDs,
+			RecentLimit:       p.cfg.RecentMessagesLimit,
+		})
+		if ctxErr != nil {
+			return p.failPipeline(ctx, latest, runID, traceRef, trace, ctxErr)
 		}
+		truncCopy := analysisBundle.Truncation
+		trace.AnalysisTruncation = &truncCopy
 
-		recentMsgs, err := p.loadRecentPromptMessages(ctx, pk, tenantID, channelID, sourceKey, batchIDs)
-		if err != nil {
-			return p.failPipeline(ctx, latest, runID, traceRef, trace, err)
-		}
-
+		recentMsgs := bundlePromptMessages(analysisBundle)
 		combinedNewText := joinBatchTexts(batch)
 		newPromptMsg := pack.PromptMessage{
 			Sender:    pk.Actors.Customer,
@@ -464,10 +479,10 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 
 		promptInput := pack.PromptInput{
 			Pack:           pk,
-			Summary:        state.Summary.Text,
-			Facts:          state.Facts,
-			Signals:        state.Signals,
-			Context:        state.Context.Sections,
+			Summary:        bundleSummaryText(analysisBundle),
+			Facts:          analysisBundle.Facts,
+			Signals:        analysisBundle.Signals,
+			Context:        bundleStructuredSections(analysisBundle),
 			RecentMessages: recentMsgs,
 			NewMessage:     newPromptMsg,
 		}
@@ -546,63 +561,65 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 			return p.failPipeline(ctx, latest, runID, traceRef, trace, err)
 		}
 
-		mergedFacts, computedDiffs := MergeAndDiffFacts(state.Facts, analysisOutcome.Result.Facts, analysisOutcome.Result.ClearedFacts)
-		diffs = computedDiffs
-		trace.ParsedResult = analysisOutcome.Result
-		trace.FactsDiff = diffs
-
 		now := p.now()
+		newContext := BuildConversationContext(analysisOutcome.Result.Context, now)
+		prevTurnCount := 0
+		if analysisBundle.Summary != nil {
+			prevTurnCount = analysisBundle.Summary.TurnCount
+		}
 		newSummary := core.Summary{
 			TenantID:  tenantID,
 			Channel:   channelID,
 			SourceKey: sourceKey,
 			Text:      analysisOutcome.Result.Summary,
-			TurnCount: state.Summary.TurnCount + 1,
+			TurnCount: prevTurnCount + 1,
 			UpdatedAt: now,
 		}
-		newContext := BuildConversationContext(analysisOutcome.Result.Context, now)
 
-		runRecord := core.Run{
-			ID:               runID,
-			TenantID:         tenantID,
-			Channel:          channelID,
-			SourceKey:        sourceKey,
-			MessageID:        latest.MessageID,
-			Stage:            "pipeline",
-			Status:           analysisOutcome.Status,
-			Model:            p.cfg.AnalysisModel,
-			PromptTokens:     analysisOutcome.PromptTokens,
-			CompletionTokens: analysisOutcome.CompletionTokens,
-			DurationMs:       analysisOutcome.DurationMs,
-			TraceBlobRef:     traceRef,
-			TTL:              p.runTTL(),
-			CreatedAt:        trace.CreatedAt,
-		}
-
-		commitErr := p.cfg.Store.CommitAnalysis(ctx, core.CommitAnalysisInput{
-			TenantID:        tenantID,
-			Channel:         channelID,
-			SourceKey:       sourceKey,
-			ExpectedVersion: state.Version,
-			Summary:         newSummary,
-			Facts:           mergedFacts,
-			Signals:         analysisOutcome.Result.Signals,
-			Context:         newContext,
-			Run:             runRecord,
-			UpdatedAt:       now,
+		summaryText := analysisOutcome.Result.Summary
+		applyRes, commitErr := p.cfg.ContextSvc.ApplyFacts(ctx, contextmod.ApplyFactsRequest{
+			Scope:             scope,
+			ExpectedVersion:   analysisBundle.SourceVersion,
+			Facts:             analysisOutcome.Result.Facts,
+			ClearedFacts:      analysisOutcome.Result.ClearedFacts,
+			Actor:             "brain:analysis",
+			Summary:           &summaryText,
+			Signals:           analysisOutcome.Result.Signals,
+			StructuredContext: toStructuredContextView(scope, newContext),
+			Run: &contextmod.RunWriteInput{
+				ID:               runID,
+				MessageID:        latest.MessageID,
+				Stage:            "pipeline",
+				Status:           analysisOutcome.Status,
+				Model:            p.cfg.AnalysisModel,
+				PromptTokens:     analysisOutcome.PromptTokens,
+				CompletionTokens: analysisOutcome.CompletionTokens,
+				DurationMs:       analysisOutcome.DurationMs,
+				TraceBlobRef:     traceRef,
+				TTL:              p.runTTL(),
+				CreatedAt:        trace.CreatedAt,
+			},
 		})
 		if commitErr != nil {
-			if errors.Is(commitErr, core.ErrVersionConflict) && attempt+1 < maxVersionRetries {
+			if errors.Is(commitErr, contextmod.ErrVersionConflict) && attempt+1 < maxVersionRetries {
 				continue
 			}
 			return p.failPipeline(ctx, latest, runID, traceRef, trace, commitErr)
 		}
 
+		diffs = factChangesFromDiffs(applyRes.Diff)
+		trace.ParsedResult = analysisOutcome.Result
+		trace.FactsDiff = diffs
+
+		meta := initialState.Meta
+		if analysisBundle.SourceStatus != "" {
+			meta.Status = core.SourceStatus(analysisBundle.SourceStatus)
+		}
 		updatedState = &core.SourceState{
-			Version: state.Version + 1,
-			Meta:    state.Meta,
+			Version: applyRes.SourceVersion,
+			Meta:    meta,
 			Summary: newSummary,
-			Facts:   mergedFacts,
+			Facts:   applyRes.Facts,
 			Signals: analysisOutcome.Result.Signals,
 			Context: newContext,
 		}
@@ -746,18 +763,28 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 		return err
 	}
 
-	// Estágio de resposta (BRAIN-03)
-	recentForReply, err := p.loadRecentPromptMessages(ctx, pk, tenantID, channelID, sourceKey, batchIDs)
+	// Estágio de resposta (BRAIN-03) via módulo de contexto (CTX-03 / CTX-04 / CTX-05)
+	replyBundle, err := p.cfg.ContextSvc.GetContext(ctx, contextmod.GetContextRequest{
+		Scope:             scope,
+		View:              contextmod.ViewResponse,
+		ExcludeMessageIDs: excludeIDs,
+		RecentLimit:       p.cfg.RecentMessagesLimit,
+	})
 	if err != nil {
 		return p.failPipeline(ctx, latest, runID, traceRef, trace, err)
 	}
+	replyTruncCopy := replyBundle.Truncation
+	trace.ReplyTruncation = &replyTruncCopy
+
+	recentForReply := bundlePromptMessages(replyBundle)
+	knowledge := bundleKnowledge(replyBundle)
 
 	replyInput := pack.PromptInput{
 		Pack:           pk,
-		Summary:        updatedState.Summary.Text,
-		Facts:          updatedState.Facts,
-		Signals:        updatedState.Signals,
-		Context:        updatedState.Context.Sections,
+		Summary:        bundleSummaryText(replyBundle),
+		Facts:          replyBundle.Facts,
+		Signals:        replyBundle.Signals,
+		Context:        bundleStructuredSections(replyBundle),
 		RecentMessages: recentForReply,
 		NewMessage: pack.PromptMessage{
 			Sender:    pk.Actors.Customer,

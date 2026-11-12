@@ -69,6 +69,14 @@
       card.appendChild(ul);
     }
 
+    if (trace.analysis_truncation || trace.reply_truncation) {
+      const aT = trace.analysis_truncation;
+      const rT = trace.reply_truncation;
+      const fmt = (label, t) => t ? `${label}: ${t.used_tokens}/${t.budget_tokens} tok${t.truncated ? ` (cortados: ${(t.dropped_items || []).map(d => d.block + ':' + d.item_id).join(', ')})` : ''}` : '';
+      const lines = [fmt('Análise', aT), fmt('Resposta', rT)].filter(Boolean).join('\n');
+      card.appendChild(makeDetails('Orçamento de Contexto (CTX-05)', lines));
+    }
+
     if (trace.analysis) {
       const a = trace.analysis;
       card.appendChild(makeDetails(

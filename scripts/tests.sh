@@ -207,6 +207,7 @@ cmd_unit() {
       ./internal/core/... \
       ./internal/config \
       ./internal/security/... \
+      ./internal/contextmod/... \
       ./internal/media/... \
       ./internal/pack \
       ./internal/llm/... \
