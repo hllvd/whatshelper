@@ -197,6 +197,7 @@ type Pack struct {
 	Context        []ContextSectionDef `yaml:"context" json:"context"`
 	ContextModule  *ContextModuleDef   `yaml:"context_module,omitempty" json:"context_module,omitempty"`
 	FSM            *FSMDef             `yaml:"fsm,omitempty" json:"fsm,omitempty"`
+	Journey        *JourneyDef         `yaml:"-" json:"journey,omitempty"`
 	Prompts        PromptsDef          `yaml:"prompts" json:"prompts"`
 	Rules          []string            `yaml:"rules,omitempty" json:"rules,omitempty"`
 
@@ -245,6 +246,11 @@ func LoadFromDir(dir string) (*Pack, error) {
 	if err := p.loadTemplates(dir); err != nil {
 		return nil, err
 	}
+	journey, err := LoadJourneyFromFile(dir, p)
+	if err != nil {
+		return nil, err
+	}
+	p.Journey = journey
 	return p, nil
 }
 

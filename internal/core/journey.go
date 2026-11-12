@@ -7,10 +7,12 @@ type JourneyState struct {
 	TenantID       string            `json:"tenant_id"`
 	Channel        string            `json:"channel"`
 	SourceKey      string            `json:"source_key"`
-	State          string            `json:"state"`
-	EnteredAt      time.Time         `json:"entered_at"`
-	TurnsInState   int               `json:"turns_in_state"`
-	Version        int64             `json:"version"`
+	State           string            `json:"state"`
+	ReturnToState   string            `json:"return_to_state,omitempty"`
+	EnteredAt       time.Time         `json:"entered_at"`
+	TurnsInState    int               `json:"turns_in_state"`
+	StagnationCount int               `json:"stagnation_count"`
+	Version         int64             `json:"version"`
 	JourneyVersion string            `json:"journey_version,omitempty"`
 	Dimensions     map[string]string `json:"dimensions,omitempty"`
 	UpdatedAt      time.Time         `json:"updated_at"`

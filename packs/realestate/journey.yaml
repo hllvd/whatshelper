@@ -1,0 +1,141 @@
+version: "1"
+initial_state: discovery
+
+defaults:
+  stagnation_threshold: 3
+  stagnation_to: handoff_human
+  fallback_directive:
+    goal: "Acolher o cliente de forma objetiva e entender o que ele procura."
+    constraints:
+      - "Use apenas informações verificadas da base de conhecimento."
+      - "Não invente preços, disponibilidade ou prazos."
+
+global_rules:
+  - id: global_frustrated_handoff
+    priority: 100
+    on_event: user_message
+    guard: 'dimensions["sentiment"] == "frustrated" || signals["wants_human"] == true'
+    to: handoff_human
+    reason: "Cliente frustrado ou solicitou atendimento humano"
+    actions:
+      - type: notify_admin
+        params:
+          reason: "Atendimento humano solicitado ou frustração detectada"
+      - type: handoff
+    directive:
+      goal: "Reconhecer a situação com empatia e informar que um especialista assumirá o atendimento."
+      constraints:
+        - "Seja breve, respeitoso e não insista em perguntas."
+
+states:
+  discovery:
+    description: "Entendimento inicial do perfil e região de interesse"
+    stagnation_threshold: 3
+    stagnation_to: handoff_human
+    directive:
+      goal: "Descobrir tipo de imóvel, região e faixa de orçamento."
+      must_ask:
+        - "Qual região ou bairro você prefere?"
+      constraints:
+        - "Faça no máximo 1 ou 2 perguntas diretas."
+    rules:
+      - id: discovery_to_scheduling_ready
+        priority: 30
+        on_event: user_message
+        guard: 'HasFact("Location") && (HasFact("Budget") || HasFact("Max Price")) && (signals["has_pending_visit"] == true || HasFact("Viewing Interest"))'
+        to: scheduling
+        reason: "Perfil qualificado e interesse em visita"
+        actions:
+          - type: create_task
+            params:
+              type: visit_follow_up
+              title: "Confirmar agenda de visita"
+      - id: discovery_to_qualifying
+        priority: 20
+        on_event: user_message
+        guard: 'HasFact("Location") || HasFact("Property Type") || HasFact("Budget")'
+        to: qualifying
+        reason: "Critérios iniciais informados"
+
+  qualifying:
+    description: "Refinamento de orçamento, quartos e prazo"
+    stagnation_threshold: 3
+    stagnation_to: handoff_human
+    directive:
+      goal: "Completar orçamento e prazo para recomendar opções aderentes."
+      must_ask:
+        - "Qual faixa de valor você pretende investir?"
+      constraints:
+        - "Não invente unidades fora da base de conhecimento."
+    rules:
+      - id: qualifying_to_scheduling
+        priority: 30
+        on_event: user_message
+        guard: '(HasFact("Budget") || HasFact("Max Price")) && HasFact("Location")'
+        to: scheduling
+        reason: "Orçamento e região definidos"
+        actions:
+          - type: create_task
+            params:
+              type: visit_follow_up
+              title: "Sugerir opções e agendar visita"
+      - id: qualifying_timeout
+        priority: 10
+        on_event: system_timeout
+        to: follow_up
+        reason: "Tempo limite em qualificação sem resposta"
+
+  scheduling:
+    description: "Alinhamento de visita ou reunião com corretor"
+    timeout_minutes: 1440
+    stagnation_threshold: 3
+    stagnation_to: handoff_human
+    directive:
+      goal: "Confirmar melhor dia e período para visita ou conversa com corretor."
+      must_ask:
+        - "Qual dia e turno ficam melhores para você?"
+      constraints:
+        - "Não confirme horário específico sem validação."
+    rules:
+      - id: scheduling_confirmed
+        priority: 20
+        on_event: user_message
+        guard: 'signals["has_pending_visit"] == true || signals["has_pending_call"] == true'
+        to: handoff_human
+        reason: "Agendamento encaminhado ao corretor"
+        actions:
+          - type: notify_admin
+            params:
+              reason: "Lead pronto para confirmação de agenda"
+      - id: scheduling_timeout
+        priority: 10
+        on_event: system_timeout
+        to: follow_up
+        reason: "Sem retorno sobre agenda"
+
+  follow_up:
+    description: "Retomada após inatividade"
+    stagnation_threshold: 2
+    stagnation_to: closed_lost
+    directive:
+      goal: "Retomar contato de forma leve perguntando se ainda faz sentido continuar."
+      constraints:
+        - "Mensagem curta e sem pressão."
+    rules:
+      - id: follow_up_reengaged
+        priority: 20
+        on_event: user_message
+        to: qualifying
+        reason: "Cliente retomou a conversa"
+
+  handoff_human:
+    description: "Encaminhado para corretor humano"
+    terminal: true
+    directive:
+      goal: "Confirmar que um especialista continuará o atendimento."
+
+  closed_lost:
+    description: "Conversa encerrada por inatividade"
+    terminal: true
+    directive:
+      goal: "Encerrar cordialmente deixando canal aberto."
