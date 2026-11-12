@@ -182,38 +182,38 @@ A ordem de execução está nos milestones M0 → M5, no final do arquivo.
 
 ## EVT — Eventos de sistema
 
-- [ ] **EVT-01 — Modelo de evento unificado de entrada** (`user_message`, `session_start`, `system_timeout`, `human_message_sent`, `human_takeover/release`, `integration_result` reservado), com idempotência e origem.
-- [ ] **EVT-02 — Timeouts por estado/pendência:** reaproveitar o agendador de nudges (`BRAIN-06`) e o índice de itens vencidos; emitir `system_timeout`. Nudge passa a ser uma ação do FSM quando houver jornada.
-- [ ] **EVT-03 — Origem das mensagens e registro de envios.** Pré-registro de `message_id` no brain antes de enviar (ligado ao `OUTBOX#`, com TTL), `whatsmeow.GenerateMessageID()` + `SendRequestExtra{ID}`, capability `ReportsOwnMessages`, protocolo `from_me`/`message_id`, ignorar histórico antigo/grupos/broadcast, persistir `origin` no `MSG#`.
-- [ ] **EVT-04 — Política de takeover humano.** Só `origin=human_phone` gera `human_message_sent`. Política configurável por tenant (pausar por X tempo com `META.status=human` e expiração, só registrar ou ignorar); retomada automática ao expirar ou manual (`/retomar`); `human_admin` não pausa.
-- [ ] **EVT-05 — Testes de origem (13 cenários obrigatórios)** com connector fake injetando atraso e ordem invertida (incluindo eco antes do retorno do envio).
+- [x] **EVT-01 — Modelo de evento unificado de entrada** (`user_message`, `session_start`, `system_timeout`, `human_message_sent`, `human_takeover/release`, `integration_result` reservado), com idempotência e origem.
+- [x] **EVT-02 — Timeouts por estado/pendência:** reaproveitar o agendador de nudges (`BRAIN-06`) e o índice de itens vencidos; emitir `system_timeout`. Nudge passa a ser uma ação do FSM quando houver jornada.
+- [x] **EVT-03 — Origem das mensagens e registro de envios.** Pré-registro de `message_id` no brain antes de enviar (ligado ao `OUTBOX#`, com TTL), `whatsmeow.GenerateMessageID()` + `SendRequestExtra{ID}`, capability `ReportsOwnMessages`, protocolo `from_me`/`message_id`, ignorar histórico antigo/grupos/broadcast, persistir `origin` no `MSG#`.
+- [x] **EVT-04 — Política de takeover humano.** Só `origin=human_phone` gera `human_message_sent`. Política configurável por tenant (pausar por X tempo com `META.status=human` e expiração, só registrar ou ignorar); retomada automática ao expirar ou manual (`/retomar`); `human_admin` não pausa.
+- [x] **EVT-05 — Testes de origem (13 cenários obrigatórios)** com connector fake injetando atraso e ordem invertida (incluindo eco antes do retorno do envio).
 
 ## DIM — Dimensões (sentimento, urgência e outras)
 
-- [ ] **DIM-01 — Dimensões no schema do pack:** enums com descrição (`sentiment`, `urgency`), geradas no JSON da análise, validadas, persistidas no estado da conversa e disponíveis para guards e UI.
-- [ ] **DIM-02 — Templates de prompt de extração pura para dimensões:** valor `"unknown"` permitido, nada de inventar, nada de texto conversacional.
+- [x] **DIM-01 — Dimensões no schema do pack:** enums com descrição (`sentiment`, `urgency`), geradas no JSON da análise, validadas, persistidas no estado da conversa e disponíveis para guards e UI.
+- [x] **DIM-02 — Templates de prompt de extração pura para dimensões:** valor `"unknown"` permitido, nada de inventar, nada de texto conversacional.
 
 ## JRN — Jornada (FSM declarativa)
 
 - [x] **JRN-01 — ADR (Passo 1).** ADR 0020 registrando os 3 eixos de estado, `journey.yaml`, outbox, `JOURNEY`/`JSTATE#`, pré-registro de IDs, matriz de `origin` e política de takeover.
-- [ ] **JRN-02 — Formato `journey.yaml` no pack**, carregador e validação estática no `brain pack validate` (estados inalcançáveis, não terminais sem saída, prioridades conflitantes, ações desconhecidas, guards inválidas, falta de regra global de opt-out/handoff).
-- [ ] **JRN-03 — Avaliador de guards (expressões seguras)** com contexto tipado (`expr`) e testes.
-- [ ] **JRN-04 — Função pura `Next`** com precedência global > estado > padrão; retorna motivo e regra casada; testes de tabela e de propriedades.
-- [ ] **JRN-05 — Persistência:** `JOURNEY` + histórico `JSTATE#`, `ExpectedVersion`, estado inicial por pack, fallback quando `journey.yaml` muda e o estado salvo deixa de existir.
-- [ ] **JRN-06 — Integração ao pipeline:** depois da análise e antes de `Route`/resposta. `Route` passa a receber as ações do FSM.
-- [ ] **JRN-07 — Estagnação e digressão** conforme os princípios 4 e 6.
-- [ ] **JRN-08 — Jornadas de exemplo:** `realestate` (funil de lead) e `support` (fluxo de atendimento/ticket), sem código específico no core.
+- [x] **JRN-02 — Formato `journey.yaml` no pack**, carregador e validação estática no `brain pack validate` (estados inalcançáveis, não terminais sem saída, prioridades conflitantes, ações desconhecidas, guards inválidas, falta de regra global de opt-out/handoff).
+- [x] **JRN-03 — Avaliador de guards (expressões seguras)** com contexto tipado (`expr`) e testes.
+- [x] **JRN-04 — Função pura `Next`** com precedência global > estado > padrão; retorna motivo e regra casada; testes de tabela e de propriedades.
+- [x] **JRN-05 — Persistência:** `JOURNEY` + histórico `JSTATE#`, `ExpectedVersion`, estado inicial por pack, fallback quando `journey.yaml` muda e o estado salvo deixa de existir.
+- [x] **JRN-06 — Integração ao pipeline:** depois da análise e antes de `Route`/resposta. `Route` passa a receber as ações do FSM.
+- [x] **JRN-07 — Estagnação e digressão** conforme os princípios 4 e 6.
+- [x] **JRN-08 — Jornadas de exemplo:** `realestate` (funil de lead) e `support` (fluxo de atendimento/ticket), sem código específico no core.
 
 ## OUT — Ações e efeitos
 
-- [ ] **OUT-01 — Registro de ações** (`send_directive`, `send_template`, `create_task`, `notify_admin`, `handoff`, `schedule_nudge`, `set_fact`, `webhook`).
-- [ ] **OUT-02 — Outbox transacional (`OUTBOX#`)**, worker com retry/backoff, estados (`pending`, `done`, `failed`, `dead`) e reprocessamento manual.
-- [ ] **OUT-03 — Diretivas para o estágio de resposta** (`{goal, must_ask, constraints}`) e templates fixos para mensagens críticas.
+- [x] **OUT-01 — Registro de ações** (`send_directive`, `send_template`, `create_task`, `notify_admin`, `handoff`, `schedule_nudge`, `set_fact`, `webhook`).
+- [x] **OUT-02 — Outbox transacional (`OUTBOX#`)**, worker com retry/backoff, estados (`pending`, `done`, `failed`, `dead`) e reprocessamento manual.
+- [x] **OUT-03 — Diretivas para o estágio de resposta** (`{goal, must_ask, constraints}`) e templates fixos para mensagens críticas.
 - [ ] **OUT-04 (futuro próximo) — Ação webhook de saída assinada**, para integrar com CRMs externos.
 
 ## QA e UI (Jornada & Funil)
 
-- [ ] **QA-06 — Testes:** tabela do FSM, propriedades (estados alcançáveis e saídas), idempotência do outbox, falha no meio da transação, replay com FSM.
+- [x] **QA-06 — Testes:** tabela do FSM, propriedades (estados alcançáveis e saídas), idempotência do outbox, falha no meio da transação, replay com FSM.
 - [ ] **UIX-09 — Cartão de jornada no `/thinking`:** estado atual, evento, regra casada, avaliação de cada guard, ações emitidas e status no outbox.
 - [ ] **UIX-10 — Página `/journey`:** diagrama (Mermaid) gerado do `journey.yaml`, estado atual destacado, relatório de validação.
 - [ ] **UIX-11 — Simulador "e se":** escolher estado + evento + análise simulada e ver a transição resultante sem enviar nada.
