@@ -7,6 +7,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"whatshelper/internal/security"
 )
 
 // Config centraliza todas as configurações do sistema carregadas de variáveis de ambiente.
@@ -14,10 +16,12 @@ type Config struct {
 	HTTPHost            string
 	HTTPPort            int
 	APIToken            string
+	ConnectorToken      string
 	AllowInsecureBind   bool
 	Environment         string // "development", "staging", "production"
 	LogLevel            string // "debug", "info", "warn", "error"
 	LogFormat           string // "text", "json"
+	PIIEncryptionKey    string
 	DynamoDBEndpoint    string
 	DynamoDBTable       string
 	S3Endpoint          string
@@ -63,10 +67,12 @@ func LoadFromEnv() Config {
 		HTTPHost:            getEnv("HTTP_HOST", "127.0.0.1"),
 		HTTPPort:            getEnvInt("HTTP_PORT", 8080),
 		APIToken:            strings.TrimSpace(os.Getenv("API_TOKEN")),
+		ConnectorToken:      strings.TrimSpace(os.Getenv("CONNECTOR_TOKEN")),
 		AllowInsecureBind:   getEnvBool("ALLOW_INSECURE_BIND", false),
 		Environment:         getEnv("APP_ENV", "development"),
 		LogLevel:            getEnv("LOG_LEVEL", "info"),
 		LogFormat:           getEnv("LOG_FORMAT", "text"),
+		PIIEncryptionKey:    strings.TrimSpace(os.Getenv("PII_ENCRYPTION_KEY")),
 		DynamoDBEndpoint:    getEnv("DYNAMODB_ENDPOINT", "http://localhost:8000"),
 		DynamoDBTable:       getEnv("DYNAMODB_TABLE", "whatshelper-brain"),
 		S3Endpoint:          getEnv("S3_ENDPOINT", "http://localhost:9000"),
@@ -89,10 +95,48 @@ func LoadFromEnv() Config {
 	}
 }
 
+// EffectiveConnectorToken retorna CONNECTOR_TOKEN ou faz fallback para API_TOKEN quando não definido separadamente.
+func (c Config) EffectiveConnectorToken() string {
+	if strings.TrimSpace(c.ConnectorToken) != "" {
+		return strings.TrimSpace(c.ConnectorToken)
+	}
+	return strings.TrimSpace(c.APIToken)
+}
+
+// Secrets retorna os valores sensíveis configurados para aplicação na redação de logs.
+func (c Config) Secrets() []string {
+	candidates := []string{
+		c.APIToken,
+		c.ConnectorToken,
+		c.AnthropicAPIKey,
+		c.PIIEncryptionKey,
+		c.S3SecretKey,
+	}
+	out := make([]string, 0, len(candidates))
+	for _, s := range candidates {
+		if trimmed := strings.TrimSpace(s); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
 // Validate valida as configurações obrigatórias na fronteira de inicialização.
 func (c Config) Validate() error {
 	if !isLoopbackHost(c.HTTPHost) && strings.TrimSpace(c.APIToken) == "" && !c.AllowInsecureBind {
 		return fmt.Errorf("%w (host=%q)", ErrInsecureHTTPBind, c.HTTPHost)
+	}
+
+	env := strings.ToLower(strings.TrimSpace(c.Environment))
+	if env == "staging" || env == "production" {
+		if strings.TrimSpace(c.PIIEncryptionKey) == "" {
+			return security.ErrMissingPIIKey
+		}
+	}
+	if strings.TrimSpace(c.PIIEncryptionKey) != "" {
+		if _, err := security.ParsePIIKey(c.PIIEncryptionKey); err != nil {
+			return err
+		}
 	}
 
 	switch c.LLMProvider {

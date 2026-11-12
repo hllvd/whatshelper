@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -14,6 +15,8 @@ import (
 	"whatshelper/internal/core"
 	"whatshelper/internal/core/fakes"
 	"whatshelper/internal/pack"
+	"whatshelper/internal/security"
+	"whatshelper/internal/store"
 )
 
 func setupPipelineTestEnv(t *testing.T, store core.Store, llm core.LLM) (*brain.Pipeline, *fakes.MemoryBlobStore, *core.InMemoryEventBus, *fakes.MemoryChannel) {
@@ -339,5 +342,66 @@ done:
 	}
 	if runs[0].Status != "failed" || runs[0].Stage != "response" {
 		t.Fatalf("expected status=failed and stage=response, got status=%s stage=%s", runs[0].Status, runs[0].Stage)
+	}
+}
+
+func TestPipeline_EncryptsContactInfoWithoutLeakingToRawBlob(t *testing.T) {
+	ctx := context.Background()
+	st := fakes.NewMemoryStore()
+	blobs := fakes.NewMemoryBlobStore()
+	cipher, err := security.NewPIICipherFromEnv("", "development")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	p := brain.NewPipeline(ctx, brain.PipelineConfig{
+		Store:     st,
+		Blobs:     blobs,
+		PIICipher: cipher,
+		Debounce:  time.Hour,
+	})
+	defer p.Stop()
+
+	ts := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
+	msg := core.NormalizedMessage{
+		TenantID:    "demo",
+		Channel:     "whatsapp",
+		Account:     "main",
+		SourceKey:   "5511999998888",
+		MessageID:   "wamid-sec-1",
+		Timestamp:   ts,
+		Direction:   core.DirectionInbound,
+		Type:        core.MessageTypeText,
+		Text:        "Oi",
+		RawContact:  "+55 (11) 99999-8888",
+		DisplayName: "João Cliente",
+	}
+
+	if err := p.Ingest(ctx, msg); err != nil {
+		t.Fatalf("Ingest failed: %v", err)
+	}
+
+	rawKey := store.S3RawMessageKey(msg.TenantID, msg.Channel, msg.SourceKey, ts, msg.MessageID)
+	rawBytes, err := blobs.Get(ctx, rawKey)
+	if err != nil {
+		t.Fatalf("expected raw blob at %s: %v", rawKey, err)
+	}
+	if strings.Contains(string(rawBytes), "João Cliente") || strings.Contains(string(rawBytes), "(11) 99999-8888") {
+		t.Fatalf("raw blob leaked transient contact PII: %s", string(rawBytes))
+	}
+
+	state, err := st.GetSourceState(ctx, "demo", "whatsapp", "5511999998888")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Meta.EncryptedContactInfo == "" {
+		t.Fatalf("expected EncryptedContactInfo on SourceMeta")
+	}
+	info, err := security.DecryptContactInfo(cipher, state.Meta.EncryptedContactInfo)
+	if err != nil {
+		t.Fatalf("DecryptContactInfo failed: %v", err)
+	}
+	if info.RawIdentifier != "+55 (11) 99999-8888" || info.DisplayName != "João Cliente" {
+		t.Fatalf("unexpected decrypted contact info: %+v", info)
 	}
 }

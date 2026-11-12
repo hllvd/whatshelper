@@ -14,6 +14,7 @@ import (
 
 	"whatshelper/internal/core"
 	"whatshelper/internal/pack"
+	"whatshelper/internal/security"
 	"whatshelper/internal/store"
 )
 
@@ -72,6 +73,7 @@ type PipelineConfig struct {
 	AfterFunc           AfterFunc
 	RecentMessagesLimit int
 	RunRetentionDays    int
+	PIICipher           security.PIICipher
 	Logger              *slog.Logger
 }
 
@@ -204,6 +206,14 @@ func (p *Pipeline) Ingest(ctx context.Context, msg core.NormalizedMessage) error
 	})
 
 	if msg.Direction == core.DirectionInbound {
+		if err := p.ensureEncryptedContactInfo(ctx, msg); err != nil {
+			p.logger.Warn("falha ao cifrar contato bruto",
+				slog.String("tenant", msg.TenantID),
+				slog.String("channel", msg.Channel),
+				slog.String("source_key", msg.SourceKey),
+				slog.Any("error", err),
+			)
+		}
 		if msg.Channel == AdminChannelID {
 			p.publish(core.Event{
 				ID:        newID("ev"),
@@ -224,6 +234,44 @@ func (p *Pipeline) Ingest(ctx context.Context, msg core.NormalizedMessage) error
 		p.dispatcher.Enqueue(msg)
 	}
 	return nil
+}
+
+func (p *Pipeline) ensureEncryptedContactInfo(ctx context.Context, msg core.NormalizedMessage) error {
+	if p.cfg.PIICipher == nil {
+		return nil
+	}
+	if strings.TrimSpace(msg.RawContact) == "" && strings.TrimSpace(msg.DisplayName) == "" {
+		return nil
+	}
+	state, err := p.cfg.Store.GetSourceState(ctx, msg.TenantID, msg.Channel, msg.SourceKey)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(state.Meta.EncryptedContactInfo) != "" {
+		return nil
+	}
+	encoded, err := security.EncryptContactInfo(p.cfg.PIICipher, security.ContactInfo{
+		Channel:       msg.Channel,
+		RawIdentifier: strings.TrimSpace(msg.RawContact),
+		DisplayName:   strings.TrimSpace(msg.DisplayName),
+	})
+	if err != nil || encoded == "" {
+		return err
+	}
+	now := p.now()
+	meta := state.Meta
+	meta.TenantID = msg.TenantID
+	meta.Channel = msg.Channel
+	meta.SourceKey = msg.SourceKey
+	if meta.Status == "" {
+		meta.Status = core.SourceStatusActive
+	}
+	if meta.CreatedAt.IsZero() {
+		meta.CreatedAt = now
+	}
+	meta.UpdatedAt = now
+	meta.EncryptedContactInfo = encoded
+	return p.cfg.Store.SaveSourceMeta(ctx, meta)
 }
 
 // ProcessBatch executa análise, commit otimista e geração de resposta para um lote de mensagens da mesma fonte.

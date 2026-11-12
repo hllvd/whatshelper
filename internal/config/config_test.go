@@ -3,9 +3,11 @@ package config_test
 import (
 	"errors"
 	"os"
+	"strings"
 	"testing"
 
 	"whatshelper/internal/config"
+	"whatshelper/internal/security"
 )
 
 func clearLLMEnv() {
@@ -173,5 +175,34 @@ func TestConfig_HTTPBindSecurity(t *testing.T) {
 				t.Fatalf("expected %v, got %v", tc.wantErr, err)
 			}
 		})
+	}
+}
+
+func TestConfig_PIISecurityAndConnectorToken(t *testing.T) {
+	cfg := config.Config{
+		Environment: "production",
+		LLMProvider: "fake",
+	}
+	if err := cfg.Validate(); !errors.Is(err, security.ErrMissingPIIKey) {
+		t.Fatalf("expected ErrMissingPIIKey in production without PII key, got %v", err)
+	}
+
+	cfg.PIIEncryptionKey = "too-short"
+	if err := cfg.Validate(); !errors.Is(err, security.ErrInvalidPIIKey) {
+		t.Fatalf("expected ErrInvalidPIIKey for bad key, got %v", err)
+	}
+
+	cfg.PIIEncryptionKey = strings.Repeat("k", 32)
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected valid production config with 32-byte key, got %v", err)
+	}
+
+	cfg.APIToken = "api-tok"
+	if got := cfg.EffectiveConnectorToken(); got != "api-tok" {
+		t.Fatalf("expected fallback to APIToken, got %q", got)
+	}
+	cfg.ConnectorToken = "conn-tok"
+	if got := cfg.EffectiveConnectorToken(); got != "conn-tok" {
+		t.Fatalf("expected explicit ConnectorToken, got %q", got)
 	}
 }

@@ -18,6 +18,7 @@ import (
 	"whatshelper/internal/core/fakes"
 	"whatshelper/internal/llm/anthropic"
 	"whatshelper/internal/pack"
+	"whatshelper/internal/security"
 	"whatshelper/internal/server"
 	"whatshelper/internal/store/dynamo"
 	"whatshelper/internal/store/s3blob"
@@ -25,7 +26,7 @@ import (
 
 func main() {
 	cfg := config.LoadFromEnv()
-	logger := server.InitLogger(cfg.LogLevel, cfg.LogFormat)
+	logger := server.InitLoggerWithSecrets(cfg.LogLevel, cfg.LogFormat, cfg.Secrets()...)
 	slog.SetDefault(logger)
 
 	if len(os.Args) >= 3 && os.Args[1] == "store" && os.Args[2] == "init" {
@@ -94,6 +95,11 @@ func main() {
 	}
 
 	knowledgeSrc := brain.NewBlobKnowledgeSource(blobRepo, clock, 5*time.Second)
+	piiCipher, err := security.NewPIICipherFromEnv(cfg.PIIEncryptionKey, cfg.Environment)
+	if err != nil {
+		logger.Error("falha ao inicializar cifra PII", slog.Any("error", err))
+		os.Exit(1)
+	}
 
 	pipeline := brain.NewPipeline(appCtx, brain.PipelineConfig{
 		Store:               storeRepo,
@@ -111,6 +117,7 @@ func main() {
 		Debounce:            time.Duration(cfg.DebounceMs) * time.Millisecond,
 		RecentMessagesLimit: cfg.RecentMessagesLimit,
 		RunRetentionDays:    cfg.RunRetentionDays,
+		PIICipher:           piiCipher,
 		Logger:              logger,
 	})
 	pipeline.RegisterChannel(simCh)

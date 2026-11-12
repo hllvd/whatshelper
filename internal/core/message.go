@@ -46,11 +46,13 @@ type NormalizedMessage struct {
 	SourceKey string      `json:"source_key"`
 	MessageID string      `json:"message_id"`
 	Timestamp time.Time   `json:"timestamp"`
-	Direction Direction   `json:"direction"`
-	Type      MessageType `json:"type"`
-	Text      string      `json:"text"`
-	MediaRef  string      `json:"media_ref,omitempty"`
-	RawRef    string      `json:"raw_ref,omitempty"`
+	Direction   Direction   `json:"direction"`
+	Type        MessageType `json:"type"`
+	Text        string      `json:"text"`
+	MediaRef    string      `json:"media_ref,omitempty"`
+	RawRef      string      `json:"raw_ref,omitempty"`
+	RawContact  string      `json:"-"` // Metadado transiente; persistido apenas cifrado no SourceMeta.
+	DisplayName string      `json:"-"` // Nome bruto de exibição; persistido apenas cifrado no SourceMeta.
 }
 
 var (

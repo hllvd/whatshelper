@@ -19,6 +19,7 @@ import (
 	"whatshelper/internal/channels/simulator"
 	"whatshelper/internal/config"
 	"whatshelper/internal/core"
+	"whatshelper/internal/security"
 )
 
 //go:embed static/*
@@ -61,7 +62,7 @@ func New(cfg config.Config, logger *slog.Logger) *Server {
 // NewWithDeps cria uma instância completa de Server conectada ao Store, BlobStore, EventBus e Simulador.
 func NewWithDeps(cfg config.Config, logger *slog.Logger, deps Dependencies) *Server {
 	if logger == nil {
-		logger = InitLogger(cfg.LogLevel, cfg.LogFormat)
+		logger = InitLoggerWithSecrets(cfg.LogLevel, cfg.LogFormat, cfg.Secrets()...)
 	}
 
 	s := &Server{
@@ -238,8 +239,13 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return s.httpServer.Shutdown(ctx)
 }
 
-// InitLogger constrói um slog.Logger estruturado de acordo com o nível e formato desejados.
+// InitLogger constrói um slog.Logger estruturado com redação de PII por padrão.
 func InitLogger(levelStr, format string) *slog.Logger {
+	return InitLoggerWithSecrets(levelStr, format)
+}
+
+// InitLoggerWithSecrets constrói um slog.Logger estruturado mascarando PII e segredos configurados.
+func InitLoggerWithSecrets(levelStr, format string, secrets ...string) *slog.Logger {
 	var level slog.Level
 	switch levelStr {
 	case "debug":
@@ -263,5 +269,5 @@ func InitLogger(levelStr, format string) *slog.Logger {
 		handler = slog.NewTextHandler(os.Stdout, opts)
 	}
 
-	return slog.New(handler)
+	return slog.New(security.NewRedactingHandler(handler, secrets...))
 }
