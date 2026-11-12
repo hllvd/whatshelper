@@ -22,7 +22,7 @@ A ordem de execução está nos milestones M0 → M5, no final do arquivo.
 
 - [x] **DEC-01 — ADRs iniciais.** Registrar em `docs/adr/` as decisões: Go, canal agnóstico, vertical packs, DynamoDB single-table, S3 para mensagem crua. _Pronto quando:_ um ADR curto por decisão.
 - [~] **DEC-02 — Identidade e PII.** Definir como o `source_key` é derivado por canal (WhatsApp: número E.164; email: hash do endereço normalizado), onde ficam os dados de contato brutos (criptografados) e a política de retenção. _Pronto quando:_ ADR aprovado. _(Nota: ADR 0006 redigido no M0; aguardando aprovação explícita.)_
-- [ ] **DEC-03 — Connector in-process ou separado.** Decidir se o canal roda no mesmo processo do brain ou em outro, falando por HTTP/WebSocket. Para agora, a decisão vale para rodar local; anotar só de passagem como ficaria no Fargate (um serviço ou dois). _Pronto quando:_ ADR com trade-offs.
+- [x] **DEC-03 — Connector in-process ou separado.** Decidir se o canal roda no mesmo processo do brain ou em outro, falando por HTTP/WebSocket. Para agora, a decisão vale para rodar local; anotar só de passagem como ficaria no Fargate (um serviço ou dois). _Pronto quando:_ ADR com trade-offs.
 - [ ] **DEC-04 — Sessão do whatsmeow em produção.** Localmente a sessão fica em SQLite num volume do docker-compose. No Fargate o disco do container é efêmero, então escolher entre EFS + SQLite, Postgres/RDS ou store customizado. Só precisa ser decidido no M5. _Pronto quando:_ ADR e plano de implementação.
 
 ## FND — Fundação do projeto
@@ -75,11 +75,11 @@ A ordem de execução está nos milestones M0 → M5, no final do arquivo.
 ## CH — Canais (mensageria)
 
 - [x] **CH-01 — Contrato `Channel`.** Start/Stop, stream de mensagens recebidas, Send, indicador de digitando, health e capacidades declaradas (texto, mídia, reações).
-- [ ] **CH-02 — Protocolo connector ↔ brain.** HTTP/WebSocket com autenticação, versionamento e retries. Documentar em `docs/`.
+- [x] **CH-02 — Protocolo connector ↔ brain.** HTTP/WebSocket com autenticação, versionamento e retries. Documentar em `docs/`.
 - [x] **CH-03 — Canal simulador.** Chat web para desenvolvimento. É o primeiro canal implementado.
-- [ ] **CH-04 — Connector WhatsApp (whatsmeow).** Pareamento por QR/código, reconexão, receber e enviar texto, ids e dedupe. Localmente a sessão fica em SQLite num volume do docker-compose.
-- [ ] **CH-05 — Envio humanizado.** Atraso variável, indicador de digitando, fila por conversa e rate limit.
-- [ ] **CH-06 — Mídia.** Áudio com transcrição via provider; imagem e documento salvos no S3 e referenciados. Pode ficar para depois do texto.
+- [x] **CH-04 — Connector WhatsApp (whatsmeow).** Pareamento por QR/código, reconexão, receber e enviar texto, ids e dedupe. Localmente a sessão fica em SQLite num volume do docker-compose.
+- [x] **CH-05 — Envio humanizado.** Atraso variável, indicador de digitando, fila por conversa e rate limit.
+- [x] **CH-06 — Mídia.** Áudio com transcrição via provider; imagem e documento salvos no S3 e referenciados. Pode ficar para depois do texto.
 - [ ] **CH-07 — Canal email (esqueleto).** Só o suficiente para validar o modelo de múltiplas fontes com chaves diferentes.
 - [x] **CH-08 — Canal admin.** Conversa separada usada para escalonamento e comandos do dono.
 - [ ] **CH-09 — Canal API oficial (futuro).** Deixar documentado como a Cloud API da Meta entraria como outro `Channel`. Não implementar agora.
@@ -123,8 +123,8 @@ A ordem de execução está nos milestones M0 → M5, no final do arquivo.
 
 ## SEC — Segurança e privacidade
 
-- [ ] **SEC-01 — PII.** Criptografar dados de contato (KMS ou criptografia de atributos) e remover dados sensíveis dos logs.
-- [ ] **SEC-02 — Segredos.** Local: `.env` fora do git. Produção: Secrets Manager. Nunca no repositório.
+- [x] **SEC-01 — PII.** Criptografar dados de contato (KMS ou criptografia de atributos) e remover dados sensíveis dos logs.
+- [x] **SEC-02 — Segredos.** Local: `.env` fora do git. Produção: Secrets Manager. Nunca no repositório.
 - [ ] **SEC-03 — LGPD.** Exportar e excluir todos os dados de um contato (DynamoDB e S3).
 
 ## OPS — Deploy e operação (produção, só no final)
@@ -143,7 +143,7 @@ A ordem de execução está nos milestones M0 → M5, no final do arquivo.
 - [x] **QA-02 — Golden tests de prompts.** Entrada → JSON esperado, com opção de rodar contra LLM real.
 - [x] **QA-03 — Fixtures de conversas.** Conversas realistas (imobiliário e pack de exemplo) usadas em testes e replay.
 - [x] **QA-04 — End-to-end local.** Simulador → brain → store → visualizador.
-- [ ] **QA-05 — Connector.** Testes de reconexão e mensagens duplicadas.
+- [x] **QA-05 — Connector.** Testes de reconexão e mensagens duplicadas.
 
 ## DOC — Documentação
 

@@ -20,7 +20,7 @@ Brain agnóstico de atendimento por mensageria construído em Go. Responde clien
 
 ### Pré-requisitos
 - Docker & Docker Compose
-- Go 1.24+ (para desenvolvimento local)
+- Go 1.26+ (para desenvolvimento local)
 
 ### Subir infraestrutura e Brain
 ```bash
@@ -31,7 +31,13 @@ Isso iniciará:
 - MinIO S3 Local (`localhost:9000` / Console em `localhost:9001`)
 - Bucket `whatshelper-blobs` com S3 Versioning ativo e ILM (90 dias para `traces/`)
 - Serviço `store-init` (`brain store init`) criando a tabela única e semeando políticas (`CONFIG#policy`) e conhecimento (`knowledge/*.md`) para `demo` (`realestate`) e `demo-support` (`support`)
-- Whatshelper Brain exposto em loopback (`127.0.0.1:8080`; suporte opcional a `API_TOKEN` Bearer Auth)
+- Whatshelper Brain exposto em loopback (`127.0.0.1:8080`; suporte opcional a `API_TOKEN` Bearer Auth e `PII_ENCRYPTION_KEY` AES-256-GCM)
+- Whatshelper Connector WhatsApp em processo separado (`127.0.0.1:8081`, protocolo `v1` via HTTP/WebSocket com `CONNECTOR_TOKEN`, sessão SQLite sem CGO persistida no volume `whatsapp_data`)
+
+### Pareamento WhatsApp Local (`whatsmeow`)
+- Com os containers ativos, acompanhe os logs do `connector` ou consulte `GET http://127.0.0.1:8081/qr` para obter o QR Code atual.
+- Defina `ADMIN_PHONE_E164` no `.env` para rotear automaticamente mensagens desse número para o canal `admin` (`/aprovar`, `/rejeitar`, `/corrigir`).
+- Opcional: configure `TRANSCRIPTION_URL` / `TRANSCRIPTION_API_KEY` para transcrição automática de áudio (sem ela, áudios escalonam com resposta neutra).
 
 ### Modo Offline (`fake`) vs Modo Anthropic (`anthropic`)
 - Por padrão (sem `ANTHROPIC_API_KEY`), o `make up` sobe com `LLM_PROVIDER=fake`, usando um modelo determinístico offline para testar o simulador e o visualizador sem chamadas externas.
@@ -114,6 +120,7 @@ make build
 
 ## Documentação e Padrões de Acesso
 
+- [Protocolo Connector ↔ Brain v1](docs/connector-protocol.md)
 - [Guia para criar um novo Vertical Pack](docs/guia-novo-pack.md)
 - [Padrões de Acesso ao Armazenamento (DynamoDB + S3)](docs/access-patterns.md)
 - [Registros de Decisão Arquitetural (ADRs)](docs/adr/)
@@ -133,3 +140,4 @@ make build
   - [ADR 0014: Nudges Reutilizam TASK# e GSI2](docs/adr/0014-nudge-como-task-gsi2.md)
   - [ADR 0015: Políticas, Conhecimento em MinIO e Bind Seguro](docs/adr/0015-politicas-seguranca-e-bind-local.md)
   - [ADR 0016: Canal Admin e Aprendizado Contínuo em QA.md](docs/adr/0016-canal-admin-e-aprendizado-qa.md)
+  - [ADR 0017: Connector Separado (`cmd/connectors`) e Protocolo v1](docs/adr/0017-connector-separado-protocolo-v1.md)

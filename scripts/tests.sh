@@ -202,13 +202,15 @@ cmd_lint() {
 }
 
 cmd_unit() {
-  run_go_category "UNIT TESTS (core, config, pack, llm, channels, store)" "unit" \
+  run_go_category "UNIT TESTS (core, config, security, media, pack, llm, channels, store)" "unit" \
     go test -v -race \
       ./internal/core/... \
       ./internal/config \
+      ./internal/security/... \
+      ./internal/media/... \
       ./internal/pack \
       ./internal/llm/anthropic \
-      ./internal/channels/simulator \
+      ./internal/channels/... \
       ./internal/store
 }
 
@@ -248,10 +250,24 @@ cmd_build() {
       sleep 1
     done
 
-    "${DC[@]}" logs --no-color --since "$BUILD_START_TIME" brain store-init minio-init > artifacts/startup-docker.log 2>&1 || true
+    "${DC[@]}" logs --no-color --since "$BUILD_START_TIME" brain connector store-init minio-init > artifacts/startup-docker.log 2>&1 || true
 
     if [ "$READY" -ne 1 ]; then
       echo "❌ Whatshelper Brain não respondeu em /healthz dentro de 30s."
+      EXIT_CODE=1
+    fi
+
+    echo "Aguardando /healthz do Connector (http://127.0.0.1:8081/healthz)..."
+    local CONN_READY=0
+    for _ in $(seq 1 20); do
+      if curl -fsS http://127.0.0.1:8081/healthz > /dev/null 2>&1; then
+        CONN_READY=1
+        break
+      fi
+      sleep 1
+    done
+    if [ "$CONN_READY" -ne 1 ]; then
+      echo "❌ Whatshelper Connector não respondeu em /healthz dentro de 20s."
       EXIT_CODE=1
     fi
 

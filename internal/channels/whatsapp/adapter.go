@@ -160,10 +160,37 @@ func (a *Adapter) Start(ctx context.Context) error {
 		a.setStatus(true, false, "", "connecting", "sessão carregada, conectando")
 	}
 
-	if err := cli.Connect(); err != nil {
-		return fmt.Errorf("whatsapp: erro ao conectar cliente: %w", err)
-	}
+	go a.connectWithRetry(cli)
 	return nil
+}
+
+func (a *Adapter) connectWithRetry(cli *whatsmeow.Client) {
+	delay := time.Second
+	for {
+		if a.stopCtx.Err() != nil {
+			return
+		}
+		err := cli.Connect()
+		if err == nil {
+			return
+		}
+		a.logger.Warn("falha temporária ao conectar ao WhatsApp; nova tentativa agendada",
+			slog.Duration("retry_in", delay),
+			slog.Any("error", err),
+		)
+		paired := cli.Store.ID != nil
+		a.setStatus(paired, false, "", "connect_retry", "aguardando conectividade WhatsApp")
+		timer := time.NewTimer(delay)
+		select {
+		case <-a.stopCtx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		if delay < 30*time.Second {
+			delay *= 2
+		}
+	}
 }
 
 // Stop desconecta o cliente WhatsApp e fecha o banco SQLite com segurança.
