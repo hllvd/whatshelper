@@ -47,6 +47,7 @@ type metaItem struct {
 	ContactID            string            `dynamodbav:"contact_id,omitempty"`
 	Status               core.SourceStatus `dynamodbav:"status"`
 	JourneyStage         string            `dynamodbav:"journey_stage,omitempty"`
+	PausedUntil          string            `dynamodbav:"paused_until,omitempty"`
 	Version              int64             `dynamodbav:"version"`
 	EncryptedContactInfo string            `dynamodbav:"encrypted_contact_info,omitempty"`
 	CreatedAt            string            `dynamodbav:"created_at"`
@@ -97,9 +98,10 @@ type messageItem struct {
 	SourceKey string           `dynamodbav:"source_key"`
 	MessageID string           `dynamodbav:"message_id"`
 	Timestamp string           `dynamodbav:"timestamp"`
-	Direction core.Direction   `dynamodbav:"direction"`
-	Type      core.MessageType `dynamodbav:"type"`
-	MediaRef  string           `dynamodbav:"media_ref,omitempty"`
+	Direction core.Direction     `dynamodbav:"direction"`
+	Type      core.MessageType   `dynamodbav:"type"`
+	Origin    core.MessageOrigin `dynamodbav:"origin,omitempty"`
+	MediaRef  string             `dynamodbav:"media_ref,omitempty"`
 	RawRef    string           `dynamodbav:"raw_ref,omitempty"`
 	Sender    string           `dynamodbav:"sender,omitempty"`
 }
@@ -243,6 +245,7 @@ func (s *Store) GetSourceState(ctx context.Context, tenant, channel, sourceKey s
 				ContactID:            item.ContactID,
 				Status:               item.Status,
 				JourneyStage:         item.JourneyStage,
+				PausedUntil:          parseTimePtr(item.PausedUntil),
 				Version:              item.Version,
 				EncryptedContactInfo: item.EncryptedContactInfo,
 				CreatedAt:            parseTime(item.CreatedAt),
@@ -319,6 +322,7 @@ func (s *Store) SaveSourceMeta(ctx context.Context, meta core.SourceMeta) error 
 		ContactID:            meta.ContactID,
 		Status:               status,
 		JourneyStage:         meta.JourneyStage,
+		PausedUntil:          formatTimePtr(meta.PausedUntil),
 		Version:              meta.Version,
 		EncryptedContactInfo: meta.EncryptedContactInfo,
 		CreatedAt:            formatTime(created),
@@ -401,6 +405,7 @@ func (s *Store) CommitAnalysis(ctx context.Context, input core.CommitAnalysisInp
 		ContactID:            existingState.Meta.ContactID,
 		Status:               status,
 		JourneyStage:         stage,
+		PausedUntil:          formatTimePtr(existingState.Meta.PausedUntil),
 		Version:              newVersion,
 		EncryptedContactInfo: existingState.Meta.EncryptedContactInfo,
 		CreatedAt:            formatTime(createdAt),
@@ -567,6 +572,7 @@ func (s *Store) PutMessageMeta(ctx context.Context, msg core.MessageMeta) error 
 		Timestamp: formatTime(ts),
 		Direction: msg.Direction,
 		Type:      msg.Type,
+		Origin:    msg.Origin,
 		MediaRef:  msg.MediaRef,
 		RawRef:    msg.RawRef,
 		Sender:    msg.Sender,
@@ -655,6 +661,7 @@ func (s *Store) ListRecentMessages(ctx context.Context, tenant, channel, sourceK
 			Timestamp: parseTime(item.Timestamp),
 			Direction: item.Direction,
 			Type:      item.Type,
+			Origin:    item.Origin,
 			MediaRef:  item.MediaRef,
 			RawRef:    item.RawRef,
 			Sender:    item.Sender,
@@ -1133,4 +1140,22 @@ func parseTime(s string) time.Time {
 		t, _ = time.Parse(time.RFC3339Nano, s)
 	}
 	return t.UTC()
+}
+
+func formatTimePtr(t *time.Time) string {
+	if t == nil || t.IsZero() {
+		return ""
+	}
+	return formatTime(*t)
+}
+
+func parseTimePtr(s string) *time.Time {
+	if s == "" {
+		return nil
+	}
+	t := parseTime(s)
+	if t.IsZero() {
+		return nil
+	}
+	return &t
 }

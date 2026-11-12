@@ -18,6 +18,7 @@ const (
 	AdminCmdApprove          AdminCommandType = "approve"
 	AdminCmdReject           AdminCommandType = "reject"
 	AdminCmdCorrect          AdminCommandType = "correct"
+	AdminCmdResume           AdminCommandType = "resume"
 )
 
 // AdminCommand representa o resultado determinístico do parsing de uma mensagem no canal admin.
@@ -79,6 +80,18 @@ func ParseAdminCommand(text string) AdminCommand {
 			return cmd
 		}
 		cmd.Correction = rest
+		return cmd
+
+	case lower == "/retomar" || strings.HasPrefix(lower, "/retomar "):
+		rest := strings.TrimSpace(trimmed[len("/retomar"):])
+		cmd := AdminCommand{
+			Type:    AdminCmdResume,
+			Channel: "whatsapp",
+			RawText: trimmed,
+		}
+		if rest != "" {
+			parseAdminTarget(rest, &cmd)
+		}
 		return cmd
 
 	default:
@@ -144,6 +157,16 @@ func (p *Pipeline) HandleAdminInbound(ctx context.Context, msg core.NormalizedMe
 			return p.deliverAdminMessage(ctx, msg.TenantID, msg.SourceKey, fmt.Sprintf("Uso: /corrigir <canal:source_key> | <correção>. Erro: %v", err))
 		}
 		return nil
+
+	case AdminCmdResume:
+		if strings.TrimSpace(cmd.SourceKey) == "" {
+			return p.deliverAdminMessage(ctx, msg.TenantID, msg.SourceKey, "Uso: /retomar <canal:source_key> (ex.: /retomar whatsapp:5511999998888).")
+		}
+		if err := UpdateSourceStatus(ctx, p.cfg.Store, p.now(), msg.TenantID, cmd.Channel, cmd.SourceKey, core.SourceStatusActive); err != nil {
+			return p.deliverAdminMessage(ctx, msg.TenantID, msg.SourceKey, fmt.Sprintf("Não foi possível retomar %s:%s: %v", cmd.Channel, cmd.SourceKey, err))
+		}
+		p.publishStatusUpdated(msg.TenantID, cmd.Channel, cmd.SourceKey, core.SourceStatusActive, "retomado manualmente via /retomar")
+		return p.deliverAdminMessage(ctx, msg.TenantID, msg.SourceKey, fmt.Sprintf("Atendimento automático retomado para %s:%s.", cmd.Channel, cmd.SourceKey))
 
 	default:
 		if _, err := p.ProposeLearningFromEscalation(ctx, msg.TenantID, "", cmd.Correction); err != nil {

@@ -14,6 +14,7 @@ const (
 	SKFacts   = "FACTS"
 	SKSignals = "SIGNALS"
 	SKContext = "CONTEXT"
+	SKJourney = "JOURNEY"
 )
 
 // SourcePK retorna a chave de partição da conversa: T#<tenant>#S#<canal>#<source_key>.
@@ -69,6 +70,36 @@ func DueGSI2PK(tenant string) string {
 // DueGSI2SK retorna a sort key do GSI2: <due_at>#<canal>#<source_key>.
 func DueGSI2SK(dueAt time.Time, channel, sourceKey string) string {
 	return fmt.Sprintf("%s#%s#%s", dueAt.UTC().Format(TimestampFormat), channel, sourceKey)
+}
+
+// JStateSK retorna a sort key cronológica de transição de jornada: JSTATE#<ts>#<run_id>.
+func JStateSK(ts time.Time, runID string) string {
+	return fmt.Sprintf("JSTATE#%s#%s", ts.UTC().Format(TimestampFormat), runID)
+}
+
+// OutboxSK retorna a sort key de um item de outbox: OUTBOX#<outbox_id>.
+func OutboxSK(outboxID string) string {
+	return fmt.Sprintf("OUTBOX#%s", outboxID)
+}
+
+// OutboxDueGSI2PK retorna a partition key do GSI2 para itens do outbox pendentes/falhos.
+func OutboxDueGSI2PK(tenant string) string {
+	return fmt.Sprintf("T#%s#OUTBOX_DUE", tenant)
+}
+
+// OutboxDueGSI2SK retorna a sort key do GSI2 para agendamento de retry do outbox.
+func OutboxDueGSI2SK(nextAttemptAt time.Time, outboxID string) string {
+	return fmt.Sprintf("%s#%s", nextAttemptAt.UTC().Format(TimestampFormat), outboxID)
+}
+
+// OutboundPK retorna a partition key para pré-registro de IDs de envio por canal.
+func OutboundPK(tenant, channel string) string {
+	return fmt.Sprintf("T#%s#OUTMSG#%s", tenant, channel)
+}
+
+// OutboundSK retorna a sort key para pré-registro de ID de envio.
+func OutboundSK(messageID string) string {
+	return fmt.Sprintf("MSG#%s", messageID)
 }
 
 // S3RawMessageKey gera a chave S3 de mensagem crua: <tenant>/<canal>/<source_key>/<yyyy>/<mm>/<dd>/<ts>_<message_id>.json.

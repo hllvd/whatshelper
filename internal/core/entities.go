@@ -34,6 +34,7 @@ type SourceMeta struct {
 	ContactID            string       `json:"contact_id,omitempty"`
 	Status               SourceStatus `json:"status"`
 	JourneyStage         string       `json:"journey_stage,omitempty"`
+	PausedUntil          *time.Time   `json:"paused_until,omitempty"`
 	Version              int64        `json:"version"`
 	EncryptedContactInfo string       `json:"encrypted_contact_info,omitempty"`
 	CreatedAt            time.Time    `json:"created_at"`
@@ -155,16 +156,39 @@ type Run struct {
 
 // MessageMeta contém os metadados de uma mensagem indexada no DynamoDB (sem corpo cru longo).
 type MessageMeta struct {
-	TenantID  string      `json:"tenant_id"`
-	Channel   string      `json:"channel"`
-	SourceKey string      `json:"source_key"`
-	MessageID string      `json:"message_id"`
-	Timestamp time.Time   `json:"timestamp"`
-	Direction Direction   `json:"direction"`
-	Type      MessageType `json:"type"`
-	MediaRef  string      `json:"media_ref,omitempty"`
-	RawRef    string      `json:"raw_ref,omitempty"`
-	Sender    string      `json:"sender,omitempty"`
+	TenantID  string        `json:"tenant_id"`
+	Channel   string        `json:"channel"`
+	SourceKey string        `json:"source_key"`
+	MessageID string        `json:"message_id"`
+	Timestamp time.Time     `json:"timestamp"`
+	Direction Direction     `json:"direction"`
+	Type      MessageType   `json:"type"`
+	Origin    MessageOrigin `json:"origin,omitempty"`
+	MediaRef  string        `json:"media_ref,omitempty"`
+	RawRef    string        `json:"raw_ref,omitempty"`
+	Sender    string        `json:"sender,omitempty"`
+}
+
+// OutboundRecordStatus define o estado de pré-registro de um envio do bot (EVT-03).
+type OutboundRecordStatus string
+
+const (
+	OutboundStatusReserved OutboundRecordStatus = "reserved"
+	OutboundStatusSent     OutboundRecordStatus = "sent"
+	OutboundStatusFailed   OutboundRecordStatus = "failed"
+)
+
+// OutboundMessageRecord registra um message_id gerado antes do envio para distinguir eco do bot vs humano.
+type OutboundMessageRecord struct {
+	TenantID  string               `json:"tenant_id"`
+	Channel   string               `json:"channel"`
+	SourceKey string               `json:"source_key"`
+	MessageID string               `json:"message_id"`
+	OutboxID  string               `json:"outbox_id,omitempty"`
+	Status    OutboundRecordStatus `json:"status"`
+	TTL       int64                `json:"ttl,omitempty"`
+	CreatedAt time.Time            `json:"created_at"`
+	UpdatedAt time.Time            `json:"updated_at"`
 }
 
 // SourceState agrega todo o estado conhecido de uma conversa em um instante.

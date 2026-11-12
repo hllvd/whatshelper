@@ -17,11 +17,13 @@ type PreGateInput struct {
 	State      *core.SourceState
 	Pack       *pack.Pack
 	BatchTexts []string
+	Now        time.Time
 }
 
 // PreGateResult descreve se o pipeline pode prosseguir para os estágios cognitivos.
 type PreGateResult struct {
 	Allowed      bool
+	AutoResumed  bool
 	Action       DecisionAction
 	Reason       string
 	UpdateStatus core.SourceStatus
@@ -37,9 +39,20 @@ func EvaluatePreLLMGates(in PreGateInput) PreGateResult {
 		}
 	}
 
+	autoResumed := false
 	if in.State != nil {
 		switch in.State.Meta.Status {
-		case core.SourceStatusPaused, core.SourceStatusHuman, core.SourceStatusOptedOut, core.SourceStatusArchived:
+		case core.SourceStatusHuman:
+			if in.State.Meta.PausedUntil != nil && !in.Now.IsZero() && !in.Now.Before(*in.State.Meta.PausedUntil) {
+				autoResumed = true
+			} else {
+				return PreGateResult{
+					Allowed: false,
+					Action:  DecisionSkip,
+					Reason:  fmt.Sprintf("fonte bloqueada (status=%s)", in.State.Meta.Status),
+				}
+			}
+		case core.SourceStatusPaused, core.SourceStatusOptedOut, core.SourceStatusArchived:
 			return PreGateResult{
 				Allowed: false,
 				Action:  DecisionSkip,
@@ -61,6 +74,14 @@ func EvaluatePreLLMGates(in PreGateInput) PreGateResult {
 		}
 	}
 
+	if autoResumed {
+		return PreGateResult{
+			Allowed:      true,
+			AutoResumed:  true,
+			Reason:       "pausa humana expirada; retomando atendimento automático",
+			UpdateStatus: core.SourceStatusActive,
+		}
+	}
 	return PreGateResult{Allowed: true}
 }
 
@@ -112,6 +133,11 @@ func isWordChar(r rune) bool {
 
 // UpdateSourceStatus atualiza o status no META da fonte preservando ContactID/Version/CreatedAt.
 func UpdateSourceStatus(ctx context.Context, st core.Store, now time.Time, tenant, channel, sourceKey string, status core.SourceStatus) error {
+	return UpdateSourceStatusWithPause(ctx, st, now, tenant, channel, sourceKey, status, nil)
+}
+
+// UpdateSourceStatusWithPause atualiza o status e opcionalmente PausedUntil no META da fonte.
+func UpdateSourceStatusWithPause(ctx context.Context, st core.Store, now time.Time, tenant, channel, sourceKey string, status core.SourceStatus, pausedUntil *time.Time) error {
 	state, err := st.GetSourceState(ctx, tenant, channel, sourceKey)
 	if err != nil {
 		return err
@@ -121,6 +147,12 @@ func UpdateSourceStatus(ctx context.Context, st core.Store, now time.Time, tenan
 	meta.Channel = channel
 	meta.SourceKey = sourceKey
 	meta.Status = status
+	if status != core.SourceStatusHuman {
+		meta.PausedUntil = nil
+	} else if pausedUntil != nil {
+		t := pausedUntil.UTC()
+		meta.PausedUntil = &t
+	}
 	if meta.CreatedAt.IsZero() {
 		meta.CreatedAt = now.UTC()
 	}

@@ -60,15 +60,24 @@ func IsAdminPhone(sourceKey, adminPhone string) bool {
 	return errA == nil && errB == nil && a == b
 }
 
-// ShouldProcessInbound filtra mensagens próprias, status/broadcast e grupos (desabilitados por padrão).
+// ShouldProcessInbound filtra status/broadcast e grupos (desabilitados por padrão).
+// Mensagens próprias (isFromMe=true) são encaminhadas ao Brain para resolução determinística de origin.
 func ShouldProcessInbound(isFromMe, isGroup, isBroadcast, allowGroups bool) bool {
-	if isFromMe || isBroadcast {
+	if isBroadcast {
 		return false
 	}
 	if isGroup && !allowGroups {
 		return false
 	}
 	return true
+}
+
+// ShouldIgnoreHistoryFromMe ignora ecos from_me antigos recebidos durante history sync antes da conexão atual.
+func ShouldIgnoreHistoryFromMe(isFromMe bool, msgTS, connectedAt time.Time) bool {
+	if !isFromMe || connectedAt.IsZero() || msgTS.IsZero() {
+		return false
+	}
+	return msgTS.Before(connectedAt.Add(-5 * time.Second))
 }
 
 // UnwrapMessage extrai a mensagem interna caso venha encapsulada em Ephemeral ou ViewOnce.
@@ -157,14 +166,23 @@ func ExtractContent(raw *waE2E.Message) (ParsedContent, bool) {
 	return ParsedContent{}, false
 }
 
-// ResolveSenderPhone escolhe o identificador E.164 preferindo número de telefone real sobre LID quando disponível.
+// ResolveSenderPhone escolhe o identificador E.164 da contraparte, preferindo número real sobre LID.
+// Para mensagens próprias (IsFromMe=true), a contraparte é o destinatário (RecipientAlt/Chat), nunca SenderAlt.
 func ResolveSenderPhone(src types.MessageSource) (string, error) {
-	candidates := []types.JID{src.Chat, src.Sender}
-	if src.SenderAlt.Server == types.DefaultUserServer {
-		candidates = append([]types.JID{src.SenderAlt}, candidates...)
-	}
-	if src.RecipientAlt.Server == types.DefaultUserServer {
-		candidates = append([]types.JID{src.RecipientAlt}, candidates...)
+	var candidates []types.JID
+	if src.IsFromMe {
+		if src.RecipientAlt.Server == types.DefaultUserServer {
+			candidates = append(candidates, src.RecipientAlt)
+		}
+		candidates = append(candidates, src.Chat, src.Sender)
+	} else {
+		candidates = []types.JID{src.Chat, src.Sender}
+		if src.SenderAlt.Server == types.DefaultUserServer {
+			candidates = append([]types.JID{src.SenderAlt}, candidates...)
+		}
+		if src.RecipientAlt.Server == types.DefaultUserServer {
+			candidates = append([]types.JID{src.RecipientAlt}, candidates...)
+		}
 	}
 	for _, jid := range candidates {
 		if jid.IsEmpty() {
@@ -210,6 +228,7 @@ func BuildInboundRequest(
 		MediaRef:     strings.TrimSpace(mediaRef),
 		RawContact:   "+" + sourceKey,
 		DisplayName:  strings.TrimSpace(evt.Info.PushName),
+		FromMe:       evt.Info.IsFromMe,
 		RouteToAdmin: IsAdminPhone(sourceKey, adminPhone),
 	}, nil
 }

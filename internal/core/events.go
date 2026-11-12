@@ -31,6 +31,15 @@ const (
 	EventTaskCreated         EventType = "task.created"
 	EventApprovalPending     EventType = "approval.pending"
 	EventNudgeSent           EventType = "nudge.sent"
+
+	// M4e (EVT / JRN / OUT):
+	EventOriginResolved    EventType = "origin.resolved"
+	EventHumanTakeover     EventType = "human.takeover"
+	EventJourneyTransition EventType = "journey.transition"
+	EventGuardError        EventType = "journey.guard_error"
+	EventOutboxQueued      EventType = "outbox.queued"
+	EventOutboxDispatched  EventType = "outbox.dispatched"
+	EventOutboxFailed      EventType = "outbox.failed"
 )
 
 // Event representa um acontecimento observável no pipeline cognitivo.

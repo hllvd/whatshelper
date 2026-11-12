@@ -23,8 +23,12 @@ type MemoryStore struct {
 	msgIndex      map[string]map[string]bool // sourceID -> messageID -> seen
 	tasks         map[string]map[string]core.Task
 	runs          map[string][]core.Run
-	configs       map[string][]byte // key: tenant#name
+	configs       map[string][]byte            // key: tenant#name
 	contactLinks  map[string][]core.SourceLink // key: tenant#contact_id
+	outbound      map[string]core.OutboundMessageRecord
+	journeys      map[string]*core.JourneyState
+	jtransitions  map[string][]core.JourneyTransitionRecord
+	outbox        map[string]map[string]core.OutboxItem // sourceID -> outboxID -> item
 }
 
 func NewMemoryStore() *MemoryStore {
@@ -48,6 +52,10 @@ func NewMemoryStoreWithClock(clock core.Clock) *MemoryStore {
 		runs:         make(map[string][]core.Run),
 		configs:      make(map[string][]byte),
 		contactLinks: make(map[string][]core.SourceLink),
+		outbound:     make(map[string]core.OutboundMessageRecord),
+		journeys:     make(map[string]*core.JourneyState),
+		jtransitions: make(map[string][]core.JourneyTransitionRecord),
+		outbox:       make(map[string]map[string]core.OutboxItem),
 	}
 }
 
@@ -494,4 +502,254 @@ func copyContext(src *core.ConversationContext) core.ConversationContext {
 		}
 	}
 	return copied
+}
+
+func outboundKey(tenant, channel, messageID string) string {
+	return fmt.Sprintf("%s#%s#%s", tenant, channel, messageID)
+}
+
+func (m *MemoryStore) PreRegisterOutbound(ctx context.Context, rec core.OutboundMessageRecord) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := rec.CreatedAt
+	if now.IsZero() {
+		now = m.clock.Now().UTC()
+	}
+	rec.CreatedAt = now
+	if rec.UpdatedAt.IsZero() {
+		rec.UpdatedAt = now
+	}
+	if rec.Status == "" {
+		rec.Status = core.OutboundStatusReserved
+	}
+	m.outbound[outboundKey(rec.TenantID, rec.Channel, rec.MessageID)] = rec
+	return nil
+}
+
+func (m *MemoryStore) GetOutboundRecord(ctx context.Context, tenant, channel, messageID string) (*core.OutboundMessageRecord, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	rec, ok := m.outbound[outboundKey(tenant, channel, messageID)]
+	if !ok {
+		return nil, nil
+	}
+	// Verifica TTL se definido
+	if rec.TTL > 0 && m.clock.Now().UTC().Unix() > rec.TTL {
+		return nil, nil
+	}
+	copied := rec
+	return &copied, nil
+}
+
+func (m *MemoryStore) UpdateOutboundStatus(ctx context.Context, tenant, channel, messageID string, status core.OutboundRecordStatus, now time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	k := outboundKey(tenant, channel, messageID)
+	rec, ok := m.outbound[k]
+	if !ok {
+		return nil
+	}
+	rec.Status = status
+	if !now.IsZero() {
+		rec.UpdatedAt = now.UTC()
+	} else {
+		rec.UpdatedAt = m.clock.Now().UTC()
+	}
+	m.outbound[k] = rec
+	return nil
+}
+
+func (m *MemoryStore) GetJourneyState(ctx context.Context, tenant, channel, sourceKey string) (*core.JourneyState, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	id := sourceKeyID(tenant, channel, sourceKey)
+	st, ok := m.journeys[id]
+	if !ok {
+		return nil, nil
+	}
+	copied := *st
+	if st.Dimensions != nil {
+		copied.Dimensions = make(map[string]string, len(st.Dimensions))
+		for k, v := range st.Dimensions {
+			copied.Dimensions[k] = v
+		}
+	}
+	return &copied, nil
+}
+
+func (m *MemoryStore) ListJourneyTransitions(ctx context.Context, tenant, channel, sourceKey string, limit int) ([]core.JourneyTransitionRecord, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	id := sourceKeyID(tenant, channel, sourceKey)
+	items := m.jtransitions[id]
+	if len(items) == 0 {
+		return []core.JourneyTransitionRecord{}, nil
+	}
+	res := make([]core.JourneyTransitionRecord, len(items))
+	copy(res, items)
+	sort.Slice(res, func(i, j int) bool {
+		return res[i].CreatedAt.After(res[j].CreatedAt)
+	})
+	if limit > 0 && len(res) > limit {
+		res = res[:limit]
+	}
+	return res, nil
+}
+
+func (m *MemoryStore) CommitJourneyTurn(ctx context.Context, input core.CommitJourneyTurnInput) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	id := sourceKeyID(input.TenantID, input.Channel, input.SourceKey)
+	var currentVersion int64
+	if existing, ok := m.journeys[id]; ok {
+		currentVersion = existing.Version
+	}
+	if currentVersion != input.ExpectedVersion {
+		return fmt.Errorf("%w: journey esperado %d, atual %d", core.ErrVersionConflict, input.ExpectedVersion, currentVersion)
+	}
+
+	now := input.UpdatedAt
+	if now.IsZero() {
+		now = m.clock.Now().UTC()
+	}
+
+	j := input.Journey
+	j.TenantID = input.TenantID
+	j.Channel = input.Channel
+	j.SourceKey = input.SourceKey
+	j.Version = currentVersion + 1
+	j.UpdatedAt = now
+	if j.Dimensions != nil {
+		dimsCopy := make(map[string]string, len(j.Dimensions))
+		for k, v := range j.Dimensions {
+			dimsCopy[k] = v
+		}
+		j.Dimensions = dimsCopy
+	}
+	m.journeys[id] = &j
+
+	if input.Transition != nil {
+		tr := *input.Transition
+		tr.TenantID = input.TenantID
+		tr.Channel = input.Channel
+		tr.SourceKey = input.SourceKey
+		if tr.CreatedAt.IsZero() {
+			tr.CreatedAt = now
+		}
+		m.jtransitions[id] = append(m.jtransitions[id], tr)
+	}
+
+	if m.outbox[id] == nil {
+		m.outbox[id] = make(map[string]core.OutboxItem)
+	}
+	for _, ob := range input.OutboxItems {
+		if _, exists := m.outbox[id][ob.ID]; exists {
+			continue // idempotência por <run_id>#<index>
+		}
+		if ob.CreatedAt.IsZero() {
+			ob.CreatedAt = now
+		}
+		if ob.UpdatedAt.IsZero() {
+			ob.UpdatedAt = now
+		}
+		m.outbox[id][ob.ID] = ob
+	}
+
+	for _, rec := range input.OutboundRecords {
+		if rec.CreatedAt.IsZero() {
+			rec.CreatedAt = now
+		}
+		if rec.UpdatedAt.IsZero() {
+			rec.UpdatedAt = now
+		}
+		if rec.Status == "" {
+			rec.Status = core.OutboundStatusReserved
+		}
+		m.outbound[outboundKey(rec.TenantID, rec.Channel, rec.MessageID)] = rec
+	}
+
+	return nil
+}
+
+func (m *MemoryStore) ListDueOutboxItems(ctx context.Context, tenant string, dueBefore time.Time, limit int) ([]core.OutboxItem, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var result []core.OutboxItem
+	for _, srcItems := range m.outbox {
+		for _, item := range srcItems {
+			if tenant != "" && item.TenantID != tenant {
+				continue
+			}
+			if item.Status != core.OutboxStatusPending && item.Status != core.OutboxStatusFailed {
+				continue
+			}
+			if !item.NextAttemptAt.After(dueBefore) {
+				result = append(result, item)
+			}
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].NextAttemptAt.Before(result[j].NextAttemptAt)
+	})
+	if limit > 0 && len(result) > limit {
+		result = result[:limit]
+	}
+	return result, nil
+}
+
+func (m *MemoryStore) ListOutboxItems(ctx context.Context, tenant, channel, sourceKey string, limit int) ([]core.OutboxItem, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var result []core.OutboxItem
+	if sourceKey != "" {
+		id := sourceKeyID(tenant, channel, sourceKey)
+		for _, item := range m.outbox[id] {
+			result = append(result, item)
+		}
+	} else {
+		for _, srcItems := range m.outbox {
+			for _, item := range srcItems {
+				if tenant != "" && item.TenantID != tenant {
+					continue
+				}
+				if channel != "" && item.Channel != channel {
+					continue
+				}
+				result = append(result, item)
+			}
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].CreatedAt.After(result[j].CreatedAt)
+	})
+	if limit > 0 && len(result) > limit {
+		result = result[:limit]
+	}
+	return result, nil
+}
+
+func (m *MemoryStore) GetOutboxItem(ctx context.Context, tenant, channel, sourceKey, outboxID string) (*core.OutboxItem, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	id := sourceKeyID(tenant, channel, sourceKey)
+	item, ok := m.outbox[id][outboxID]
+	if !ok {
+		return nil, nil
+	}
+	copied := item
+	return &copied, nil
+}
+
+func (m *MemoryStore) UpdateOutboxItem(ctx context.Context, item core.OutboxItem) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	id := sourceKeyID(item.TenantID, item.Channel, item.SourceKey)
+	if m.outbox[id] == nil {
+		m.outbox[id] = make(map[string]core.OutboxItem)
+	}
+	m.outbox[id][item.ID] = item
+	return nil
 }

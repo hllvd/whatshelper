@@ -38,21 +38,45 @@ func (t MessageType) IsValid() bool {
 	}
 }
 
+// MessageOrigin identifica a origem determinística de uma mensagem ou evento.
+// O brain é a única fonte de verdade para resolução da origem.
+type MessageOrigin string
+
+const (
+	OriginCustomer   MessageOrigin = "customer"
+	OriginBot        MessageOrigin = "bot"
+	OriginHumanPhone MessageOrigin = "human_phone"
+	OriginHumanAdmin MessageOrigin = "human_admin"
+	OriginSystem     MessageOrigin = "system"
+	OriginUnknown    MessageOrigin = "unknown"
+)
+
+func (o MessageOrigin) IsValid() bool {
+	switch o {
+	case OriginCustomer, OriginBot, OriginHumanPhone, OriginHumanAdmin, OriginSystem, OriginUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
 // NormalizedMessage é a estrutura unificada de transporte e persistência de mensagens.
 type NormalizedMessage struct {
-	TenantID  string      `json:"tenant_id"`
-	Channel   string      `json:"channel"`
-	Account   string      `json:"account"`
-	SourceKey string      `json:"source_key"`
-	MessageID string      `json:"message_id"`
-	Timestamp time.Time   `json:"timestamp"`
-	Direction   Direction   `json:"direction"`
-	Type        MessageType `json:"type"`
-	Text        string      `json:"text"`
-	MediaRef    string      `json:"media_ref,omitempty"`
-	RawRef      string      `json:"raw_ref,omitempty"`
-	RawContact  string      `json:"-"` // Metadado transiente; persistido apenas cifrado no SourceMeta.
-	DisplayName string      `json:"-"` // Nome bruto de exibição; persistido apenas cifrado no SourceMeta.
+	TenantID    string        `json:"tenant_id"`
+	Channel     string        `json:"channel"`
+	Account     string        `json:"account"`
+	SourceKey   string        `json:"source_key"`
+	MessageID   string        `json:"message_id"`
+	Timestamp   time.Time     `json:"timestamp"`
+	Direction   Direction     `json:"direction"`
+	Type        MessageType   `json:"type"`
+	Text        string        `json:"text"`
+	FromMe      bool          `json:"from_me,omitempty"`
+	Origin      MessageOrigin `json:"origin,omitempty"`
+	MediaRef    string        `json:"media_ref,omitempty"`
+	RawRef      string        `json:"raw_ref,omitempty"`
+	RawContact  string        `json:"-"` // Metadado transiente; persistido apenas cifrado no SourceMeta.
+	DisplayName string        `json:"-"` // Nome bruto de exibição; persistido apenas cifrado no SourceMeta.
 }
 
 var (

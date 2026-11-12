@@ -39,10 +39,11 @@ func CheckCommitAnalysisSizes(input CommitAnalysisInput) error {
 
 // ChannelCapabilities declara os recursos suportados pelo canal.
 type ChannelCapabilities struct {
-	PlainTextOnly bool `json:"plain_text_only"`
-	Media         bool `json:"media"`
-	Typing        bool `json:"typing"`
-	Reactions     bool `json:"reactions"`
+	PlainTextOnly      bool `json:"plain_text_only"`
+	Media              bool `json:"media"`
+	Typing             bool `json:"typing"`
+	Reactions          bool `json:"reactions"`
+	ReportsOwnMessages bool `json:"reports_own_messages"`
 }
 
 // ChannelHealth descreve o estado operacional de um canal.
@@ -97,6 +98,20 @@ type Store interface {
 	LinkSourceToContact(ctx context.Context, tenant, channel, sourceKey, contactID string) error
 	ListContactSources(ctx context.Context, tenant, contactID string) ([]SourceLink, error)
 	ListSourcesByContactGSI1(ctx context.Context, tenant, contactID string) ([]SourceMeta, error)
+
+	// Pré-registro de IDs de envio (EVT-03)
+	PreRegisterOutbound(ctx context.Context, rec OutboundMessageRecord) error
+	GetOutboundRecord(ctx context.Context, tenant, channel, messageID string) (*OutboundMessageRecord, error)
+	UpdateOutboundStatus(ctx context.Context, tenant, channel, messageID string, status OutboundRecordStatus, now time.Time) error
+
+	// Jornada e Outbox Transacional (JRN-05, OUT-02)
+	GetJourneyState(ctx context.Context, tenant, channel, sourceKey string) (*JourneyState, error)
+	ListJourneyTransitions(ctx context.Context, tenant, channel, sourceKey string, limit int) ([]JourneyTransitionRecord, error)
+	CommitJourneyTurn(ctx context.Context, input CommitJourneyTurnInput) error
+	ListDueOutboxItems(ctx context.Context, tenant string, dueBefore time.Time, limit int) ([]OutboxItem, error)
+	ListOutboxItems(ctx context.Context, tenant, channel, sourceKey string, limit int) ([]OutboxItem, error)
+	GetOutboxItem(ctx context.Context, tenant, channel, sourceKey, outboxID string) (*OutboxItem, error)
+	UpdateOutboxItem(ctx context.Context, item OutboxItem) error
 }
 
 // BlobStore define o contrato de armazenamento de objetos no S3/MinIO (ou in-memory).

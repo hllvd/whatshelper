@@ -51,8 +51,8 @@ func TestNormalizeE164AndAdminCheck(t *testing.T) {
 }
 
 func TestShouldProcessInboundAndExtractContent(t *testing.T) {
-	if whatsapp.ShouldProcessInbound(true, false, false, false) {
-		t.Fatalf("from-me messages must be ignored")
+	if !whatsapp.ShouldProcessInbound(true, false, false, false) {
+		t.Fatalf("from-me messages must be forwarded to brain for deterministic origin resolution")
 	}
 	if whatsapp.ShouldProcessInbound(false, true, false, false) {
 		t.Fatalf("group messages must be ignored when allowGroups=false")
@@ -62,6 +62,16 @@ func TestShouldProcessInboundAndExtractContent(t *testing.T) {
 	}
 	if !whatsapp.ShouldProcessInbound(false, false, false, false) {
 		t.Fatalf("direct inbound messages must be processed")
+	}
+	now := time.Now().UTC()
+	if !whatsapp.ShouldIgnoreHistoryFromMe(true, now.Add(-1*time.Minute), now) {
+		t.Fatalf("old from-me history messages before connectedAt must be ignored")
+	}
+	if whatsapp.ShouldIgnoreHistoryFromMe(true, now.Add(1*time.Second), now) {
+		t.Fatalf("live from-me messages after connectedAt must be processed")
+	}
+	if whatsapp.ShouldIgnoreHistoryFromMe(false, now.Add(-1*time.Minute), now) {
+		t.Fatalf("customer inbound messages must not be filtered by connectedAt")
 	}
 
 	ephemeral := &waE2E.Message{

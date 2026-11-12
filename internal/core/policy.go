@@ -45,6 +45,25 @@ type NudgePolicy struct {
 	MaxAttempts  int `yaml:"max_attempts" json:"max_attempts"`
 }
 
+// TakeoverMode define a reação do bot quando o dono responde diretamente pelo celular (origin=human_phone).
+type TakeoverMode string
+
+const (
+	TakeoverModePause      TakeoverMode = "pause"
+	TakeoverModeRecordOnly TakeoverMode = "record_only"
+	TakeoverModeIgnore     TakeoverMode = "ignore"
+)
+
+func (m TakeoverMode) IsValid() bool {
+	return m == "" || m == TakeoverModePause || m == TakeoverModeRecordOnly || m == TakeoverModeIgnore
+}
+
+// TakeoverPolicy configura a política de pausa automática quando um humano assume pelo aparelho (EVT-04).
+type TakeoverPolicy struct {
+	Mode                 TakeoverMode `yaml:"mode" json:"mode"`
+	PauseDurationMinutes int          `yaml:"pause_duration_minutes" json:"pause_duration_minutes"`
+}
+
 // TenantPolicy reúne toda a política operacional e de segurança de um tenant.
 type TenantPolicy struct {
 	ID               string          `yaml:"id" json:"id"`
@@ -58,6 +77,7 @@ type TenantPolicy struct {
 	BotEnabled       bool            `yaml:"bot_enabled" json:"bot_enabled"`
 	RateLimit        RateLimitPolicy `yaml:"rate_limit" json:"rate_limit"`
 	Nudge            NudgePolicy     `yaml:"nudge" json:"nudge"`
+	Takeover         TakeoverPolicy  `yaml:"takeover" json:"takeover"`
 }
 
 var (
@@ -84,6 +104,12 @@ func (p TenantPolicy) WithDefaults() TenantPolicy {
 	}
 	if out.Nudge.MaxAttempts == 0 {
 		out.Nudge.MaxAttempts = 2
+	}
+	if out.Takeover.Mode == "" {
+		out.Takeover.Mode = TakeoverModePause
+	}
+	if out.Takeover.PauseDurationMinutes == 0 {
+		out.Takeover.PauseDurationMinutes = 60
 	}
 	return out
 }

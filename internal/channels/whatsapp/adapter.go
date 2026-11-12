@@ -55,10 +55,11 @@ type Adapter struct {
 	db     *sql.DB
 	client *whatsmeow.Client
 
-	mu        sync.RWMutex
-	connected bool
-	paired    bool
-	qrStatus  QRStatus
+	mu          sync.RWMutex
+	connected   bool
+	connectedAt time.Time
+	paired      bool
+	qrStatus    QRStatus
 	stopCtx   context.Context
 	stopFunc  context.CancelFunc
 }
@@ -235,6 +236,12 @@ func (a *Adapter) Send(ctx context.Context, msg core.NormalizedMessage) error {
 	waMsg := &waE2E.Message{
 		Conversation: proto.String(msg.Text),
 	}
+	if id := strings.TrimSpace(msg.MessageID); id != "" {
+		_, err = a.client.SendMessage(ctx, jid, waMsg, whatsmeow.SendRequestExtra{
+			ID: types.MessageID(id),
+		})
+		return err
+	}
 	_, err = a.client.SendMessage(ctx, jid, waMsg)
 	return err
 }
@@ -303,6 +310,9 @@ func (a *Adapter) consumeQRChannel(qrChan <-chan whatsmeow.QRChannelItem) {
 func (a *Adapter) handleEvent(rawEvt any) {
 	switch v := rawEvt.(type) {
 	case *events.Connected:
+		a.mu.Lock()
+		a.connectedAt = time.Now().UTC()
+		a.mu.Unlock()
 		a.setStatus(true, true, "", "connected", "conectado ao WhatsApp")
 		a.logger.Info("sessão WhatsApp conectada")
 	case *events.Disconnected:
@@ -324,6 +334,12 @@ func (a *Adapter) handleInboundMessage(evt *events.Message) {
 		return
 	}
 	if !ShouldProcessInbound(evt.Info.IsFromMe, evt.Info.IsGroup, evt.Info.IsIncomingBroadcast(), a.cfg.AllowGroups) {
+		return
+	}
+	a.mu.RLock()
+	connectedAt := a.connectedAt
+	a.mu.RUnlock()
+	if ShouldIgnoreHistoryFromMe(evt.Info.IsFromMe, evt.Info.Timestamp, connectedAt) {
 		return
 	}
 	parsed, ok := ExtractContent(evt.Message)

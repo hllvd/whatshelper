@@ -185,6 +185,24 @@ func (p *Pipeline) IngestWithStatus(ctx context.Context, msg core.NormalizedMess
 	}
 
 	sender := p.resolveSender(ctx, msg)
+	var outboundRec *core.OutboundMessageRecord
+	if msg.Direction == core.DirectionInbound && msg.FromMe && strings.TrimSpace(msg.MessageID) != "" && p.cfg.Store != nil {
+		outboundRec, _ = p.cfg.Store.GetOutboundRecord(ctx, msg.TenantID, msg.Channel, msg.MessageID)
+	}
+	reportsOwn := false
+	if ch := p.getChannel(msg.Channel); ch != nil {
+		reportsOwn = ch.Capabilities().ReportsOwnMessages
+	}
+	originRes := ResolveMessageOrigin(OriginResolutionInput{
+		Direction:          msg.Direction,
+		Channel:            msg.Channel,
+		FromMe:             msg.FromMe,
+		MessageID:          msg.MessageID,
+		ReportsOwnMessages: reportsOwn,
+		OutboundRecord:     outboundRec,
+	})
+	msg.Origin = originRes.Origin
+
 	meta := core.MessageMeta{
 		TenantID:  msg.TenantID,
 		Channel:   msg.Channel,
@@ -196,6 +214,7 @@ func (p *Pipeline) IngestWithStatus(ctx context.Context, msg core.NormalizedMess
 		MediaRef:  msg.MediaRef,
 		RawRef:    rawRef,
 		Sender:    sender,
+		Origin:    originRes.Origin,
 	}
 
 	if err := p.cfg.Store.PutMessageMeta(ctx, meta); err != nil {
@@ -229,15 +248,23 @@ func (p *Pipeline) IngestWithStatus(ctx context.Context, msg core.NormalizedMess
 		},
 	})
 
+	p.publish(core.Event{
+		ID:        newID("ev"),
+		Type:      core.EventOriginResolved,
+		TenantID:  msg.TenantID,
+		Channel:   msg.Channel,
+		SourceKey: msg.SourceKey,
+		MessageID: msg.MessageID,
+		At:        p.now(),
+		Payload: map[string]any{
+			"origin":     string(originRes.Origin),
+			"reason":     originRes.Reason,
+			"confidence": originRes.Confidence,
+			"from_me":    msg.FromMe,
+		},
+	})
+
 	if msg.Direction == core.DirectionInbound {
-		if err := p.ensureEncryptedContactInfo(ctx, msg); err != nil {
-			p.logger.Warn("falha ao cifrar contato bruto",
-				slog.String("tenant", msg.TenantID),
-				slog.String("channel", msg.Channel),
-				slog.String("source_key", msg.SourceKey),
-				slog.Any("error", err),
-			)
-		}
 		if msg.Channel == AdminChannelID {
 			p.publish(core.Event{
 				ID:        newID("ev"),
@@ -254,10 +281,78 @@ func (p *Pipeline) IngestWithStatus(ctx context.Context, msg core.NormalizedMess
 			})
 			return false, p.HandleAdminInbound(ctx, msg)
 		}
+
+		switch originRes.Origin {
+		case core.OriginBot, core.OriginUnknown, core.OriginHumanAdmin:
+			return false, nil
+		case core.OriginHumanPhone:
+			if err := p.handleHumanTakeover(ctx, msg); err != nil {
+				return false, err
+			}
+			return false, nil
+		}
+
+		if err := p.ensureEncryptedContactInfo(ctx, msg); err != nil {
+			p.logger.Warn("falha ao cifrar contato bruto",
+				slog.String("tenant", msg.TenantID),
+				slog.String("channel", msg.Channel),
+				slog.String("source_key", msg.SourceKey),
+				slog.Any("error", err),
+			)
+		}
 		_ = p.CancelPendingNudges(ctx, msg.TenantID, msg.Channel, msg.SourceKey)
 		p.dispatcher.Enqueue(msg)
 	}
 	return false, nil
+}
+
+func (p *Pipeline) handleHumanTakeover(ctx context.Context, msg core.NormalizedMessage) error {
+	policy := core.TenantPolicy{}
+	if p.cfg.Tenants != nil {
+		if loaded, err := p.cfg.Tenants.LoadTenant(ctx, msg.TenantID); err == nil {
+			policy = loaded
+		}
+	}
+	takeover := policy.Takeover
+	mode := takeover.Mode
+	if mode == "" {
+		mode = core.TakeoverModePause
+	}
+	if mode == core.TakeoverModeIgnore {
+		return nil
+	}
+
+	now := p.now()
+	payload := map[string]any{
+		"origin": string(msg.Origin),
+		"mode":   string(mode),
+	}
+	if mode == core.TakeoverModePause {
+		mins := takeover.PauseDurationMinutes
+		if mins <= 0 {
+			mins = 60
+		}
+		until := now.Add(time.Duration(mins) * time.Minute)
+		payload["paused_until"] = until.Format(time.RFC3339)
+		if p.cfg.Store != nil {
+			if err := UpdateSourceStatusWithPause(ctx, p.cfg.Store, now, msg.TenantID, msg.Channel, msg.SourceKey, core.SourceStatusHuman, &until); err != nil {
+				return fmt.Errorf("erro ao pausar fonte por takeover humano: %w", err)
+			}
+		}
+		p.publishStatusUpdated(msg.TenantID, msg.Channel, msg.SourceKey, core.SourceStatusHuman, "takeover humano pelo aparelho")
+	}
+
+	p.publish(core.Event{
+		ID:        newID("ev"),
+		Type:      core.EventHumanTakeover,
+		TenantID:  msg.TenantID,
+		Channel:   msg.Channel,
+		SourceKey: msg.SourceKey,
+		MessageID: msg.MessageID,
+		At:        now,
+		Payload:   payload,
+	})
+	return nil
 }
 
 // NeutralAudioFallbackReply é enviada ao cliente quando um áudio chega e a transcrição automática não está disponível.
@@ -1226,15 +1321,31 @@ func (p *Pipeline) DeliverTextOutbound(
 		Type:      core.MessageTypeText,
 		RawRef:    outMsg.RawRef,
 		Sender:    businessActor,
+		Origin:    core.OriginBot,
 	}); err != nil {
 		return "", fmt.Errorf("erro ao gravar MSG# outbound: %w", err)
 	}
 
+	now := p.now()
+	if err := p.cfg.Store.PreRegisterOutbound(ctx, core.OutboundMessageRecord{
+		TenantID:  tenantID,
+		Channel:   channelID,
+		SourceKey: sourceKey,
+		MessageID: outMsg.MessageID,
+		Status:    core.OutboundStatusReserved,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		return "", fmt.Errorf("erro ao pré-registrar OUTMSG# antes do envio: %w", err)
+	}
+
 	if ch := p.getChannel(channelID); ch != nil {
 		if err := ch.Send(ctx, outMsg); err != nil {
+			_ = p.cfg.Store.UpdateOutboundStatus(ctx, tenantID, channelID, outMsg.MessageID, core.OutboundStatusFailed, p.now())
 			return "", fmt.Errorf("erro ao enviar resposta no canal %s: %w", channelID, err)
 		}
 	}
+	_ = p.cfg.Store.UpdateOutboundStatus(ctx, tenantID, channelID, outMsg.MessageID, core.OutboundStatusSent, p.now())
 
 	p.publish(core.Event{
 		ID:        newID("ev"),
@@ -1267,6 +1378,7 @@ func (p *Pipeline) enforcePreLLMGates(
 		State:      state,
 		Pack:       pk,
 		BatchTexts: batchTexts,
+		Now:        p.now(),
 	})
 	if !gate.Allowed {
 		if gate.UpdateStatus != "" {
@@ -1277,6 +1389,16 @@ func (p *Pipeline) enforcePreLLMGates(
 		}
 		p.publishRunSkipped(latest, runID, string(gate.Action), gate.Reason)
 		return true, nil
+	}
+	if gate.AutoResumed && gate.UpdateStatus == core.SourceStatusActive {
+		if err := UpdateSourceStatus(ctx, p.cfg.Store, p.now(), latest.TenantID, latest.Channel, latest.SourceKey, core.SourceStatusActive); err != nil {
+			return false, err
+		}
+		if state != nil {
+			state.Meta.Status = core.SourceStatusActive
+			state.Meta.PausedUntil = nil
+		}
+		p.publishStatusUpdated(latest.TenantID, latest.Channel, latest.SourceKey, core.SourceStatusActive, gate.Reason)
 	}
 
 	allowed, limitReason := p.limiter.Allow(latest.TenantID, latest.Channel, latest.SourceKey, policy.RateLimit)

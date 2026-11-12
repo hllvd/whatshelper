@@ -42,6 +42,7 @@ type InboundRequest struct {
 	Timestamp    time.Time        `json:"timestamp"`
 	Type         core.MessageType `json:"type"`
 	Text         string           `json:"text"`
+	FromMe       bool             `json:"from_me,omitempty"`
 	MediaRef     string           `json:"media_ref,omitempty"`
 	RawContact   string           `json:"raw_contact,omitempty"`
 	DisplayName  string           `json:"display_name,omitempty"`
@@ -92,6 +93,7 @@ func (r InboundRequest) ToNormalizedMessage() (core.NormalizedMessage, error) {
 		Direction:   core.DirectionInbound,
 		Type:        msgType,
 		Text:        r.Text,
+		FromMe:      r.FromMe,
 		MediaRef:    strings.TrimSpace(r.MediaRef),
 		RawContact:  strings.TrimSpace(r.RawContact),
 		DisplayName: strings.TrimSpace(r.DisplayName),

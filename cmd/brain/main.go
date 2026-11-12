@@ -100,8 +100,9 @@ func main() {
 		os.Exit(1)
 	}
 	whatsappRemoteCh := bridge.NewRemoteChannel("whatsapp", core.ChannelCapabilities{
-		Typing: true,
-		Media:  true,
+		Typing:             true,
+		Media:              true,
+		ReportsOwnMessages: true,
 	}, logger)
 	_ = whatsappRemoteCh.Start(appCtx)
 
