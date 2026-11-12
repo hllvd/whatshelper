@@ -17,6 +17,7 @@ import (
 	"whatshelper/internal/pack"
 	"whatshelper/internal/security"
 	"whatshelper/internal/store"
+	"whatshelper/internal/store/sessioncache"
 )
 
 // RunTrace armazena no BlobStore todos os detalhes de pensamento do bot para o visualizador.
@@ -32,6 +33,7 @@ type RunTrace struct {
 	Analysis           *StageTrace                  `json:"analysis,omitempty"`
 	ParsedResult       *pack.AnalysisResult         `json:"parsed_result,omitempty"`
 	FactsDiff          []FactChange                 `json:"facts_diff,omitempty"`
+	FSMOutcome         *TransitionOutcome           `json:"fsm_outcome,omitempty"`
 	Decision           *Decision                    `json:"decision,omitempty"`
 	ReplyTruncation    *contextmod.TruncationReport `json:"reply_truncation,omitempty"`
 	Reply              *StageTrace                  `json:"reply,omitempty"`
@@ -79,18 +81,20 @@ type PipelineConfig struct {
 	PIICipher           security.PIICipher
 	Transcriber         core.AudioTranscriber
 	ContextSvc          contextmod.Service
+	SessionCache        *sessioncache.Cache
 	Logger              *slog.Logger
 }
 
 // Pipeline orquestra ingestão, dedupe, debounce, análise, resposta e persistência.
 type Pipeline struct {
-	cfg        PipelineConfig
-	dispatcher *SourceDispatcher
-	limiter    *TokenBucketLimiter
-	notifier   core.AdminNotifier
-	channelsMu sync.RWMutex
-	channels   map[string]core.Channel
-	logger     *slog.Logger
+	cfg          PipelineConfig
+	dispatcher   *SourceDispatcher
+	limiter      *TokenBucketLimiter
+	notifier     core.AdminNotifier
+	sessionCache *sessioncache.Cache
+	channelsMu   sync.RWMutex
+	channels     map[string]core.Channel
+	logger       *slog.Logger
 }
 
 // NewPipeline cria e inicializa um Pipeline pronto para receber mensagens.
@@ -111,11 +115,12 @@ func NewPipeline(ctx context.Context, cfg PipelineConfig) *Pipeline {
 	notifier := cfg.Notifier
 
 	p := &Pipeline{
-		cfg:      cfg,
-		limiter:  NewTokenBucketLimiter(cfg.Clock),
-		notifier: notifier,
-		channels: make(map[string]core.Channel),
-		logger:   logger,
+		cfg:          cfg,
+		limiter:      NewTokenBucketLimiter(cfg.Clock),
+		notifier:     notifier,
+		sessionCache: cfg.SessionCache,
+		channels:     make(map[string]core.Channel),
+		logger:       logger,
 	}
 	if p.notifier == nil {
 		p.notifier = NewDefaultAdminNotifier(cfg.Store, cfg.Bus, logger).WithAdminDelivery(cfg.Blobs, p.getChannel)
@@ -450,10 +455,21 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 		excludeIDs = append(excludeIDs, m.MessageID)
 	}
 
+	activeStage := initialState.Meta.JourneyStage
+	if p.sessionCache != nil {
+		if sess, err := p.sessionCache.GetSession(ctx, tenantID, channelID, sourceKey); err == nil && sess != nil && sess.CurrentState != "" {
+			activeStage = sess.CurrentState
+		}
+	}
+	if activeStage == "" && pk.FSM != nil {
+		activeStage = pk.FSM.InitialState
+	}
+
 	// Retry de leitura+análise+commit se houver ErrVersionConflict (máximo 2 tentativas)
 	var updatedState *core.SourceState
 	var diffs []FactChange
 	var analysisOutcome *StructuredAnalysisOutcome
+	var fsmOutcome TransitionOutcome
 
 	const maxVersionRetries = 2
 	for attempt := 0; attempt < maxVersionRetries; attempt++ {
@@ -577,9 +593,36 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 		}
 
 		summaryText := analysisOutcome.Result.Summary
+		nextStage := activeStage
+		if pk.FSM != nil {
+			fsmAnalysis := *analysisOutcome.Result
+			fsmFacts := make(map[string]string, len(analysisBundle.Facts)+len(analysisOutcome.Result.Facts))
+			for k, v := range analysisBundle.Facts {
+				fsmFacts[k] = v
+			}
+			for k, v := range analysisOutcome.Result.Facts {
+				fsmFacts[k] = v
+			}
+			fsmAnalysis.Facts = fsmFacts
+
+			fsmSignals := make(map[string]bool, len(analysisBundle.Signals)+len(analysisOutcome.Result.Signals))
+			for k, v := range analysisBundle.Signals {
+				fsmSignals[k] = v
+			}
+			for k, v := range analysisOutcome.Result.Signals {
+				fsmSignals[k] = v
+			}
+			fsmAnalysis.Signals = fsmSignals
+
+			fsmOutcome = CalculateNextState(activeStage, fsmAnalysis, pk.FSM)
+			nextStage = fsmOutcome.NextState
+			trace.FSMOutcome = &fsmOutcome
+		}
+
 		applyRes, commitErr := p.cfg.ContextSvc.ApplyFacts(ctx, contextmod.ApplyFactsRequest{
 			Scope:             scope,
 			ExpectedVersion:   analysisBundle.SourceVersion,
+			JourneyStage:      nextStage,
 			Facts:             analysisOutcome.Result.Facts,
 			ClearedFacts:      analysisOutcome.Result.ClearedFacts,
 			Actor:             "brain:analysis",
@@ -607,11 +650,26 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 			return p.failPipeline(ctx, latest, runID, traceRef, trace, commitErr)
 		}
 
+		if p.sessionCache != nil && pk.FSM != nil {
+			_ = p.sessionCache.SaveSession(ctx, &sessioncache.ActiveSession{
+				TenantID:     tenantID,
+				Channel:      channelID,
+				SourceKey:    sourceKey,
+				CurrentState: nextStage,
+				LastActivity: now,
+				Metadata: map[string]string{
+					"last_action": fsmOutcome.ActionToTrigger,
+					"intent":      analysisOutcome.Result.Intent,
+				},
+			})
+		}
+
 		diffs = factChangesFromDiffs(applyRes.Diff)
 		trace.ParsedResult = analysisOutcome.Result
 		trace.FactsDiff = diffs
 
 		meta := initialState.Meta
+		meta.JourneyStage = nextStage
 		if analysisBundle.SourceStatus != "" {
 			meta.Status = core.SourceStatus(analysisBundle.SourceStatus)
 		}
@@ -667,6 +725,38 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 		WithinBusinessHour: withinHours,
 	})
 	trace.Decision = &decision
+
+	if pk.FSM != nil && withinHours {
+		switch fsmOutcome.ActionDef.Type {
+		case "opt_out":
+			decision.Action = DecisionOptOut
+			decision.Reason = fsmOutcome.Reason
+		case "handoff":
+			decision.Action = DecisionHandoff
+			decision.Reason = fsmOutcome.Reason
+		case "escalate":
+			decision.Action = DecisionEscalate
+			decision.Reason = fsmOutcome.Reason
+		case "message_template":
+			p.deriveAndSaveRuleTasks(ctx, pk, analysisOutcome.Result, latest)
+			replyText := fsmOutcome.ActionDef.Text
+			if plainTextOnly {
+				replyText = SanitizePlainText(replyText)
+			}
+			trace.FinalReply = replyText
+			if err := p.recordRouterOnlyRun(ctx, latest, runID, traceRef, trace, analysisOutcome.Status); err != nil {
+				return err
+			}
+			_, err := p.DeliverTextOutbound(ctx, tenantID, channelID, latest.Account, sourceKey, pk.Actors.Business, replyText, runID, traceRef)
+			return err
+		case "knowledge_reply":
+			if decision.Action != DecisionCreateTask {
+				decision.Action = DecisionReply
+			}
+			decision.Reason = fsmOutcome.Reason
+		}
+		trace.Decision = &decision
+	}
 
 	if decision.Action != DecisionOptOut && decision.Action != DecisionSkip {
 		p.deriveAndSaveRuleTasks(ctx, pk, analysisOutcome.Result, latest)

@@ -46,6 +46,7 @@ type metaItem struct {
 	SourceKey            string            `dynamodbav:"source_key"`
 	ContactID            string            `dynamodbav:"contact_id,omitempty"`
 	Status               core.SourceStatus `dynamodbav:"status"`
+	JourneyStage         string            `dynamodbav:"journey_stage,omitempty"`
 	Version              int64             `dynamodbav:"version"`
 	EncryptedContactInfo string            `dynamodbav:"encrypted_contact_info,omitempty"`
 	CreatedAt            string            `dynamodbav:"created_at"`
@@ -241,6 +242,7 @@ func (s *Store) GetSourceState(ctx context.Context, tenant, channel, sourceKey s
 				SourceKey:            item.SourceKey,
 				ContactID:            item.ContactID,
 				Status:               item.Status,
+				JourneyStage:         item.JourneyStage,
 				Version:              item.Version,
 				EncryptedContactInfo: item.EncryptedContactInfo,
 				CreatedAt:            parseTime(item.CreatedAt),
@@ -316,6 +318,7 @@ func (s *Store) SaveSourceMeta(ctx context.Context, meta core.SourceMeta) error 
 		SourceKey:            meta.SourceKey,
 		ContactID:            meta.ContactID,
 		Status:               status,
+		JourneyStage:         meta.JourneyStage,
 		Version:              meta.Version,
 		EncryptedContactInfo: meta.EncryptedContactInfo,
 		CreatedAt:            formatTime(created),
@@ -384,6 +387,11 @@ func (s *Store) CommitAnalysis(ctx context.Context, input core.CommitAnalysisInp
 		status = core.SourceStatusActive
 	}
 
+	stage := input.JourneyStage
+	if stage == "" {
+		stage = existingState.Meta.JourneyStage
+	}
+
 	meta := metaItem{
 		PK:                   pk,
 		SK:                   store.SKMeta,
@@ -392,6 +400,7 @@ func (s *Store) CommitAnalysis(ctx context.Context, input core.CommitAnalysisInp
 		SourceKey:            input.SourceKey,
 		ContactID:            existingState.Meta.ContactID,
 		Status:               status,
+		JourneyStage:         stage,
 		Version:              newVersion,
 		EncryptedContactInfo: existingState.Meta.EncryptedContactInfo,
 		CreatedAt:            formatTime(createdAt),
@@ -1064,6 +1073,7 @@ func (s *Store) ListSourcesByContactGSI1(ctx context.Context, tenant, contactID 
 			SourceKey:            item.SourceKey,
 			ContactID:            item.ContactID,
 			Status:               item.Status,
+			JourneyStage:         item.JourneyStage,
 			Version:              item.Version,
 			EncryptedContactInfo: item.EncryptedContactInfo,
 			CreatedAt:            parseTime(item.CreatedAt),

@@ -72,6 +72,24 @@ func BuildAnalysisSchema(p *Pack) ([]byte, error) {
 			"additionalProperties": false,
 			"properties":           contextProps,
 		},
+		"urgency_level": map[string]any{
+			"type":        "string",
+			"enum":        []string{"low", "medium", "high", "critical"},
+			"description": "Nível de urgência percebido na conversa",
+		},
+		"sentiment": map[string]any{
+			"type":        "string",
+			"enum":        []string{"positive", "neutral", "negative", "frustrated"},
+			"description": "Sentimento do cliente na última interação",
+		},
+	}
+
+	if p.FSM != nil && len(p.FSM.States) > 0 {
+		properties["suggested_state"] = map[string]any{
+			"type":        "string",
+			"enum":        p.FSM.States,
+			"description": "Estágio sugerido para a conversa conforme a FSM",
+		}
 	}
 
 	if len(p.Intents) > 0 {

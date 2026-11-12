@@ -63,6 +63,14 @@ A ordem de execução está nos milestones M0 → M5, no final do arquivo.
 - [x] **BRAIN-07 — Tasks e pendências.** Criar itens a partir do contexto (visita, ligação, documentos) e expô-los via API.
 - [x] **BRAIN-08 — Políticas por tenant.** Horário de atendimento e modo de operação: automático, com aprovação humana ou só rascunho.
 
+## FSM — Máquina de Estados e Sensor Determinístico (CRM Pipeline)
+
+- [x] **FSM-01 — ADR 0019.** Arquitetura FSM declarativa no Pack, LLM como sensor determinístico de extração em 5 dimensões e cache hot/cold.
+- [x] **FSM-02 — Definições declarativas no Pack.** `FSMDef`, estados, transições, ações híbridas (`message_template`, `knowledge_reply`, `escalate`, `handoff`, `opt_out`), validação estrutural e taxonomia de extração com envelope `{ success, data, error }`. Pré-configurado em `realestate` e `support`.
+- [x] **FSM-03 — Motor de transição puro.** Função pura `CalculateNextState(currentState, analysis, fsm)` com condições de guarda (`When.Intent`, `When.RequiredFacts`, `When.Urgency`, `When.Sentiment`).
+- [x] **FSM-04 — Cache de sessão rápido.** Cache local em SQLite (`active_sessions`) para acesso rápido durante a conversa ativa, sincronizado atomicamente com `META.journey_stage` e `SourceState` no DynamoDB.
+- [x] **FSM-05 — Integração no pipeline do Brain.** Orquestração no `ProcessBatch` executando ações imediatas do pack via template ou roteando para Stage 2 com `CheckGrounding` sobre a base de conhecimento. Validação completa em testes golden e ponta a ponta.
+
 ## LRN — Aprendizado (QA.md)
 
 - [x] **LRN-01 — Escalonamento ao dono.** Enviar a pergunta sem resposta ao canal de admin, com o contexto da conversa.

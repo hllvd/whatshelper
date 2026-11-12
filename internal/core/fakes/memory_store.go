@@ -155,6 +155,9 @@ func (m *MemoryStore) CommitAnalysis(ctx context.Context, input core.CommitAnaly
 	}
 
 	meta.Version = currentVersion + 1
+	if input.JourneyStage != "" {
+		meta.JourneyStage = input.JourneyStage
+	}
 	meta.UpdatedAt = now
 	m.sources[id] = &meta
 

@@ -147,3 +147,78 @@ context_module:
       blocks: [summary]
       format: json
       max_tokens: 400
+
+fsm:
+  initial_state: triage
+  states: [triage, troubleshooting, escalated, opted_out]
+  transitions:
+    - from: "*"
+      to: opted_out
+      when:
+        intent: opt_out
+      action: opt_out_action
+    - from: "*"
+      to: escalated
+      when:
+        intent: request_human
+      action: handoff_action
+    - from: "*"
+      to: escalated
+      when:
+        intent: billing_exception
+      action: escalate_action
+    - from: triage
+      to: troubleshooting
+      when:
+        intent: ask_howto
+      action: reply_with_knowledge
+    - from: triage
+      to: troubleshooting
+      when:
+        intent: greeting
+      action: greet_support
+    - from: triage
+      to: troubleshooting
+      when:
+        intent: report_bug
+        required_facts: [ErrorCode]
+      action: acknowledge_bug
+    - from: triage
+      to: triage
+      when:
+        intent: report_bug
+      action: ask_error_code
+    - from: troubleshooting
+      to: troubleshooting
+      when:
+        intent: report_bug
+        required_facts: [ErrorCode]
+      action: acknowledge_bug
+    - from: troubleshooting
+      to: troubleshooting
+      when:
+        intent: report_bug
+      action: ask_error_code
+    - from: troubleshooting
+      to: troubleshooting
+      when:
+        intent: ask_howto
+      action: reply_with_knowledge
+  actions:
+    greet_support:
+      type: message_template
+      text: "Olá! Bem-vindo ao suporte técnico. Como posso te ajudar hoje?"
+    reply_with_knowledge:
+      type: knowledge_reply
+    ask_error_code:
+      type: message_template
+      text: "Para investigarmos o ocorrido, poderia nos informar o código de erro ou mensagem exibida na tela?"
+    acknowledge_bug:
+      type: message_template
+      text: "Obrigado pelas informações! Registramos o incidente e nossa equipe técnica está analisando o erro informado."
+    handoff_action:
+      type: handoff
+    escalate_action:
+      type: escalate
+    opt_out_action:
+      type: opt_out

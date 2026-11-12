@@ -298,6 +298,7 @@ func (s *InProcessService) ApplyFacts(ctx context.Context, req ApplyFactsRequest
 		Channel:         req.Scope.Channel,
 		SourceKey:       req.Scope.SourceKey,
 		ExpectedVersion: req.ExpectedVersion,
+		JourneyStage:    req.JourneyStage,
 		Summary:         summary,
 		Facts:           mergedFacts,
 		Signals:         signals,

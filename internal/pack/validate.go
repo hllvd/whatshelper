@@ -22,13 +22,16 @@ func (e ValidationError) Error() string {
 
 // AnalysisResult representa a saída estruturada já validada e normalizada pelo schema do pack.
 type AnalysisResult struct {
-	Summary      string                       `json:"summary"`
-	LastSender   string                       `json:"last_sender"`
-	Intent       string                       `json:"intent,omitempty"`
-	Facts        map[string]string            `json:"facts"`
-	ClearedFacts []string                     `json:"cleared_facts,omitempty"`
-	Signals      map[string]bool              `json:"signals"`
-	Context      map[string]map[string]string `json:"context"`
+	Summary        string                       `json:"summary"`
+	LastSender     string                       `json:"last_sender"`
+	Intent         string                       `json:"intent,omitempty"`
+	UrgencyLevel   string                       `json:"urgency_level,omitempty"`
+	Sentiment      string                       `json:"sentiment,omitempty"`
+	SuggestedState string                       `json:"suggested_state,omitempty"`
+	Facts          map[string]string            `json:"facts"`
+	ClearedFacts   []string                     `json:"cleared_facts,omitempty"`
+	Signals        map[string]bool              `json:"signals"`
+	Context        map[string]map[string]string `json:"context"`
 }
 
 // ValidateAnalysis valida o JSON bruto contra as definições do pack e normaliza os valores.
@@ -49,16 +52,57 @@ func ValidateAnalysis(p *Pack, raw []byte) (*AnalysisResult, []ValidationError) 
 		return nil, []ValidationError{{Field: "$", Message: "JSON deve ser um objeto"}}
 	}
 
+	// Se a resposta estiver encapsulada no envelope { success, data, error }, desempacota data
+	if rawData, ok := doc["data"].(map[string]any); ok && rawData != nil {
+		doc = rawData
+	}
+
+	// Se message_analysis estiver presente (taxonomia do sensor), desempacota campos
+	if ma, ok := doc["message_analysis"].(map[string]any); ok && ma != nil {
+		if pi, ok := ma["primary_intent"].(string); ok && doc["intent"] == nil {
+			doc["intent"] = pi
+		}
+		if ul, ok := ma["urgency_level"].(string); ok && doc["urgency_level"] == nil {
+			doc["urgency_level"] = ul
+		}
+		if st, ok := ma["sentiment"].(string); ok && doc["sentiment"] == nil {
+			doc["sentiment"] = st
+		}
+	}
+	if ee, ok := doc["extracted_entities"].(map[string]any); ok && ee != nil {
+		if doc["facts"] == nil {
+			doc["facts"] = ee
+		} else if factsMap, ok := doc["facts"].(map[string]any); ok {
+			for k, v := range ee {
+				if _, exists := factsMap[k]; !exists {
+					factsMap[k] = v
+				}
+			}
+		}
+	}
+	if cs, ok := doc["conversation_state"].(string); ok && doc["suggested_state"] == nil {
+		doc["suggested_state"] = cs
+	}
+
 	var errs []ValidationError
 
 	// Rejeita chaves de topo desconhecidas
 	allowedTop := map[string]bool{
-		"summary":     true,
-		"last_sender": true,
-		"intent":      true,
-		"facts":       true,
-		"signals":     true,
-		"context":     true,
+		"summary":            true,
+		"last_sender":        true,
+		"intent":             true,
+		"facts":              true,
+		"signals":            true,
+		"context":            true,
+		"urgency_level":      true,
+		"sentiment":          true,
+		"suggested_state":    true,
+		"message_analysis":   true,
+		"extracted_entities": true,
+		"conversation_state": true,
+		"success":            true,
+		"data":               true,
+		"error":              true,
 	}
 	for k := range doc {
 		if !allowedTop[k] {
@@ -70,6 +114,22 @@ func ValidateAnalysis(p *Pack, raw []byte) (*AnalysisResult, []ValidationError) 
 		Facts:   make(map[string]string),
 		Signals: make(map[string]bool, len(p.Signals)),
 		Context: make(map[string]map[string]string),
+	}
+
+	if rawUrg, ok := doc["urgency_level"]; ok && rawUrg != nil {
+		if s, ok := rawUrg.(string); ok {
+			res.UrgencyLevel = strings.ToLower(strings.TrimSpace(s))
+		}
+	}
+	if rawSent, ok := doc["sentiment"]; ok && rawSent != nil {
+		if s, ok := rawSent.(string); ok {
+			res.Sentiment = strings.ToLower(strings.TrimSpace(s))
+		}
+	}
+	if rawState, ok := doc["suggested_state"]; ok && rawState != nil {
+		if s, ok := rawState.(string); ok {
+			res.SuggestedState = strings.TrimSpace(s)
+		}
 	}
 
 	// Inicializa sinais ausentes com false

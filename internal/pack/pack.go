@@ -102,6 +102,47 @@ type PromptsDef struct {
 }
 
 // Pack representa um vertical pack carregado e validado.
+// TransitionCondition define os critérios de guarda para acionar uma transição de estado.
+type TransitionCondition struct {
+	Intent          string   `yaml:"intent,omitempty" json:"intent,omitempty"`
+	RequiredFacts   []string `yaml:"required_facts,omitempty" json:"required_facts,omitempty"`
+	RequiredSignals []string `yaml:"required_signals,omitempty" json:"required_signals,omitempty"`
+	Urgency         string   `yaml:"urgency,omitempty" json:"urgency,omitempty"`
+	Sentiment       string   `yaml:"sentiment,omitempty" json:"sentiment,omitempty"`
+}
+
+// ActionDef define uma ação disparada por uma transição da FSM.
+type ActionDef struct {
+	Type   string         `yaml:"type" json:"type"` // message_template, knowledge_reply, escalate, handoff, opt_out
+	Text   string         `yaml:"text,omitempty" json:"text,omitempty"`
+	Params map[string]any `yaml:"params,omitempty" json:"params,omitempty"`
+}
+
+func (a ActionDef) IsValid() bool {
+	switch a.Type {
+	case "message_template", "knowledge_reply", "escalate", "handoff", "opt_out":
+		return true
+	default:
+		return false
+	}
+}
+
+// TransitionDef define uma transição de estado da FSM.
+type TransitionDef struct {
+	From   string              `yaml:"from" json:"from"`
+	To     string              `yaml:"to" json:"to"`
+	When   TransitionCondition `yaml:"when" json:"when"`
+	Action string              `yaml:"action" json:"action"`
+}
+
+// FSMDef declara a máquina de estados finitos do pack.
+type FSMDef struct {
+	InitialState string               `yaml:"initial_state" json:"initial_state"`
+	States       []string             `yaml:"states" json:"states"`
+	Transitions  []TransitionDef      `yaml:"transitions" json:"transitions"`
+	Actions      map[string]ActionDef `yaml:"actions" json:"actions"`
+}
+
 // TaskRuleDef define uma regra declarativa para derivar tarefas a partir de sinais, intenções e contexto.
 type TaskRuleDef struct {
 	Type           string `yaml:"type" json:"type"`
@@ -146,6 +187,7 @@ type Pack struct {
 	OptOutKeywords []string            `yaml:"opt_out_keywords,omitempty" json:"opt_out_keywords,omitempty"`
 	Context        []ContextSectionDef `yaml:"context" json:"context"`
 	ContextModule  *ContextModuleDef   `yaml:"context_module,omitempty" json:"context_module,omitempty"`
+	FSM            *FSMDef             `yaml:"fsm,omitempty" json:"fsm,omitempty"`
 	Prompts        PromptsDef          `yaml:"prompts" json:"prompts"`
 	Rules          []string            `yaml:"rules,omitempty" json:"rules,omitempty"`
 
@@ -353,6 +395,12 @@ func (p *Pack) Validate() error {
 		}
 	}
 
+	if p.FSM != nil {
+		if err := validateFSM(p.FSM, seenFacts, seenSignals, seenIntents); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -411,6 +459,77 @@ func validateContextModule(cm *ContextModuleDef, facts, signals, sections map[st
 		for _, blk := range view.Blocks {
 			if !validBlocks[blk] {
 				return fmt.Errorf("%w: context_module.views.%s.blocks contém bloco desconhecido %q", ErrInvalidPack, viewName, blk)
+			}
+		}
+	}
+	return nil
+}
+
+func validateFSM(fsm *FSMDef, seenFacts, seenSignals, seenIntents map[string]bool) error {
+	if fsm == nil {
+		return nil
+	}
+	if strings.TrimSpace(fsm.InitialState) == "" {
+		return fmt.Errorf("%w: fsm.initial_state é obrigatório", ErrInvalidPack)
+	}
+	if len(fsm.States) == 0 {
+		return fmt.Errorf("%w: fsm.states deve conter ao menos um estado", ErrInvalidPack)
+	}
+	seenStates := make(map[string]bool, len(fsm.States))
+	for _, st := range fsm.States {
+		trimmed := strings.TrimSpace(st)
+		if trimmed == "" {
+			return fmt.Errorf("%w: fsm.states contém estado vazio", ErrInvalidPack)
+		}
+		if seenStates[trimmed] {
+			return fmt.Errorf("%w: fsm.states duplicado %q", ErrInvalidPack, trimmed)
+		}
+		seenStates[trimmed] = true
+	}
+	if !seenStates[fsm.InitialState] {
+		return fmt.Errorf("%w: fsm.initial_state %q não está na lista de estados", ErrInvalidPack, fsm.InitialState)
+	}
+	if len(fsm.Actions) == 0 {
+		return fmt.Errorf("%w: fsm.actions deve conter ao menos uma ação", ErrInvalidPack)
+	}
+	for actionName, actionDef := range fsm.Actions {
+		if strings.TrimSpace(actionName) == "" {
+			return fmt.Errorf("%w: fsm.actions contém ação com nome vazio", ErrInvalidPack)
+		}
+		if !actionDef.IsValid() {
+			return fmt.Errorf("%w: fsm.actions[%s] possui tipo inválido %q", ErrInvalidPack, actionName, actionDef.Type)
+		}
+		if actionDef.Type == "message_template" && strings.TrimSpace(actionDef.Text) == "" {
+			return fmt.Errorf("%w: fsm.actions[%s] do tipo message_template exige text não vazio", ErrInvalidPack, actionName)
+		}
+	}
+	for i, tr := range fsm.Transitions {
+		if strings.TrimSpace(tr.From) == "" || strings.TrimSpace(tr.To) == "" {
+			return fmt.Errorf("%w: fsm.transitions[%d] exige 'from' e 'to'", ErrInvalidPack, i)
+		}
+		if tr.From != "*" && !seenStates[tr.From] {
+			return fmt.Errorf("%w: fsm.transitions[%d] possui 'from' desconhecido %q", ErrInvalidPack, i, tr.From)
+		}
+		if !seenStates[tr.To] {
+			return fmt.Errorf("%w: fsm.transitions[%d] possui 'to' desconhecido %q", ErrInvalidPack, i, tr.To)
+		}
+		if strings.TrimSpace(tr.Action) == "" {
+			return fmt.Errorf("%w: fsm.transitions[%d] exige 'action'", ErrInvalidPack, i)
+		}
+		if _, ok := fsm.Actions[tr.Action]; !ok {
+			return fmt.Errorf("%w: fsm.transitions[%d] referencia ação desconhecida %q", ErrInvalidPack, i, tr.Action)
+		}
+		if tr.When.Intent != "" && len(seenIntents) > 0 && !seenIntents[tr.When.Intent] {
+			return fmt.Errorf("%w: fsm.transitions[%d] referencia intenção desconhecida %q", ErrInvalidPack, i, tr.When.Intent)
+		}
+		for _, reqFact := range tr.When.RequiredFacts {
+			if !seenFacts[reqFact] {
+				return fmt.Errorf("%w: fsm.transitions[%d] referencia fato desconhecido %q", ErrInvalidPack, i, reqFact)
+			}
+		}
+		for _, reqSig := range tr.When.RequiredSignals {
+			if !seenSignals[reqSig] {
+				return fmt.Errorf("%w: fsm.transitions[%d] referencia sinal desconhecido %q", ErrInvalidPack, i, reqSig)
 			}
 		}
 	}

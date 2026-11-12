@@ -366,11 +366,145 @@ context_module:
 		},
 	}
 
-	for _, tc := range invalidCases {
+		for _, tc := range invalidCases {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := pack.ParsePackYAML([]byte(tc.yaml)); err == nil {
 				t.Fatalf("expected validation error for %s", tc.name)
 			}
 		})
+	}
+}
+
+func TestFSM_ConfigValidation(t *testing.T) {
+	validFSMYAML := samplePackYAML + `
+intents:
+  - name: inquiry_pricing
+    action: reply
+fsm:
+  initial_state: state_initial
+  states: [state_initial, state_qualifying, state_final]
+  transitions:
+    - from: state_initial
+      to: state_qualifying
+      when:
+        intent: inquiry_pricing
+      action: ask_for_budget
+    - from: state_qualifying
+      to: state_final
+      when:
+        required_facts: [Budget]
+      action: send_guidance
+  actions:
+    ask_for_budget:
+      type: message_template
+      text: "Qual é a sua faixa de orçamento?"
+    send_guidance:
+      type: knowledge_reply
+`
+	p, err := pack.ParsePackYAML([]byte(validFSMYAML))
+	if err != nil {
+		t.Fatalf("expected valid fsm, got %v", err)
+	}
+	if p.FSM == nil || p.FSM.InitialState != "state_initial" {
+		t.Fatalf("expected parsed FSM, got %+v", p.FSM)
+	}
+
+	invalidCases := []struct {
+		name string
+		yaml string
+	}{
+		{
+			name: "missing initial_state",
+			yaml: samplePackYAML + "\nfsm:\n  states: [a, b]\n  actions: {x: {type: knowledge_reply}}\n",
+		},
+		{
+			name: "initial_state not in states",
+			yaml: samplePackYAML + "\nfsm:\n  initial_state: z\n  states: [a, b]\n  actions: {x: {type: knowledge_reply}}\n",
+		},
+		{
+			name: "invalid action type",
+			yaml: samplePackYAML + "\nfsm:\n  initial_state: a\n  states: [a]\n  actions: {x: {type: unknown_action}}\n",
+		},
+		{
+			name: "message_template without text",
+			yaml: samplePackYAML + "\nfsm:\n  initial_state: a\n  states: [a]\n  actions: {x: {type: message_template, text: ''}}\n",
+		},
+		{
+			name: "transition references unknown action",
+			yaml: samplePackYAML + "\nfsm:\n  initial_state: a\n  states: [a, b]\n  actions: {act: {type: knowledge_reply}}\n  transitions: [{from: a, to: b, action: nonexistent}]\n",
+		},
+		{
+			name: "transition references unknown fact",
+			yaml: samplePackYAML + "\nfsm:\n  initial_state: a\n  states: [a, b]\n  actions: {act: {type: knowledge_reply}}\n  transitions: [{from: a, to: b, action: act, when: {required_facts: [FakeFact]}}]\n",
+		},
+	}
+
+	for _, tc := range invalidCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := pack.ParsePackYAML([]byte(tc.yaml)); err == nil {
+				t.Fatalf("expected error for %s, got nil", tc.name)
+			}
+		})
+	}
+}
+
+func TestSensorEnvelope_Validation(t *testing.T) {
+	validWithFSM := samplePackYAML + `
+intents:
+  - name: inquiry_pricing
+    action: reply
+fsm:
+  initial_state: state_initial
+  states: [state_initial, state_qualifying]
+  actions:
+    act:
+      type: knowledge_reply
+`
+	p, err := pack.ParsePackYAML([]byte(validWithFSM))
+	if err != nil {
+		t.Fatalf("unexpected pack parse error: %v", err)
+	}
+
+	// 1. Wrapped envelope
+	envelopeJSON := []byte(`{
+		"success": true,
+		"data": {
+			"message_analysis": {
+				"primary_intent": "inquiry_pricing",
+				"urgency_level": "high",
+				"sentiment": "positive"
+			},
+			"extracted_entities": {
+				"Budget": 500000
+			},
+			"conversation_state": "state_qualifying",
+			"summary": "Cliente busca informações de preço.",
+			"last_sender": "customer",
+			"signals": {
+				"has_new_question": true
+			},
+			"context": {}
+		},
+		"error": null
+	}`)
+
+	res, errs := pack.ValidateAnalysis(p, envelopeJSON)
+	if len(errs) != 0 {
+		t.Fatalf("expected valid envelope, got errors: %v", errs)
+	}
+	if res.Intent != "inquiry_pricing" {
+		t.Errorf("expected intent inquiry_pricing, got %s", res.Intent)
+	}
+	if res.UrgencyLevel != "high" {
+		t.Errorf("expected urgency_level high, got %s", res.UrgencyLevel)
+	}
+	if res.Sentiment != "positive" {
+		t.Errorf("expected sentiment positive, got %s", res.Sentiment)
+	}
+	if res.SuggestedState != "state_qualifying" {
+		t.Errorf("expected suggested_state state_qualifying, got %s", res.SuggestedState)
+	}
+	if res.Facts["Budget"] != "500000" {
+		t.Errorf("expected Budget 500000, got %s", res.Facts["Budget"])
 	}
 }

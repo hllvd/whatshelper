@@ -69,6 +69,7 @@ type CommitAnalysisInput struct {
 	Channel         string
 	SourceKey       string
 	ExpectedVersion int64
+	JourneyStage    string
 	Summary         Summary
 	Facts           map[string]string
 	Signals         map[string]bool

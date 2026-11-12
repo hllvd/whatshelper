@@ -14,6 +14,7 @@ type RawContextData struct {
 	Scope             Scope
 	SourceVersion     int64
 	SourceStatus      string
+	SourceJourneyStage string
 	Summary           *SummaryView
 	Facts             map[string]string
 	Signals           map[string]bool
@@ -41,9 +42,10 @@ func BuildContextBundle(spec ViewSpec, raw RawContextData) *ContextBundle {
 		Version:           ContractVersion,
 		Scope:             raw.Scope,
 		View:              spec.Name,
-		SourceVersion:     raw.SourceVersion,
-		SourceStatus:      raw.SourceStatus,
-		DegradedProviders: append([]string(nil), raw.DegradedProviders...),
+		SourceVersion:      raw.SourceVersion,
+		SourceStatus:       raw.SourceStatus,
+		SourceJourneyStage: raw.SourceJourneyStage,
+		DegradedProviders:  append([]string(nil), raw.DegradedProviders...),
 		GeneratedAt:       raw.GeneratedAt,
 	}
 

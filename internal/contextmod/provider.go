@@ -26,9 +26,10 @@ type ProviderRequest struct {
 
 // ProviderResult retorna os dados parciais produzidos por um ContextProvider para o ContextBuilder.
 type ProviderResult struct {
-	SourceVersion     int64
-	SourceStatus      string
-	Summary           *SummaryView
+	SourceVersion      int64
+	SourceStatus       string
+	SourceJourneyStage string
+	Summary            *SummaryView
 	Facts             map[string]string
 	Signals           map[string]bool
 	StructuredContext *StructuredContextView
@@ -154,6 +155,9 @@ func mergeProviderResult(dst *RawContextData, src *ProviderResult) {
 	}
 	if src.SourceStatus != "" {
 		dst.SourceStatus = src.SourceStatus
+	}
+	if src.SourceJourneyStage != "" {
+		dst.SourceJourneyStage = src.SourceJourneyStage
 	}
 	if src.Summary != nil {
 		dst.Summary = src.Summary

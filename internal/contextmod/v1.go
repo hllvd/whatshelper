@@ -95,6 +95,7 @@ type ContextBundle struct {
 	View              ViewName               `json:"view"`
 	SourceVersion     int64                  `json:"source_version"`
 	SourceStatus      string                 `json:"source_status"`
+	SourceJourneyStage string                `json:"source_journey_stage,omitempty"`
 	Summary           *SummaryView           `json:"summary,omitempty"`
 	Facts             map[string]string      `json:"facts,omitempty"`
 	Signals           map[string]bool        `json:"signals,omitempty"`
@@ -165,6 +166,7 @@ type RunWriteInput struct {
 type ApplyFactsRequest struct {
 	Scope             Scope                  `json:"scope"`
 	ExpectedVersion   int64                  `json:"expected_version"`
+	JourneyStage      string                 `json:"journey_stage,omitempty"`
 	Facts             map[string]string      `json:"facts,omitempty"`
 	ClearedFacts      []string               `json:"cleared_facts,omitempty"`
 	Actor             string                 `json:"actor,omitempty"`

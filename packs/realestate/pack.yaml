@@ -205,3 +205,69 @@ context_module:
       blocks: [summary]
       format: json
       max_tokens: 400
+
+fsm:
+  initial_state: cold_prospecting
+  states: [cold_prospecting, qualifying, scheduling, human_handoff, opted_out]
+  transitions:
+    - from: "*"
+      to: opted_out
+      when:
+        intent: opt_out
+      action: opt_out_action
+    - from: "*"
+      to: human_handoff
+      when:
+        intent: request_human
+      action: handoff_action
+    - from: "*"
+      to: human_handoff
+      when:
+        intent: negotiation_or_exception
+      action: escalate_action
+    - from: cold_prospecting
+      to: qualifying
+      when:
+        intent: ask_info
+      action: reply_with_knowledge
+    - from: cold_prospecting
+      to: qualifying
+      when:
+        intent: greeting_or_followup
+      action: greet_and_qualify
+    - from: qualifying
+      to: scheduling
+      when:
+        intent: schedule_visit
+        required_facts: [Budget]
+      action: schedule_visit_reply
+    - from: qualifying
+      to: qualifying
+      when:
+        intent: schedule_visit
+      action: enforce_budget
+    - from: qualifying
+      to: qualifying
+      when:
+        intent: ask_info
+      action: reply_with_knowledge
+  actions:
+    greet_and_qualify:
+      type: message_template
+      text: "Olá! Como posso ajudar você a encontrar seu próximo imóvel hoje?"
+    reply_with_knowledge:
+      type: knowledge_reply
+    schedule_visit_reply:
+      type: knowledge_reply
+    enforce_budget:
+      type: message_template
+      text: "Para podermos agendar uma visita e selecionar as melhores opções, qual é a sua faixa de orçamento?"
+    send_calendar:
+      type: message_template
+      text: "Perfeito! Já registramos seu interesse. Em breve entraremos em contato com as opções disponíveis para agendamento."
+    handoff_action:
+      type: handoff
+    escalate_action:
+      type: escalate
+    opt_out_action:
+      type: opt_out

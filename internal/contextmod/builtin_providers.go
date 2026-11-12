@@ -22,8 +22,9 @@ func (p *summaryProvider) Fetch(ctx context.Context, req ProviderRequest) (*Prov
 		return nil, err
 	}
 	return &ProviderResult{
-		SourceVersion: state.Version,
-		SourceStatus:  string(state.Meta.Status),
+		SourceVersion:      state.Version,
+		SourceStatus:       string(state.Meta.Status),
+		SourceJourneyStage: state.Meta.JourneyStage,
 		Summary: &SummaryView{
 			Version:   ContractVersion,
 			Scope:     req.Scope,
@@ -52,9 +53,10 @@ func (p *factsProvider) Fetch(ctx context.Context, req ProviderRequest) (*Provid
 		copied[k] = v
 	}
 	return &ProviderResult{
-		SourceVersion: state.Version,
-		SourceStatus:  string(state.Meta.Status),
-		Facts:         copied,
+		SourceVersion:      state.Version,
+		SourceStatus:       string(state.Meta.Status),
+		SourceJourneyStage: state.Meta.JourneyStage,
+		Facts:              copied,
 	}, nil
 }
 
@@ -77,10 +79,11 @@ func (p *signalsProvider) Fetch(ctx context.Context, req ProviderRequest) (*Prov
 	}
 	sc := toStructuredContextView(req.Scope, state.Context)
 	return &ProviderResult{
-		SourceVersion:     state.Version,
-		SourceStatus:      string(state.Meta.Status),
-		Signals:           sigs,
-		StructuredContext: sc,
+		SourceVersion:      state.Version,
+		SourceStatus:       string(state.Meta.Status),
+		SourceJourneyStage: state.Meta.JourneyStage,
+		Signals:            sigs,
+		StructuredContext:  sc,
 	}, nil
 }
 

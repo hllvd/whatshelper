@@ -23,6 +23,7 @@ import (
 	"whatshelper/internal/server"
 	"whatshelper/internal/store/dynamo"
 	"whatshelper/internal/store/s3blob"
+	"whatshelper/internal/store/sessioncache"
 )
 
 func main() {
@@ -116,6 +117,17 @@ func main() {
 		transcriber = t
 	}
 
+	sessionCachePath := os.Getenv("SESSION_CACHE_PATH")
+	if sessionCachePath == "" {
+		sessionCachePath = filepath.Join("whatsapp_data", "session_cache.db")
+	}
+	sessionCache, scErr := sessioncache.Open(sessionCachePath)
+	if scErr != nil {
+		logger.Warn("não foi possível abrir cache SQLite de sessões; operando sem cache rápido local", slog.Any("error", scErr))
+	} else {
+		defer sessionCache.Close()
+	}
+
 	pipeline := brain.NewPipeline(appCtx, brain.PipelineConfig{
 		Store:               storeRepo,
 		Blobs:               blobRepo,
@@ -134,6 +146,7 @@ func main() {
 		RunRetentionDays:    cfg.RunRetentionDays,
 		PIICipher:           piiCipher,
 		Transcriber:         transcriber,
+		SessionCache:        sessionCache,
 		Logger:              logger,
 	})
 	pipeline.RegisterChannel(simCh)

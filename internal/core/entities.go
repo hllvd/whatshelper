@@ -33,6 +33,7 @@ type SourceMeta struct {
 	SourceKey            string       `json:"source_key"`
 	ContactID            string       `json:"contact_id,omitempty"`
 	Status               SourceStatus `json:"status"`
+	JourneyStage         string       `json:"journey_stage,omitempty"`
 	Version              int64        `json:"version"`
 	EncryptedContactInfo string       `json:"encrypted_contact_info,omitempty"`
 	CreatedAt            time.Time    `json:"created_at"`
