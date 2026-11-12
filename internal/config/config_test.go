@@ -13,6 +13,7 @@ import (
 func clearLLMEnv() {
 	for _, k := range []string{
 		"LLM_PROVIDER", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL",
+		"OPENROUTER_API_KEY", "OPENROUTER_BASE_URL", "OPENROUTER_SITE_URL", "OPENROUTER_APP_NAME",
 		"MODEL_ANALYSIS", "MODEL_RESPONSE", "MODEL_NUDGE", "MODEL_LEARNING", "ENV_FILE",
 		"HTTP_HOST", "HTTP_PORT", "API_TOKEN", "CONNECTOR_TOKEN", "ALLOW_INSECURE_BIND",
 		"APP_ENV", "LOG_LEVEL", "LOG_FORMAT", "PII_ENCRYPTION_KEY", "S3_USE_SSL",
@@ -235,6 +236,18 @@ func TestConfig_GeminiDeepSeekAndDotEnv(t *testing.T) {
 	dsCfg.NudgeModel = "m-n"
 	if err := dsCfg.Validate(); err != nil {
 		t.Fatalf("expected valid deepseek config, got %v", err)
+	}
+
+	orCfg := config.Config{LLMProvider: "openrouter"}
+	if err := orCfg.Validate(); !errors.Is(err, config.ErrMissingOpenRouterKey) {
+		t.Fatalf("expected ErrMissingOpenRouterKey, got %v", err)
+	}
+	orCfg.OpenRouterAPIKey = "or-secret"
+	orCfg.AnalysisModel = "m-a"
+	orCfg.ResponseModel = "m-r"
+	orCfg.NudgeModel = "m-n"
+	if err := orCfg.Validate(); err != nil {
+		t.Fatalf("expected valid openrouter config, got %v", err)
 	}
 
 	// Múltiplas chaves sem LLM_PROVIDER deve acusar ambiguidade explícita

@@ -317,16 +317,16 @@ cmd_integration() {
 }
 
 cmd_live() {
-  print_header "LIVE LLM TESTS (.env / Anthropic / Gemini / DeepSeek)"
+  print_header "LIVE LLM TESTS (.env / Anthropic / Gemini / DeepSeek / OpenRouter)"
   if [ -f .env ]; then
     set -a
     # shellcheck disable=SC1091
     . ./.env
     set +a
   fi
-  if { [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -z "${GEMINI_API_KEY:-}" ] && [ -z "${DEEPSEEK_API_KEY:-}" ]; } || \
+  if { [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -z "${GEMINI_API_KEY:-}" ] && [ -z "${DEEPSEEK_API_KEY:-}" ] && [ -z "${OPENROUTER_API_KEY:-}" ]; } || \
      [ -z "${MODEL_ANALYSIS:-}" ] || [ -z "${MODEL_RESPONSE:-}" ] || [ -z "${MODEL_NUDGE:-}" ]; then
-    echo "⚠️  Configure no .env ou ambiente: chave (ANTHROPIC_API_KEY, GEMINI_API_KEY ou DEEPSEEK_API_KEY) + MODEL_ANALYSIS, MODEL_RESPONSE e MODEL_NUDGE."
+    echo "⚠️  Configure no .env ou ambiente: chave (ANTHROPIC_API_KEY, GEMINI_API_KEY, DEEPSEEK_API_KEY ou OPENROUTER_API_KEY) + MODEL_ANALYSIS, MODEL_RESPONSE e MODEL_NUDGE."
     return 1
   fi
   run_go_category "LIVE LLM SMOKE & GOLDEN" "live" \

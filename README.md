@@ -39,10 +39,10 @@ Isso iniciará:
 - Defina `ADMIN_PHONE_E164` no `.env` para rotear automaticamente mensagens desse número para o canal `admin` (`/aprovar`, `/rejeitar`, `/corrigir`).
 - Opcional: configure `TRANSCRIPTION_URL` / `TRANSCRIPTION_API_KEY` para transcrição automática de áudio (sem ela, áudios escalonam com resposta neutra).
 
-### Modo Offline (`fake`) vs LLM Real (`anthropic`, `gemini`, `deepseek`) e `.env`
+### Modo Offline (`fake`) vs LLM Real (`anthropic`, `gemini`, `deepseek`, `openrouter`) e `.env`
 - Tanto `cmd/brain` / `cmd/connectors` (ao rodar localmente com Go) quanto o `docker compose` carregam automaticamente o arquivo `.env` na raiz do projeto (ou `ENV_FILE`), sem sobrescrever variáveis já exportadas no shell.
 - Por padrão (sem chaves configuradas), o sistema sobe com `LLM_PROVIDER=fake` para rodar 100% offline.
-- Para testar com LLM real, edite o `.env` definindo `LLM_PROVIDER` (`anthropic`, `gemini` ou `deepseek`), a respectiva chave (`ANTHROPIC_API_KEY`, `GEMINI_API_KEY` ou `DEEPSEEK_API_KEY`) e os modelos por estágio (`MODEL_ANALYSIS`, `MODEL_RESPONSE`, `MODEL_NUDGE` e opcionalmente `MODEL_LEARNING`), consultando a documentação oficial de cada provedor.
+- Para testar com LLM real, edite o `.env` definindo `LLM_PROVIDER` (`anthropic`, `gemini`, `deepseek` ou `openrouter`), a respectiva chave (`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `DEEPSEEK_API_KEY` ou `OPENROUTER_API_KEY`) e os modelos por estágio (`MODEL_ANALYSIS`, `MODEL_RESPONSE`, `MODEL_NUDGE` e opcionalmente `MODEL_LEARNING`), consultando a documentação oficial de cada provedor.
 - Em seguida suba com `make up` ou execute `./scripts/tests.sh live`.
 
 ### Interfaces Web Locais

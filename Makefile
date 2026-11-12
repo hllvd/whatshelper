@@ -25,8 +25,8 @@ test-integration:
 
 llm-check:
 	@bash -c 'set -e; set -a; [ -f .env ] && . ./.env; set +a; \
-	if [ -z "$$ANTHROPIC_API_KEY" ] && [ -z "$$GEMINI_API_KEY" ] && [ -z "$$DEEPSEEK_API_KEY" ]; then \
-		echo "ERRO: defina ANTHROPIC_API_KEY, GEMINI_API_KEY ou DEEPSEEK_API_KEY"; exit 1; \
+	if [ -z "$$ANTHROPIC_API_KEY" ] && [ -z "$$GEMINI_API_KEY" ] && [ -z "$$DEEPSEEK_API_KEY" ] && [ -z "$$OPENROUTER_API_KEY" ]; then \
+		echo "ERRO: defina ANTHROPIC_API_KEY, GEMINI_API_KEY, DEEPSEEK_API_KEY ou OPENROUTER_API_KEY"; exit 1; \
 	fi; \
 	test -n "$$MODEL_ANALYSIS" || (echo "ERRO: MODEL_ANALYSIS não definido" && exit 1); \
 	test -n "$$MODEL_RESPONSE" || (echo "ERRO: MODEL_RESPONSE não definido" && exit 1); \

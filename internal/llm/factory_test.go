@@ -41,4 +41,14 @@ func TestNewFromConfig_Providers(t *testing.T) {
 	}, core.SystemClock{}); err != nil {
 		t.Fatalf("expected deepseek factory initialization success, got %v", err)
 	}
+
+	if _, _, _, _, err := llm.NewFromConfig(ctx, config.Config{
+		LLMProvider:      "openrouter",
+		OpenRouterAPIKey: "or-k",
+		AnalysisModel:    "o-a",
+		ResponseModel:    "o-r",
+		NudgeModel:       "o-n",
+	}, core.SystemClock{}); err != nil {
+		t.Fatalf("expected openrouter factory initialization success, got %v", err)
+	}
 }

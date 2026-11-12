@@ -10,6 +10,7 @@ import (
 	"whatshelper/internal/llm/anthropic"
 	"whatshelper/internal/llm/deepseek"
 	"whatshelper/internal/llm/gemini"
+	"whatshelper/internal/llm/openrouter"
 )
 
 // NewFromConfig constrói o adapter core.LLM ativo e os nomes de modelo por estágio a partir de config.Config.
@@ -33,6 +34,12 @@ func NewFromConfig(ctx context.Context, cfg config.Config, clock core.Clock) (co
 		return client, cfg.AnalysisModel, cfg.ResponseModel, cfg.NudgeModel, nil
 	case "deepseek":
 		client, err := deepseek.New(cfg.DeepSeekAPIKey, cfg.DeepSeekBaseURL, clock)
+		if err != nil {
+			return nil, "", "", "", err
+		}
+		return client, cfg.AnalysisModel, cfg.ResponseModel, cfg.NudgeModel, nil
+	case "openrouter":
+		client, err := openrouter.New(cfg.OpenRouterAPIKey, cfg.OpenRouterBaseURL, cfg.OpenRouterSiteURL, cfg.OpenRouterAppName, clock)
 		if err != nil {
 			return nil, "", "", "", err
 		}

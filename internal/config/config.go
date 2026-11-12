@@ -30,11 +30,15 @@ type Config struct {
 	S3AccessKey         string
 	S3SecretKey         string
 	S3UseSSL            bool
-	LLMProvider         string // "fake" | "anthropic" | "gemini" | "deepseek"
+	LLMProvider         string // "fake" | "anthropic" | "gemini" | "deepseek" | "openrouter"
 	AnthropicAPIKey     string
 	GeminiAPIKey        string
 	DeepSeekAPIKey      string
 	DeepSeekBaseURL     string
+	OpenRouterAPIKey    string
+	OpenRouterBaseURL   string
+	OpenRouterSiteURL   string
+	OpenRouterAppName   string
 	AnalysisModel       string
 	ResponseModel       string
 	NudgeModel          string
@@ -50,14 +54,21 @@ type Config struct {
 }
 
 var (
-	ErrInvalidLLMProvider   = errors.New("LLM_PROVIDER inválido: deve ser 'fake', 'anthropic', 'gemini' ou 'deepseek'")
+	ErrInvalidLLMProvider   = errors.New("LLM_PROVIDER inválido: deve ser 'fake', 'anthropic', 'gemini', 'deepseek' ou 'openrouter'")
 	ErrAmbiguousLLMProvider = errors.New("múltiplas chaves de LLM definidas sem LLM_PROVIDER explícito")
 	ErrMissingAnthropicKey  = errors.New("ANTHROPIC_API_KEY é obrigatório quando LLM_PROVIDER=anthropic")
 	ErrMissingGeminiKey     = errors.New("GEMINI_API_KEY é obrigatório quando LLM_PROVIDER=gemini")
 	ErrMissingDeepSeekKey   = errors.New("DEEPSEEK_API_KEY é obrigatório quando LLM_PROVIDER=deepseek")
+	ErrMissingOpenRouterKey = errors.New("OPENROUTER_API_KEY é obrigatório quando LLM_PROVIDER=openrouter")
 	ErrMissingStageModel    = errors.New("nome do modelo obrigatório ausente para o provedor selecionado")
 	ErrInsecureHTTPBind     = errors.New("HTTP_HOST não-loopback exige API_TOKEN configurado")
 )
+
+type providerKeyEntry struct {
+	name    string
+	key     string
+	missing error
+}
 
 // LoadFromEnv carrega a configuração a partir do ambiente, preenchendo padrões seguros.
 // Nomes de modelo de LLM nunca são fixados no código; devem vir de variáveis de ambiente.
@@ -65,7 +76,13 @@ func LoadFromEnv() Config {
 	anthropicKey := strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY"))
 	geminiKey := strings.TrimSpace(os.Getenv("GEMINI_API_KEY"))
 	deepseekKey := strings.TrimSpace(os.Getenv("DEEPSEEK_API_KEY"))
-	provider := inferLLMProvider(getEnv("LLM_PROVIDER", ""), anthropicKey, geminiKey, deepseekKey)
+	openRouterKey := strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY"))
+	provider := inferLLMProvider(getEnv("LLM_PROVIDER", ""), []providerKeyEntry{
+		{name: "anthropic", key: anthropicKey},
+		{name: "gemini", key: geminiKey},
+		{name: "deepseek", key: deepseekKey},
+		{name: "openrouter", key: openRouterKey},
+	})
 
 	return Config{
 		HTTPHost:            getEnv("HTTP_HOST", "127.0.0.1"),
@@ -90,6 +107,10 @@ func LoadFromEnv() Config {
 		GeminiAPIKey:        geminiKey,
 		DeepSeekAPIKey:      deepseekKey,
 		DeepSeekBaseURL:     getEnv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+		OpenRouterAPIKey:    openRouterKey,
+		OpenRouterBaseURL:   getEnv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
+		OpenRouterSiteURL:   strings.TrimSpace(os.Getenv("OPENROUTER_SITE_URL")),
+		OpenRouterAppName:   getEnv("OPENROUTER_APP_NAME", "Whatshelper"),
 		AnalysisModel:       strings.TrimSpace(os.Getenv("MODEL_ANALYSIS")),
 		ResponseModel:       strings.TrimSpace(os.Getenv("MODEL_RESPONSE")),
 		NudgeModel:          strings.TrimSpace(os.Getenv("MODEL_NUDGE")),
@@ -105,19 +126,15 @@ func LoadFromEnv() Config {
 	}
 }
 
-func inferLLMProvider(explicit, anthropicKey, geminiKey, deepseekKey string) string {
+func inferLLMProvider(explicit string, entries []providerKeyEntry) string {
 	if p := strings.TrimSpace(explicit); p != "" {
 		return strings.ToLower(p)
 	}
 	var active []string
-	if anthropicKey != "" {
-		active = append(active, "anthropic")
-	}
-	if geminiKey != "" {
-		active = append(active, "gemini")
-	}
-	if deepseekKey != "" {
-		active = append(active, "deepseek")
+	for _, entry := range entries {
+		if entry.key != "" {
+			active = append(active, entry.name)
+		}
 	}
 	switch len(active) {
 	case 0:
@@ -145,6 +162,7 @@ func (c Config) Secrets() []string {
 		c.AnthropicAPIKey,
 		c.GeminiAPIKey,
 		c.DeepSeekAPIKey,
+		c.OpenRouterAPIKey,
 		c.PIIEncryptionKey,
 		c.S3SecretKey,
 		c.TranscriptionAPIKey,
@@ -176,29 +194,27 @@ func (c Config) Validate() error {
 		}
 	}
 
-	switch c.LLMProvider {
-	case "fake":
+	if c.LLMProvider == "fake" {
 		return nil
-	case "ambiguous":
+	}
+	if c.LLMProvider == "ambiguous" {
 		return ErrAmbiguousLLMProvider
-	case "anthropic":
-		if strings.TrimSpace(c.AnthropicAPIKey) == "" {
-			return ErrMissingAnthropicKey
-		}
-		return c.validateStageModels()
-	case "gemini":
-		if strings.TrimSpace(c.GeminiAPIKey) == "" {
-			return ErrMissingGeminiKey
-		}
-		return c.validateStageModels()
-	case "deepseek":
-		if strings.TrimSpace(c.DeepSeekAPIKey) == "" {
-			return ErrMissingDeepSeekKey
-		}
-		return c.validateStageModels()
-	default:
+	}
+
+	requiredKeys := map[string]providerKeyEntry{
+		"anthropic":  {key: c.AnthropicAPIKey, missing: ErrMissingAnthropicKey},
+		"gemini":     {key: c.GeminiAPIKey, missing: ErrMissingGeminiKey},
+		"deepseek":   {key: c.DeepSeekAPIKey, missing: ErrMissingDeepSeekKey},
+		"openrouter": {key: c.OpenRouterAPIKey, missing: ErrMissingOpenRouterKey},
+	}
+	entry, ok := requiredKeys[c.LLMProvider]
+	if !ok {
 		return fmt.Errorf("%w: %q", ErrInvalidLLMProvider, c.LLMProvider)
 	}
+	if strings.TrimSpace(entry.key) == "" {
+		return entry.missing
+	}
+	return c.validateStageModels()
 }
 
 func (c Config) validateStageModels() error {

@@ -20,7 +20,7 @@ func TestLive_SmokeLLM(t *testing.T) {
 	_ = config.LoadDotEnv(filepath.Join("..", "..", ".env"))
 	cfg := config.LoadFromEnv()
 	if cfg.LLMProvider == "fake" {
-		t.Fatal("defina LLM_PROVIDER=anthropic|gemini|deepseek e chave/modelos no .env ou ambiente para testes -tags=llm_live")
+		t.Fatal("defina LLM_PROVIDER=anthropic|gemini|deepseek|openrouter e chave/modelos no .env ou ambiente para testes -tags=llm_live")
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("config inválida para live LLM: %v", err)
