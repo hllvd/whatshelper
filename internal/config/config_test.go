@@ -12,9 +12,10 @@ import (
 
 func clearLLMEnv() {
 	for _, k := range []string{
-		"LLM_PROVIDER", "ANTHROPIC_API_KEY", "MODEL_ANALYSIS", "MODEL_RESPONSE", "MODEL_NUDGE",
-		"HTTP_HOST", "HTTP_PORT", "API_TOKEN", "ALLOW_INSECURE_BIND",
-		"APP_ENV", "LOG_LEVEL", "LOG_FORMAT", "S3_USE_SSL",
+		"LLM_PROVIDER", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL",
+		"MODEL_ANALYSIS", "MODEL_RESPONSE", "MODEL_NUDGE", "MODEL_LEARNING", "ENV_FILE",
+		"HTTP_HOST", "HTTP_PORT", "API_TOKEN", "CONNECTOR_TOKEN", "ALLOW_INSECURE_BIND",
+		"APP_ENV", "LOG_LEVEL", "LOG_FORMAT", "PII_ENCRYPTION_KEY", "S3_USE_SSL",
 	} {
 		_ = os.Unsetenv(k)
 	}
@@ -204,5 +205,65 @@ func TestConfig_PIISecurityAndConnectorToken(t *testing.T) {
 	cfg.ConnectorToken = "conn-tok"
 	if got := cfg.EffectiveConnectorToken(); got != "conn-tok" {
 		t.Fatalf("expected explicit ConnectorToken, got %q", got)
+	}
+}
+
+func TestConfig_GeminiDeepSeekAndDotEnv(t *testing.T) {
+	clearLLMEnv()
+	defer clearLLMEnv()
+
+	// Validação de Gemini e DeepSeek
+	gemCfg := config.Config{LLMProvider: "gemini"}
+	if err := gemCfg.Validate(); !errors.Is(err, config.ErrMissingGeminiKey) {
+		t.Fatalf("expected ErrMissingGeminiKey, got %v", err)
+	}
+	gemCfg.GeminiAPIKey = "gem-secret"
+	gemCfg.AnalysisModel = "m-a"
+	gemCfg.ResponseModel = "m-r"
+	gemCfg.NudgeModel = "m-n"
+	if err := gemCfg.Validate(); err != nil {
+		t.Fatalf("expected valid gemini config, got %v", err)
+	}
+
+	dsCfg := config.Config{LLMProvider: "deepseek"}
+	if err := dsCfg.Validate(); !errors.Is(err, config.ErrMissingDeepSeekKey) {
+		t.Fatalf("expected ErrMissingDeepSeekKey, got %v", err)
+	}
+	dsCfg.DeepSeekAPIKey = "ds-secret"
+	dsCfg.AnalysisModel = "m-a"
+	dsCfg.ResponseModel = "m-r"
+	dsCfg.NudgeModel = "m-n"
+	if err := dsCfg.Validate(); err != nil {
+		t.Fatalf("expected valid deepseek config, got %v", err)
+	}
+
+	// Múltiplas chaves sem LLM_PROVIDER deve acusar ambiguidade explícita
+	_ = os.Setenv("GEMINI_API_KEY", "g1")
+	_ = os.Setenv("DEEPSEEK_API_KEY", "d1")
+	amb := config.LoadFromEnv()
+	if err := amb.Validate(); !errors.Is(err, config.ErrAmbiguousLLMProvider) {
+		t.Fatalf("expected ErrAmbiguousLLMProvider, got %v", err)
+	}
+
+	// LoadDotEnv não sobrescreve variáveis já exportadas no ambiente
+	clearLLMEnv()
+	tmpEnv := t.TempDir() + "/.env"
+	content := "# comentário\nexport LLM_PROVIDER=gemini\nGEMINI_API_KEY=\"from-dotenv # keep\"\nDEEPSEEK_BASE_URL=https://custom.example # inline\nMODEL_ANALYSIS='m-analysis'\nMODEL_RESPONSE=m-response\nMODEL_NUDGE=m-nudge\n"
+	if err := os.WriteFile(tmpEnv, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Setenv("MODEL_ANALYSIS", "override-from-shell")
+	if err := config.LoadDotEnv(tmpEnv); err != nil {
+		t.Fatalf("LoadDotEnv failed: %v", err)
+	}
+	loaded := config.LoadFromEnv()
+	if loaded.LLMProvider != "gemini" || loaded.GeminiAPIKey != "from-dotenv # keep" {
+		t.Fatalf("unexpected dotenv load: provider=%q key=%q", loaded.LLMProvider, loaded.GeminiAPIKey)
+	}
+	if loaded.DeepSeekBaseURL != "https://custom.example" {
+		t.Fatalf("expected stripped inline comment, got %q", loaded.DeepSeekBaseURL)
+	}
+	if loaded.AnalysisModel != "override-from-shell" {
+		t.Fatalf("expected shell env to take precedence over .env, got %q", loaded.AnalysisModel)
 	}
 }

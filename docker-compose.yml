@@ -83,6 +83,9 @@ services:
       dockerfile: Dockerfile
     container_name: whatshelper-brain
     restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:
@@ -108,6 +111,9 @@ services:
       S3_USE_SSL: "false"
       LLM_PROVIDER: "${LLM_PROVIDER:-fake}"
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
+      DEEPSEEK_BASE_URL: "${DEEPSEEK_BASE_URL:-https://api.deepseek.com}"
       MODEL_ANALYSIS: "${MODEL_ANALYSIS:-}"
       MODEL_RESPONSE: "${MODEL_RESPONSE:-}"
       MODEL_NUDGE: "${MODEL_NUDGE:-}"
@@ -133,6 +139,9 @@ services:
       dockerfile: Dockerfile
     container_name: whatshelper-connector
     restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
     entrypoint: ["/app/connectors"]
     ports:
       - "127.0.0.1:8081:8081"

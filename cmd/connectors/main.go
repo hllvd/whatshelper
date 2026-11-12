@@ -14,11 +14,16 @@ import (
 	"whatshelper/internal/channels/bridge"
 	"whatshelper/internal/channels/humanizer"
 	"whatshelper/internal/channels/whatsapp"
+	"whatshelper/internal/config"
 	"whatshelper/internal/core"
 	"whatshelper/internal/server"
 )
 
 func main() {
+	if err := config.LoadDotEnv(""); err != nil {
+		slog.Error("falha ao carregar arquivo .env", slog.Any("error", err))
+		os.Exit(1)
+	}
 	token := firstNonEmpty(os.Getenv("CONNECTOR_TOKEN"), os.Getenv("API_TOKEN"))
 	logLevel := getEnv("LOG_LEVEL", "info")
 	logFormat := getEnv("LOG_FORMAT", "text")

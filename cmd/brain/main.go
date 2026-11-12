@@ -16,8 +16,7 @@ import (
 	"whatshelper/internal/channels/simulator"
 	"whatshelper/internal/config"
 	"whatshelper/internal/core"
-	"whatshelper/internal/core/fakes"
-	"whatshelper/internal/llm/anthropic"
+	"whatshelper/internal/llm"
 	"whatshelper/internal/media"
 	"whatshelper/internal/pack"
 	"whatshelper/internal/security"
@@ -27,6 +26,10 @@ import (
 )
 
 func main() {
+	if err := config.LoadDotEnv(""); err != nil {
+		slog.Error("falha ao carregar arquivo .env", slog.Any("error", err))
+		os.Exit(1)
+	}
 	cfg := config.LoadFromEnv()
 	logger := server.InitLoggerWithSecrets(cfg.LogLevel, cfg.LogFormat, cfg.Secrets()...)
 	slog.SetDefault(logger)
@@ -78,7 +81,7 @@ func main() {
 	}
 	blobRepo := s3blob.NewStore(s3Client, cfg.S3Bucket)
 
-	llmClient, analysisModel, responseModel, nudgeModel, err := buildLLM(cfg, clock)
+	llmClient, analysisModel, responseModel, nudgeModel, err := llm.NewFromConfig(appCtx, cfg, clock)
 	if err != nil {
 		logger.Error("falha ao inicializar LLM", slog.Any("error", err))
 		os.Exit(1)
@@ -207,29 +210,6 @@ func consumeChannel(ctx context.Context, ch core.Channel, pipeline *brain.Pipeli
 			}
 		}
 	}
-}
-
-func buildLLM(cfg config.Config, clock core.Clock) (core.LLM, string, string, string, error) {
-	if cfg.LLMProvider == "anthropic" {
-		client, err := anthropic.New(cfg.AnthropicAPIKey, clock)
-		if err != nil {
-			return nil, "", "", "", err
-		}
-		return client, cfg.AnalysisModel, cfg.ResponseModel, cfg.NudgeModel, nil
-	}
-	analysisModel := cfg.AnalysisModel
-	if analysisModel == "" {
-		analysisModel = "fake-analysis"
-	}
-	responseModel := cfg.ResponseModel
-	if responseModel == "" {
-		responseModel = "fake-response"
-	}
-	nudgeModel := cfg.NudgeModel
-	if nudgeModel == "" {
-		nudgeModel = "fake-nudge"
-	}
-	return fakes.NewOfflineDemoLLM(), analysisModel, responseModel, nudgeModel, nil
 }
 
 func discoverLocalTenants(tenantsDir string) []string {
