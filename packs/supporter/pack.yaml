@@ -1,0 +1,240 @@
+name: supporter
+language: pt-BR
+
+actors:
+  business: agent
+  customer: user
+
+facts:
+  - key: UserRole
+    type: enum
+    values: [consultor, gestor]
+    description: Papel do usuário na operação (consultor ou gestor)
+  - key: Topic
+    type: string
+    description: Assunto, módulo ou processo mencionado (ex. comissões, metas, CRM, fechamento, relatórios)
+  - key: Severity
+    type: enum
+    values: [low, medium, high, critical]
+    description: Impacto ou gravidade da dúvida ou ocorrência na operação
+  - key: ReferenceId
+    type: string
+    description: Código de referência, ID de venda, cliente ou erro exibido (ex. VENDA-123, ERR-403)
+  - key: ChannelOrScreen
+    type: string
+    description: Tela, funcionalidade ou ambiente onde a dúvida ou problema ocorreu (ex. painel de metas, app, web)
+  - key: HasAttachment
+    type: boolean
+    description: Se o usuário enviou captura de tela, documento ou evidência
+
+signals:
+  - key: has_new_question
+    description: true se a NOVA MENSAGEM contém uma dúvida objetiva
+  - key: has_pending_question
+    description: true se há dúvida recente ainda não respondida
+  - key: has_pending_issue
+    description: true se foi relatada uma falha ou divergência pendente de verificação
+  - key: has_pending_callback
+    description: true se um retorno de especialista ou liderança foi solicitado mas não agendado
+  - key: user_engaged
+    description: true se o consultor ou gestor está interagindo ativamente
+
+dimensions:
+  - key: sentiment
+    values: [positive, neutral, negative, frustrated, unknown]
+    default: unknown
+    description: Sentimento percebido na última interação (use unknown se não houver evidência)
+  - key: urgency
+    values: [low, medium, high, critical, unknown]
+    default: unknown
+    description: Nível de urgência percebido (use unknown se não houver evidência)
+
+intents:
+  - name: ask_howto
+    description: Dúvida sobre uso da plataforma, regras comerciais, metas, comissões, relatórios ou processos internos
+    examples:
+      - "Como funciona o cálculo da comissão deste mês?"
+      - "Onde consulto o funil de vendas da minha equipe?"
+      - "Qual a regra para registro de venda recorrente?"
+    action: reply
+  - name: report_issue
+    description: Relato de erro, divergência de valores, falha ou indisponibilidade no sistema
+    examples:
+      - "Os valores do meu fechamento não estão batendo no painel"
+      - "Estou recebendo erro ao tentar lançar uma proposta"
+    action: create_task
+  - name: policy_exception
+    description: Solicitação de exceção comercial, ajuste manual, desconto fora da alçada ou aprovação especial
+    examples:
+      - "Preciso de aprovação para um desconto acima do limite"
+      - "Preciso de ajuste manual em uma comissão lançada incorretamente"
+    action: escalate
+  - name: request_human
+    description: Consultor ou gestor pede para falar com um atendente humano, supervisor ou time responsável
+    examples:
+      - "Quero falar com alguém do suporte interno"
+      - "Pode me transferir para um responsável?"
+    action: handoff
+  - name: opt_out
+    description: Usuário pede para parar de receber mensagens ou notificações
+    examples:
+      - "Não quero mais receber notificações"
+      - "SAIR"
+    action: opt_out
+  - name: greeting
+    description: Saudação ou agradecimento curto
+    examples:
+      - "Oi, obrigado pela ajuda!"
+    action: reply
+
+opt_out_keywords:
+  - parar
+  - sair
+  - stop
+  - unsubscribe
+  - "cancelar mensagens"
+
+task_rules:
+  - type: investigate_issue
+    title: "Investigar falha ou divergência relatada pelo consultor/gestor"
+    trigger_signal: has_pending_issue
+    trigger_intent: report_issue
+    context_section: ticket
+    due_in_minutes: 30
+  - type: schedule_callback
+    title: "Agendar retorno com especialista ou time responsável"
+    trigger_signal: has_pending_callback
+    context_section: callback
+    due_in_minutes: 60
+
+context:
+  - key: last_action
+    description: Ação principal identificada na última mensagem
+    fields:
+      - key: type
+        type: enum
+        values: [question, issue_report, exception_request, callback, other]
+      - key: actor
+        type: enum
+        values: [agent, user]
+      - key: description
+        type: string
+  - key: ticket
+    description: Detalhes de falha ou divergência relatada
+    fields:
+      - key: module
+        type: string
+      - key: details
+        type: string
+  - key: callback
+    description: Preferência de horário para retorno
+    fields:
+      - key: preferred_window
+        type: string
+
+prompts:
+  analysis: prompts/analysis.tmpl
+  reply: prompts/reply.tmpl
+  nudge: prompts/nudge.tmpl
+
+rules:
+  - Nunca invente regras comerciais, percentuais de comissão, metas, prazos ou procedimentos fora da base de conhecimento.
+  - Sempre peça o contexto necessário (módulo, tela ou ID de referência) caso falte para esclarecer a dúvida ou investigar uma divergência.
+  - Responda sempre em Português (PT-BR), com clareza, objetividade e tom adequado a consultores e gestores.
+  - Quando não tiver certeza na base de conhecimento, informe que vai encaminhar ao time responsável sem chutar.
+
+context_module:
+  providers: [summary, facts, signals, recent_messages, knowledge]
+  exposed_fields:
+    facts: [UserRole, Topic, Severity, ReferenceId, ChannelOrScreen, HasAttachment]
+    signals: [has_new_question, has_pending_question, has_pending_issue, has_pending_callback, user_engaged]
+    context_sections: [last_action, ticket, callback]
+  views:
+    external_agent:
+      blocks: [summary, facts, signals, structured_context, recent_messages]
+      format: delimited
+      max_tokens: 2000
+    summary_only:
+      blocks: [summary]
+      format: json
+      max_tokens: 400
+
+fsm:
+  initial_state: triage
+  states: [triage, assisting, escalated, opted_out]
+  transitions:
+    - from: "*"
+      to: opted_out
+      when:
+        intent: opt_out
+      action: opt_out_action
+    - from: "*"
+      to: escalated
+      when:
+        intent: request_human
+      action: handoff_action
+    - from: "*"
+      to: escalated
+      when:
+        intent: policy_exception
+      action: escalate_action
+    - from: triage
+      to: assisting
+      when:
+        intent: ask_howto
+      action: reply_with_knowledge
+    - from: triage
+      to: assisting
+      when:
+        intent: greeting
+      action: greet_support
+    - from: triage
+      to: assisting
+      when:
+        intent: report_issue
+        required_facts: [ChannelOrScreen]
+      action: acknowledge_issue
+    - from: triage
+      to: triage
+      when:
+        intent: report_issue
+      action: ask_issue_details
+    - from: assisting
+      to: assisting
+      when:
+        intent: greeting
+      action: greet_support
+    - from: assisting
+      to: assisting
+      when:
+        intent: report_issue
+        required_facts: [ChannelOrScreen]
+      action: acknowledge_issue
+    - from: assisting
+      to: assisting
+      when:
+        intent: report_issue
+      action: ask_issue_details
+    - from: assisting
+      to: assisting
+      when:
+        intent: ask_howto
+      action: reply_with_knowledge
+  actions:
+    greet_support:
+      type: message_template
+      text: "Olá! Sou o assistente de suporte para consultores e gestores. Como posso te ajudar hoje?"
+    reply_with_knowledge:
+      type: knowledge_reply
+    ask_issue_details:
+      type: message_template
+      text: "Para verificarmos o ocorrido, poderia me informar em qual tela ou módulo o problema aconteceu e, se houver, o código ou ID de referência?"
+    acknowledge_issue:
+      type: message_template
+      text: "Obrigado pelas informações! Registramos sua solicitação e o time responsável já está analisando o caso."
+    handoff_action:
+      type: handoff
+    escalate_action:
+      type: escalate
+    opt_out_action:
+      type: opt_out

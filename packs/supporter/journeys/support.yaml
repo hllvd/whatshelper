@@ -1,0 +1,164 @@
+version: "1"
+initial_state: entender_pergunta
+
+defaults:
+  stagnation_threshold: 3
+  stagnation_to: perguntar_humano
+  fallback_directive:
+    goal: "Ajudar consultores e gestores com base na documentação oficial da operação."
+    constraints:
+      - "Use apenas informações verificadas da base de conhecimento."
+      - "Se não tiver certeza ou faltar informação, encaminhe para o time responsável."
+
+global_rules:
+  - id: supporter_global_critical
+    priority: 100
+    on_event: user_message
+    guard: 'dimensions["urgency"] == "critical" || dimensions["sentiment"] == "frustrated" || signals["wants_human"] == true'
+    to: perguntar_humano
+    reason: "Urgência crítica, usuário frustrado ou solicitação de atendimento humano"
+    actions:
+      - type: create_task
+        params:
+          type: investigate_issue
+          title: "Ocorrência prioritária reportada por consultor/gestor"
+      - type: notify_admin
+        params:
+          reason: "Escalonamento prioritário no suporte"
+      - type: handoff
+    directive:
+      goal: "Confirmar recebimento prioritário e informar que o time responsável assumirá o caso."
+      constraints:
+        - "Não prometa prazo de resolução não documentado."
+
+states:
+  entender_pergunta:
+    description: "Entender dúvida, ocorrência ou solicitação de exceção"
+    stagnation_threshold: 3
+    stagnation_to: perguntar_humano
+    directive:
+      goal: "Identificar assunto, tela/módulo e eventual ID de referência."
+      must_ask:
+        - "Qual módulo, tela ou ID de referência está envolvido?"
+      constraints:
+        - "Faça no máximo 1 ou 2 perguntas objetivas."
+    rules:
+      - id: entender_to_exception
+        priority: 40
+        on_event: user_message
+        intent: policy_exception
+        to: perguntar_humano
+        reason: "Solicitação de exceção ou ajuste manual exige aprovação humana"
+        actions:
+          - type: notify_admin
+            params:
+              reason: "Exceção comercial ou ajuste manual solicitado"
+          - type: handoff
+      - id: entender_to_issue
+        priority: 30
+        on_event: user_message
+        intent: report_issue
+        guard: 'HasFact("ChannelOrScreen") || HasFact("ReferenceId") || signals["has_pending_issue"] == true'
+        to: investigando_ocorrencia
+        reason: "Ocorrência/divergência identificada"
+        actions:
+          - type: create_task
+            params:
+              type: investigate_issue
+              title: "Investigar falha ou divergência relatada"
+      - id: entender_to_answer
+        priority: 20
+        on_event: user_message
+        intent: ask_howto
+        to: responder_pergunta
+        reason: "Dúvida identificada para resposta com base de conhecimento"
+
+  responder_pergunta:
+    description: "Responder dúvida com a base de conhecimento"
+    stagnation_threshold: 3
+    stagnation_to: perguntar_humano
+    directive:
+      goal: "Responder à dúvida com clareza usando apenas a base de conhecimento."
+      constraints:
+        - "Nunca invente percentuais, metas ou regras não documentadas."
+    rules:
+      - id: responder_to_issue
+        priority: 25
+        on_event: user_message
+        intent: report_issue
+        to: investigando_ocorrencia
+        reason: "Usuário relatou divergência durante dúvida"
+      - id: responder_to_followup
+        priority: 15
+        on_event: user_message
+        intent: greeting
+        to: verificar_mais_ajuda
+        reason: "Usuário agradeceu ou respondeu após explicação"
+
+  investigando_ocorrencia:
+    description: "Coleta de tela, ID de referência e evidência para ocorrência"
+    stagnation_threshold: 3
+    stagnation_to: perguntar_humano
+    directive:
+      goal: "Confirmar tela/módulo e ID de referência para encaminhar ou orientar."
+      must_ask:
+        - "Pode informar o ID de referência (ex.: VENDA-123) e a tela onde ocorreu?"
+      constraints:
+        - "Seja objetivo na coleta."
+    rules:
+      - id: issue_ready_to_human
+        priority: 30
+        on_event: user_message
+        guard: 'HasFact("ChannelOrScreen") && (HasFact("ReferenceId") || HasFact("HasAttachment"))'
+        to: perguntar_humano
+        reason: "Evidências suficientes para análise do time responsável"
+        actions:
+          - type: notify_admin
+            params:
+              reason: "Ocorrência documentada pronta para análise"
+      - id: issue_to_followup
+        priority: 10
+        on_event: user_message
+        intent: greeting
+        to: verificar_mais_ajuda
+        reason: "Ocorrência concluída pelo usuário"
+
+  verificar_mais_ajuda:
+    description: "Confirmar se o usuário precisa de mais ajuda"
+    stagnation_threshold: 2
+    stagnation_to: encerrado
+    directive:
+      goal: "Perguntar se há mais alguma dúvida ou encerrar cordialmente."
+      must_ask:
+        - "Posso te ajudar com mais alguma coisa?"
+      constraints:
+        - "Seja breve."
+    rules:
+      - id: mais_ajuda_nova_duvida
+        priority: 20
+        on_event: user_message
+        intent: ask_howto
+        to: responder_pergunta
+        reason: "Nova dúvida enviada"
+      - id: mais_ajuda_encerrar
+        priority: 10
+        on_event: user_message
+        intent: greeting
+        to: encerrado
+        reason: "Atendimento concluído"
+
+  perguntar_humano:
+    description: "Encaminhado para atendente ou time responsável"
+    terminal: true
+    directive:
+      goal: "Informar que o time responsável já recebeu o contexto e dará sequência."
+      constraints:
+        - "Não faça novas perguntas."
+
+  encerrado:
+    description: "Atendimento encerrado"
+    terminal: true
+    directive:
+      goal: "Agradecer o contato e encerrar."
+      constraints:
+        - "Mensagem curta."
