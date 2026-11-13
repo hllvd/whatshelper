@@ -100,13 +100,18 @@ func NewRouterFromConfig(ctx context.Context, cfg config.Config, clock core.Cloc
 		nudgeModel = firstNonEmpty(nudgeModel, "fake-nudge")
 	}
 
+	normEffort := func(raw string) string {
+		e, _ := core.NormalizeReasoningEffort(raw)
+		return e
+	}
+
 	stageDefaults := map[string]core.StageLLMConfig{
-		"analysis": {Provider: cfg.LLMProvider, Model: analysisModel},
-		"response": {Provider: cfg.LLMProvider, Model: responseModel},
-		"nudge":    {Provider: cfg.LLMProvider, Model: nudgeModel},
-		"learning": {Provider: cfg.LLMProvider, Model: firstNonEmpty(cfg.LearningModel, analysisModel)},
-		"vision":   {Provider: cfg.LLMProvider, Model: firstNonEmpty(cfg.VisionModel, analysisModel)},
-		"audio":    {Provider: cfg.LLMProvider, Model: firstNonEmpty(cfg.AudioModel, cfg.TranscriptionModel)},
+		"analysis": {Provider: cfg.LLMProvider, Model: analysisModel, ReasoningEffort: normEffort(cfg.AnalysisEffort)},
+		"response": {Provider: cfg.LLMProvider, Model: responseModel, ReasoningEffort: normEffort(cfg.ResponseEffort)},
+		"nudge":    {Provider: cfg.LLMProvider, Model: nudgeModel, ReasoningEffort: normEffort(cfg.NudgeEffort)},
+		"learning": {Provider: cfg.LLMProvider, Model: firstNonEmpty(cfg.LearningModel, analysisModel), ReasoningEffort: normEffort(firstNonEmpty(cfg.LearningEffort, cfg.AnalysisEffort))},
+		"vision":   {Provider: cfg.LLMProvider, Model: firstNonEmpty(cfg.VisionModel, analysisModel), ReasoningEffort: normEffort(firstNonEmpty(cfg.VisionEffort, cfg.AnalysisEffort))},
+		"audio":    {Provider: cfg.LLMProvider, Model: firstNonEmpty(cfg.AudioModel, cfg.TranscriptionModel), ReasoningEffort: normEffort(cfg.AudioEffort)},
 	}
 
 	return &DynamicRouter{
@@ -147,8 +152,9 @@ func (r *DynamicRouter) Resolve(stage string, overrides map[string]core.StageLLM
 		return def
 	}
 	return core.StageLLMConfig{
-		Provider: firstNonEmpty(ov.Provider, def.Provider),
-		Model:    firstNonEmpty(ov.Model, def.Model),
+		Provider:        firstNonEmpty(ov.Provider, def.Provider),
+		Model:           firstNonEmpty(ov.Model, def.Model),
+		ReasoningEffort: firstNonEmpty(ov.ReasoningEffort, def.ReasoningEffort),
 	}
 }
 
@@ -157,6 +163,7 @@ func (r *DynamicRouter) Generate(ctx context.Context, req core.LLMRequest) (*cor
 	resolved := r.Resolve(req.Stage, nil)
 	provider := firstNonEmpty(req.Provider, resolved.Provider)
 	model := firstNonEmpty(req.Model, resolved.Model)
+	effort := firstNonEmpty(req.ReasoningEffort, resolved.ReasoningEffort)
 
 	client, ok := r.providers[provider]
 	if !ok || client == nil {
@@ -165,6 +172,7 @@ func (r *DynamicRouter) Generate(ctx context.Context, req core.LLMRequest) (*cor
 
 	req.Provider = provider
 	req.Model = model
+	req.ReasoningEffort = effort
 	resp, err := client.Generate(ctx, req)
 	if err != nil {
 		return nil, err

@@ -145,8 +145,22 @@ func (c *Client) Generate(ctx context.Context, req core.LLMRequest) (*core.LLMRe
 		}
 	}
 
+	var callOpts []option.RequestOption
+	if effort, ok := core.NormalizeReasoningEffort(req.ReasoningEffort); ok && effort != "" {
+		switch c.provider {
+		case "openrouter":
+			if effort == "none" {
+				callOpts = append(callOpts, option.WithJSONSet("reasoning", map[string]any{"enabled": false}))
+			} else {
+				callOpts = append(callOpts, option.WithJSONSet("reasoning", map[string]any{"effort": effort}))
+			}
+		case "openai":
+			callOpts = append(callOpts, option.WithJSONSet("reasoning_effort", effort))
+		}
+	}
+
 	start := c.clock.Now()
-	comp, err := c.sdk.Chat.Completions.New(ctx, params)
+	comp, err := c.sdk.Chat.Completions.New(ctx, params, callOpts...)
 	durationMs := c.clock.Now().Sub(start).Milliseconds()
 	if err != nil {
 		return nil, fmt.Errorf("%s chat.completions.new falhou: %w", c.provider, err)

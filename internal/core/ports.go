@@ -145,10 +145,11 @@ type MediaPart struct {
 
 // LLMRequest estrutura a chamada para o provedor de modelo de linguagem.
 type LLMRequest struct {
-	Stage       string            `json:"stage"` // "analysis", "response", "nudge", "learning", "vision"
-	Provider    string            `json:"provider,omitempty"`
-	Model       string            `json:"model"`
-	System      string            `json:"system"`
+	Stage           string            `json:"stage"` // "analysis", "response", "nudge", "learning", "vision"
+	Provider        string            `json:"provider,omitempty"`
+	Model           string            `json:"model"`
+	ReasoningEffort string            `json:"reasoning_effort,omitempty"`
+	System          string            `json:"system"`
 	Prompt      string            `json:"prompt"`
 	JSONSchema  string            `json:"json_schema,omitempty"`
 	MediaParts  []MediaPart       `json:"media_parts,omitempty"`

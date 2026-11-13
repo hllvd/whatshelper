@@ -105,6 +105,13 @@ func (c *Client) Generate(ctx context.Context, req core.LLMRequest) (*core.LLMRe
 	if strings.TrimSpace(req.JSONSchema) != "" {
 		genCfg.ResponseMIMEType = "application/json"
 	}
+	if effort, ok := core.NormalizeReasoningEffort(req.ReasoningEffort); ok && effort != "" {
+		if budget, hasBudget := geminiThinkingBudget(effort); hasBudget {
+			genCfg.ThinkingConfig = &genai.ThinkingConfig{
+				ThinkingBudget: &budget,
+			}
+		}
+	}
 
 	start := c.clock.Now()
 	resp, err := c.sdk.Models.GenerateContent(ctx, strings.TrimSpace(req.Model), genai.Text(promptText), genCfg)
@@ -133,4 +140,19 @@ func (c *Client) Generate(ctx context.Context, req core.LLMRequest) (*core.LLMRe
 		CompletionTokens: completionTokens,
 		DurationMs:       durationMs,
 	}, nil
+}
+
+func geminiThinkingBudget(effort string) (int32, bool) {
+	switch effort {
+	case "none":
+		return 0, true
+	case "minimal", "low":
+		return 1024, true
+	case "medium":
+		return 4096, true
+	case "high":
+		return 16384, true
+	default:
+		return 0, false
+	}
 }

@@ -58,10 +58,27 @@ func (m TakeoverMode) IsValid() bool {
 	return m == "" || m == TakeoverModePause || m == TakeoverModeRecordOnly || m == TakeoverModeIgnore
 }
 
-// StageLLMConfig define override de provider/modelo para um estágio ou capacidade ("analysis", "response", "nudge", "learning", "vision", "audio").
+// StageLLMConfig define override de provider/modelo/effort para um estágio ou capacidade ("analysis", "response", "nudge", "learning", "vision", "audio").
 type StageLLMConfig struct {
-	Provider string `yaml:"provider,omitempty" json:"provider,omitempty"`
-	Model    string `yaml:"model,omitempty" json:"model,omitempty"`
+	Provider        string `yaml:"provider,omitempty" json:"provider,omitempty"`
+	Model           string `yaml:"model,omitempty" json:"model,omitempty"`
+	ReasoningEffort string `yaml:"reasoning_effort,omitempty" json:"reasoning_effort,omitempty"`
+}
+
+// NormalizeReasoningEffort valida e normaliza o nível de raciocínio ("", "none", "minimal", "low", "medium", "high").
+// Aceita "off" como alias para "none".
+func NormalizeReasoningEffort(raw string) (string, bool) {
+	v := strings.ToLower(strings.TrimSpace(raw))
+	switch v {
+	case "":
+		return "", true
+	case "off", "none":
+		return "none", true
+	case "minimal", "low", "medium", "high":
+		return v, true
+	default:
+		return "", false
+	}
 }
 
 // TakeoverPolicy configura a política de pausa automática quando um humano assume pelo aparelho (EVT-04).

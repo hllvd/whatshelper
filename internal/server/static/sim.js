@@ -327,6 +327,43 @@
     btnBotEcho.addEventListener('click', () => submitSimOrigin('bot_echo', 'Eco simulado do robô'));
   }
 
+  const btnTestLLM = document.getElementById('btn-test-llm');
+  const llmTestStatus = document.getElementById('llm-test-status');
+  if (btnTestLLM && llmTestStatus) {
+    btnTestLLM.addEventListener('click', async () => {
+      btnTestLLM.disabled = true;
+      llmTestStatus.style.display = 'inline-block';
+      llmTestStatus.style.color = '';
+      llmTestStatus.textContent = 'Testando LLM...';
+      try {
+        const res = await fetch('/api/llm/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tenant: activeTenant, stage: 'response' }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          llmTestStatus.style.color = '#dc2626';
+          llmTestStatus.textContent = `❌ ${data.error || 'Erro HTTP ' + res.status}`;
+          return;
+        }
+        if (data.ok) {
+          llmTestStatus.style.color = '#16a34a';
+          const snippet = (data.content || '').trim().slice(0, 60);
+          llmTestStatus.textContent = `✅ ${data.provider}/${data.model} (${data.duration_ms}ms): "${snippet}"`;
+        } else {
+          llmTestStatus.style.color = '#dc2626';
+          llmTestStatus.textContent = `❌ ${data.provider || '-'}/${data.model || 'sem modelo'}: ${data.error || 'erro desconhecido'}`;
+        }
+      } catch (e) {
+        llmTestStatus.style.color = '#dc2626';
+        llmTestStatus.textContent = '❌ Falha de rede ao testar LLM';
+      } finally {
+        btnTestLLM.disabled = false;
+      }
+    });
+  }
+
   async function loadUnknownOrigins() {
     if (!unknownOriginListEl) return;
     try {

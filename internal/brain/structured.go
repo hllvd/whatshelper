@@ -107,18 +107,33 @@ func GenerateStructuredAnalysisWithProvider(
 	p *pack.Pack,
 	rendered pack.RenderedPrompt,
 ) (*StructuredAnalysisOutcome, error) {
+	return GenerateStructuredAnalysisWithConfig(ctx, llm, core.StageLLMConfig{
+		Provider: provider,
+		Model:    model,
+	}, p, rendered)
+}
+
+// GenerateStructuredAnalysisWithConfig executa a chamada de análise usando provider, model e reasoning_effort configurados.
+func GenerateStructuredAnalysisWithConfig(
+	ctx context.Context,
+	llm core.LLM,
+	stageCfg core.StageLLMConfig,
+	p *pack.Pack,
+	rendered pack.RenderedPrompt,
+) (*StructuredAnalysisOutcome, error) {
 	outcome := &StructuredAnalysisOutcome{
 		Status: "fallback",
 	}
 
 	resp1, err := llm.Generate(ctx, core.LLMRequest{
-		Stage:       "analysis",
-		Provider:    provider,
-		Model:       model,
-		System:      rendered.System,
-		Prompt:      rendered.User,
-		Temperature: 0,
-		MaxTokens:   1024,
+		Stage:           "analysis",
+		Provider:        stageCfg.Provider,
+		Model:           stageCfg.Model,
+		ReasoningEffort: stageCfg.ReasoningEffort,
+		System:          rendered.System,
+		Prompt:          rendered.User,
+		Temperature:     0,
+		MaxTokens:       2048,
 	})
 	if err != nil {
 		return outcome, fmt.Errorf("%w: chamada inicial falhou: %v", ErrAnalysisFallback, err)
@@ -143,13 +158,14 @@ func GenerateStructuredAnalysisWithProvider(
 	outcome.RepairPrompt = repairPrompt
 
 	resp2, err := llm.Generate(ctx, core.LLMRequest{
-		Stage:       "analysis_repair",
-		Provider:    provider,
-		Model:       model,
-		System:      rendered.System,
-		Prompt:      repairPrompt,
-		Temperature: 0,
-		MaxTokens:   1024,
+		Stage:           "analysis_repair",
+		Provider:        stageCfg.Provider,
+		Model:           stageCfg.Model,
+		ReasoningEffort: stageCfg.ReasoningEffort,
+		System:          rendered.System,
+		Prompt:          repairPrompt,
+		Temperature:     0,
+		MaxTokens:       2048,
 	})
 	if err != nil {
 		outcome.FinalErrors = valErrs

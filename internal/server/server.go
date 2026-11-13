@@ -163,6 +163,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/llm/presets", s.handleGetLLMPresets)
 	mux.HandleFunc("GET /api/llm/config", s.handleGetLLMConfig)
 	mux.HandleFunc("PUT /api/llm/config", s.handlePutLLMConfig)
+	mux.HandleFunc("POST /api/llm/test", s.handleTestLLM)
 	mux.HandleFunc("POST /api/replay", s.handlePostReplay)
 	mux.HandleFunc("GET /api/contacts/{contact_id}/sources", s.handleListContactSources)
 	mux.HandleFunc("GET /api/knowledge", s.handleListKnowledge)

@@ -3,9 +3,12 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"whatshelper/internal/brain"
 	"whatshelper/internal/core"
@@ -81,6 +84,9 @@ func (s *Server) buildLLMConfigResponse(tenantID string, policy core.TenantPolic
 				if ov.Model != "" {
 					eff.Model = ov.Model
 				}
+				if ov.ReasoningEffort != "" {
+					eff.ReasoningEffort = ov.ReasoningEffort
+				}
 			}
 			effective[stage] = eff
 		}
@@ -151,14 +157,19 @@ func (s *Server) handlePutLLMConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		p := strings.TrimSpace(ov.Provider)
 		m := strings.TrimSpace(ov.Model)
-		if p == "" && m == "" {
+		e, ok := core.NormalizeReasoningEffort(ov.ReasoningEffort)
+		if !ok {
+			writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("reasoning_effort inválido em %q: %q", stage, ov.ReasoningEffort))
+			return
+		}
+		if p == "" && m == "" && e == "" {
 			continue
 		}
 		if p != "" && activeSet != nil && !activeSet[p] {
 			writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("provedor %q não está configurado no ambiente", p))
 			return
 		}
-		cleaned[stage] = core.StageLLMConfig{Provider: p, Model: m}
+		cleaned[stage] = core.StageLLMConfig{Provider: p, Model: m, ReasoningEffort: e}
 	}
 
 	policy, err := s.loadTenantPolicyForLLM(r.Context(), tenantID)
@@ -173,4 +184,139 @@ func (s *Server) handlePutLLMConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, s.buildLLMConfigResponse(tenantID, policy))
+}
+
+type llmTestRequest struct {
+	Tenant          string `json:"tenant"`
+	Stage           string `json:"stage"`
+	Provider        string `json:"provider"`
+	Model           string `json:"model"`
+	ReasoningEffort string `json:"reasoning_effort"`
+	Prompt          string `json:"prompt"`
+}
+
+type llmTestResponse struct {
+	OK               bool   `json:"ok"`
+	Stage            string `json:"stage"`
+	Provider         string `json:"provider"`
+	Model            string `json:"model"`
+	Content          string `json:"content,omitempty"`
+	DurationMs       int64  `json:"duration_ms"`
+	PromptTokens     int    `json:"prompt_tokens,omitempty"`
+	CompletionTokens int    `json:"completion_tokens,omitempty"`
+	Error            string `json:"error,omitempty"`
+}
+
+func resolveLLMTestParams(req llmTestRequest, resolved core.StageLLMConfig) (stage, provider, model, effort, prompt string) {
+	stage = strings.TrimSpace(req.Stage)
+	if stage == "" {
+		stage = "response"
+	}
+	provider = strings.TrimSpace(req.Provider)
+	if provider == "" {
+		provider = resolved.Provider
+	}
+	model = strings.TrimSpace(req.Model)
+	if model == "" {
+		model = resolved.Model
+	}
+	effort, _ = core.NormalizeReasoningEffort(req.ReasoningEffort)
+	if effort == "" {
+		effort = resolved.ReasoningEffort
+	}
+	prompt = strings.TrimSpace(req.Prompt)
+	if prompt == "" {
+		prompt = "Responda apenas: OK"
+	}
+	return stage, provider, model, effort, prompt
+}
+
+func (s *Server) handleTestLLM(w http.ResponseWriter, r *http.Request) {
+	if s.deps.LLMRouter == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "roteador LLM não inicializado")
+		return
+	}
+	var llmClient core.LLM = s.deps.LLMRouter
+
+	var req llmTestRequest
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			writeJSONError(w, http.StatusBadRequest, "JSON inválido")
+			return
+		}
+	}
+
+	if strings.TrimSpace(req.Tenant) == "" {
+		req.Tenant = strings.TrimSpace(r.URL.Query().Get("tenant"))
+	}
+	if strings.TrimSpace(req.Stage) != "" && !isValidLLMStage(strings.TrimSpace(req.Stage)) {
+		writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("estágio inválido: %q", req.Stage))
+		return
+	}
+
+	var resolved core.StageLLMConfig
+	if s.deps.LLMRouter != nil {
+		var overrides map[string]core.StageLLMConfig
+		if req.Tenant != "" {
+			if policy, err := s.loadTenantPolicyForLLM(r.Context(), req.Tenant); err == nil {
+				overrides = policy.LLMOverrides
+			}
+		}
+		stageKey := strings.TrimSpace(req.Stage)
+		if stageKey == "" {
+			stageKey = "response"
+		}
+		resolved = s.deps.LLMRouter.Resolve(stageKey, overrides)
+	}
+
+	stage, provider, model, effort, prompt := resolveLLMTestParams(req, resolved)
+
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	resp, err := llmClient.Generate(ctx, core.LLMRequest{
+		Stage:           stage,
+		Provider:        provider,
+		Model:           model,
+		ReasoningEffort: effort,
+		Prompt:          prompt,
+		MaxTokens:       128,
+	})
+	elapsedMs := time.Since(start).Milliseconds()
+
+	if err != nil {
+		writeJSON(w, http.StatusOK, llmTestResponse{
+			OK:         false,
+			Stage:      stage,
+			Provider:   provider,
+			Model:      model,
+			DurationMs: elapsedMs,
+			Error:      err.Error(),
+		})
+		return
+	}
+
+	out := llmTestResponse{
+		OK:         true,
+		Stage:      stage,
+		Provider:   provider,
+		Model:      model,
+		DurationMs: elapsedMs,
+	}
+	if resp != nil {
+		if resp.Provider != "" {
+			out.Provider = resp.Provider
+		}
+		if resp.Model != "" {
+			out.Model = resp.Model
+		}
+		if resp.DurationMs > 0 {
+			out.DurationMs = resp.DurationMs
+		}
+		out.Content = resp.Content
+		out.PromptTokens = resp.PromptTokens
+		out.CompletionTokens = resp.CompletionTokens
+	}
+	writeJSON(w, http.StatusOK, out)
 }

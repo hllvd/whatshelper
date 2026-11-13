@@ -311,8 +311,17 @@
       const stages = [
         { key: 'analysis', label: 'Análise / Thinking' },
         { key: 'response', label: 'Resposta' },
+        { key: 'nudge', label: 'Nudge (Follow-up)' },
         { key: 'vision', label: 'Visão (Imagens)' },
         { key: 'audio', label: 'Áudio (Transcrição)' }
+      ];
+      const effortOptions = [
+        { value: '', label: 'Effort: padrão' },
+        { value: 'none', label: 'Effort: none (sem thinking)' },
+        { value: 'minimal', label: 'Effort: minimal' },
+        { value: 'low', label: 'Effort: low' },
+        { value: 'medium', label: 'Effort: medium' },
+        { value: 'high', label: 'Effort: high' }
       ];
 
       llmConfigCard.textContent = '';
@@ -376,12 +385,22 @@
         modelInput.value = cur.model || '';
         modelInput.placeholder = 'Modelo (preset ou custom)';
 
+        const effortSel = document.createElement('select');
+        effortOptions.forEach(eo => {
+          const opt = document.createElement('option');
+          opt.value = eo.value;
+          opt.textContent = eo.label;
+          effortSel.appendChild(opt);
+        });
+        effortSel.value = cur.reasoning_effort || '';
+
         box.appendChild(lbl);
         box.appendChild(provSel);
         box.appendChild(modelInput);
+        box.appendChild(effortSel);
         box.appendChild(dl);
         grid.appendChild(box);
-        controls[st.key] = { provSel, modelInput };
+        controls[st.key] = { provSel, modelInput, effortSel };
       });
       llmConfigCard.appendChild(grid);
 
@@ -394,6 +413,9 @@
       const saveBtn = document.createElement('button');
       saveBtn.type = 'button';
       saveBtn.textContent = 'Aplicar Modelos';
+      const testBtn = document.createElement('button');
+      testBtn.type = 'button';
+      testBtn.textContent = 'Testar LLM';
       const feedback = document.createElement('span');
       feedback.style.fontSize = '0.82rem';
 
@@ -402,7 +424,8 @@
         stages.forEach(st => {
           overrides[st.key] = {
             provider: controls[st.key].provSel.value,
-            model: controls[st.key].modelInput.value.trim()
+            model: controls[st.key].modelInput.value.trim(),
+            reasoning_effort: controls[st.key].effortSel.value
           };
         });
         saveBtn.disabled = true;
@@ -426,7 +449,50 @@
         }
       });
 
+      testBtn.addEventListener('click', async () => {
+        const targetCtrl = controls.response || controls.analysis;
+        const provider = targetCtrl ? targetCtrl.provSel.value : '';
+        const model = targetCtrl ? targetCtrl.modelInput.value.trim() : '';
+        const reasoningEffort = targetCtrl ? targetCtrl.effortSel.value : '';
+        testBtn.disabled = true;
+        feedback.style.color = '';
+        feedback.textContent = `Testando ${provider || 'LLM'}${model ? ' (' + model + ')' : ''}...`;
+        try {
+          const res = await fetch('/api/llm/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              tenant: TENANT,
+              stage: 'response',
+              provider,
+              model,
+              reasoning_effort: reasoningEffort
+            })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            feedback.style.color = '#dc2626';
+            feedback.textContent = `❌ ${data.error || 'Erro HTTP ' + res.status}`;
+            return;
+          }
+          if (data.ok) {
+            feedback.style.color = '#16a34a';
+            const snippet = (data.content || '').trim().slice(0, 80);
+            feedback.textContent = `✅ OK (${data.provider}/${data.model} · ${data.duration_ms}ms): "${snippet}"`;
+          } else {
+            feedback.style.color = '#dc2626';
+            feedback.textContent = `❌ Falhou (${data.provider || '-'}/${data.model || 'sem modelo'} · ${data.duration_ms}ms): ${data.error || 'erro desconhecido'}`;
+          }
+        } catch (e) {
+          feedback.style.color = '#dc2626';
+          feedback.textContent = '❌ Falha de rede ao testar LLM';
+        } finally {
+          testBtn.disabled = false;
+        }
+      });
+
       actions.appendChild(saveBtn);
+      actions.appendChild(testBtn);
       actions.appendChild(feedback);
       llmConfigCard.appendChild(actions);
     } catch (err) {

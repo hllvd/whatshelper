@@ -46,8 +46,35 @@ type GroundingResult struct {
 
 var replyNumberPattern = regexp.MustCompile(`\d+(?:[.,]\d+)*`)
 
+// LooksLikeInternalJSON detecta se o texto aparenta ser um envelope JSON interno
+// (mesmo truncado ou cercado por markdown) que nunca deve ser enviado ao cliente.
+func LooksLikeInternalJSON(raw string) bool {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return false
+	}
+	unwrapped := trimmed
+	if strings.HasPrefix(unwrapped, "```") {
+		if idx := strings.IndexByte(unwrapped, '\n'); idx >= 0 {
+			unwrapped = strings.TrimSpace(unwrapped[idx+1:])
+		}
+	}
+	if !strings.HasPrefix(unwrapped, "{") {
+		return false
+	}
+	lower := strings.ToLower(unwrapped)
+	for _, key := range []string{`"answerable"`, `"sources"`, `"reply"`, `"facts"`, `"signals"`, `"decision"`, `"summary"`} {
+		if strings.Contains(lower, key) {
+			return true
+		}
+	}
+	return false
+}
+
 // ParseReplyOutput tenta extrair o JSON estruturado {answerable, sources, reply}.
 // Quando o prompt do pack não usa envelope JSON, retorna fallback com isStructured=false.
+// Se o texto parecer um JSON interno malformado ou truncado, retorna Answerable=false e Reply vazio
+// para impedir vazamento de JSON interno ao cliente.
 func ParseReplyOutput(raw string) (StructuredReply, bool) {
 	trimmed := strings.TrimSpace(raw)
 	jsonStr, err := ExtractJSON(trimmed)
@@ -73,6 +100,12 @@ func ParseReplyOutput(raw string) (StructuredReply, bool) {
 			}, true
 		}
 	}
+	if LooksLikeInternalJSON(trimmed) {
+		return StructuredReply{
+			Answerable: false,
+			Reply:      "",
+		}, true
+	}
 	return StructuredReply{
 		Answerable: trimmed != "",
 		Reply:      trimmed,
@@ -91,6 +124,12 @@ func CheckGrounding(
 		return GroundingResult{
 			Grounded: false,
 			Reason:   "pergunta sem cobertura no conhecimento configurado",
+		}
+	}
+	if LooksLikeInternalJSON(reply.Reply) {
+		return GroundingResult{
+			Grounded: false,
+			Reason:   "resposta contém JSON interno não sanitizado",
 		}
 	}
 

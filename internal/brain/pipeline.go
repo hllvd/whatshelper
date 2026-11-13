@@ -375,30 +375,33 @@ type configAudioTranscriber interface {
 	TranscribeWithConfig(ctx context.Context, audio []byte, mimeType, provider, model string) (string, error)
 }
 
-func (p *Pipeline) resolveStageLLM(stage string, tenantCfg *core.TenantPolicy, fallbackModel string) (string, string) {
+func (p *Pipeline) resolveStageLLMConfig(stage string, tenantCfg *core.TenantPolicy, fallbackModel string) core.StageLLMConfig {
 	var overrides map[string]core.StageLLMConfig
 	if tenantCfg != nil {
 		overrides = tenantCfg.LLMOverrides
 	}
 	if resolver, ok := p.cfg.LLM.(stageLLMResolver); ok {
 		resolved := resolver.Resolve(stage, overrides)
-		model := resolved.Model
-		if model == "" {
-			model = fallbackModel
+		if resolved.Model == "" {
+			resolved.Model = fallbackModel
 		}
-		return resolved.Provider, model
+		return resolved
 	}
-	var provider, model string
+	var out core.StageLLMConfig
 	if overrides != nil {
 		if ov, ok := overrides[stage]; ok {
-			provider = ov.Provider
-			model = ov.Model
+			out = ov
 		}
 	}
-	if model == "" {
-		model = fallbackModel
+	if out.Model == "" {
+		out.Model = fallbackModel
 	}
-	return provider, model
+	return out
+}
+
+func (p *Pipeline) resolveStageLLM(stage string, tenantCfg *core.TenantPolicy, fallbackModel string) (string, string) {
+	cfg := p.resolveStageLLMConfig(stage, tenantCfg, fallbackModel)
+	return cfg.Provider, cfg.Model
 }
 
 func (p *Pipeline) prepareMediaBatch(
@@ -471,8 +474,8 @@ func (p *Pipeline) describeImageMessage(ctx context.Context, msg core.Normalized
 	if fallbackVision == "" {
 		fallbackVision = p.cfg.AnalysisModel
 	}
-	provider, model := p.resolveStageLLM("vision", tenantCfg, fallbackVision)
-	if model == "" && provider == "" {
+	visionCfg := p.resolveStageLLMConfig("vision", tenantCfg, fallbackVision)
+	if visionCfg.Model == "" && visionCfg.Provider == "" {
 		return ""
 	}
 	imgBytes, err := p.cfg.Blobs.Get(ctx, msg.MediaRef)
@@ -480,10 +483,11 @@ func (p *Pipeline) describeImageMessage(ctx context.Context, msg core.Normalized
 		return ""
 	}
 	resp, err := p.cfg.LLM.Generate(ctx, core.LLMRequest{
-		Stage:       "vision",
-		Provider:    provider,
-		Model:       model,
-		System:      "Descreva objetivamente o conteúdo relevante da imagem enviada pelo cliente em português claro e conciso.",
+		Stage:           "vision",
+		Provider:        visionCfg.Provider,
+		Model:           visionCfg.Model,
+		ReasoningEffort: visionCfg.ReasoningEffort,
+		System:          "Descreva objetivamente o conteúdo relevante da imagem enviada pelo cliente em português claro e conciso.",
 		Prompt:      "Descreva esta imagem.",
 		MediaParts:  []core.MediaPart{{MimeType: inferImageMime(msg.MediaRef), Data: imgBytes}},
 		Temperature: 0.2,
@@ -713,7 +717,8 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 			At:        p.now(),
 		})
 
-		analysisProvider, analysisModel := p.resolveStageLLM("analysis", &tenantCfg, p.cfg.AnalysisModel)
+		analysisCfg := p.resolveStageLLMConfig("analysis", &tenantCfg, p.cfg.AnalysisModel)
+		analysisProvider, analysisModel := analysisCfg.Provider, analysisCfg.Model
 		p.publish(core.Event{
 			ID:        newID("ev"),
 			Type:      core.EventPromptSent,
@@ -732,7 +737,7 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 			},
 		})
 
-		analysisOutcome, err = GenerateStructuredAnalysisWithProvider(ctx, p.cfg.LLM, analysisProvider, analysisModel, pk, renderedAnalysis)
+		analysisOutcome, err = GenerateStructuredAnalysisWithConfig(ctx, p.cfg.LLM, analysisCfg, pk, renderedAnalysis)
 		trace.Analysis = &StageTrace{
 			Stage:            "analysis",
 			Model:            analysisModel,
@@ -1103,7 +1108,8 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 		return p.failPipeline(ctx, latest, runID, traceRef, trace, err)
 	}
 
-	responseProvider, responseModel := p.resolveStageLLM("response", &tenantCfg, p.cfg.ResponseModel)
+	responseCfg := p.resolveStageLLMConfig("response", &tenantCfg, p.cfg.ResponseModel)
+	responseProvider, responseModel := responseCfg.Provider, responseCfg.Model
 	p.publish(core.Event{
 		ID:        newID("ev"),
 		Type:      core.EventPromptSent,
@@ -1123,13 +1129,14 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 	})
 
 	replyResp, err := p.cfg.LLM.Generate(ctx, core.LLMRequest{
-		Stage:       "response",
-		Provider:    responseProvider,
-		Model:       responseModel,
-		System:      renderedReply.System,
-		Prompt:      renderedReply.User,
-		Temperature: 0.3,
-		MaxTokens:   1024,
+		Stage:           "response",
+		Provider:        responseProvider,
+		Model:           responseModel,
+		ReasoningEffort: responseCfg.ReasoningEffort,
+		System:          renderedReply.System,
+		Prompt:          renderedReply.User,
+		Temperature:     0.3,
+		MaxTokens:       4096,
 	})
 	if err != nil {
 		return p.failPipeline(ctx, latest, runID, traceRef, trace, err)
@@ -1160,6 +1167,9 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 			},
 			CreatedAt: p.now(),
 		})
+	}
+	if LooksLikeInternalJSON(finalReply) {
+		finalReply = NeutralFallbackReply
 	}
 	if plainTextOnly {
 		finalReply = SanitizePlainText(finalReply)

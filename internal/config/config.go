@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"whatshelper/internal/core"
 	"whatshelper/internal/security"
 )
 
@@ -47,6 +48,12 @@ type Config struct {
 	LearningModel       string
 	VisionModel         string
 	AudioModel          string
+	AnalysisEffort      string
+	ResponseEffort      string
+	NudgeEffort         string
+	LearningEffort      string
+	VisionEffort        string
+	AudioEffort         string
 	TranscriptionURL    string
 	TranscriptionAPIKey string
 	TranscriptionModel  string
@@ -126,6 +133,12 @@ func LoadFromEnv() Config {
 		LearningModel:       strings.TrimSpace(os.Getenv("MODEL_LEARNING")),
 		VisionModel:         strings.TrimSpace(os.Getenv("MODEL_VISION")),
 		AudioModel:          strings.TrimSpace(os.Getenv("MODEL_AUDIO")),
+		AnalysisEffort:      strings.TrimSpace(os.Getenv("EFFORT_ANALYSIS")),
+		ResponseEffort:      strings.TrimSpace(os.Getenv("EFFORT_RESPONSE")),
+		NudgeEffort:         strings.TrimSpace(os.Getenv("EFFORT_NUDGE")),
+		LearningEffort:      strings.TrimSpace(os.Getenv("EFFORT_LEARNING")),
+		VisionEffort:        strings.TrimSpace(os.Getenv("EFFORT_VISION")),
+		AudioEffort:         strings.TrimSpace(os.Getenv("EFFORT_AUDIO")),
 		TranscriptionURL:    strings.TrimSpace(os.Getenv("TRANSCRIPTION_URL")),
 		TranscriptionAPIKey: strings.TrimSpace(os.Getenv("TRANSCRIPTION_API_KEY")),
 		TranscriptionModel:  strings.TrimSpace(os.Getenv("TRANSCRIPTION_MODEL")),
@@ -227,7 +240,26 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(entry.key) == "" {
 		return entry.missing
 	}
+	if err := c.validateStageEfforts(); err != nil {
+		return err
+	}
 	return c.validateStageModels()
+}
+
+func (c Config) validateStageEfforts() error {
+	for envName, raw := range map[string]string{
+		"EFFORT_ANALYSIS": c.AnalysisEffort,
+		"EFFORT_RESPONSE": c.ResponseEffort,
+		"EFFORT_NUDGE":    c.NudgeEffort,
+		"EFFORT_LEARNING": c.LearningEffort,
+		"EFFORT_VISION":   c.VisionEffort,
+		"EFFORT_AUDIO":    c.AudioEffort,
+	} {
+		if _, ok := core.NormalizeReasoningEffort(raw); !ok {
+			return fmt.Errorf("%s inválido %q: use 'none' (ou 'off'), 'minimal', 'low', 'medium' ou 'high'", envName, raw)
+		}
+	}
+	return nil
 }
 
 func (c Config) validateStageModels() error {

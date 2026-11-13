@@ -143,15 +143,16 @@ func (p *Pipeline) ProcessDueNudges(ctx context.Context, tenantID string) (int, 
 		if fallbackNudge == "" {
 			fallbackNudge = p.cfg.ResponseModel
 		}
-		provider, model := p.resolveStageLLM("nudge", &tenantCfg, fallbackNudge)
+		nudgeCfg := p.resolveStageLLMConfig("nudge", &tenantCfg, fallbackNudge)
 		resp, err := p.cfg.LLM.Generate(ctx, core.LLMRequest{
-			Stage:       "nudge",
-			Provider:    provider,
-			Model:       model,
-			System:      rendered.System,
-			Prompt:      rendered.User,
-			Temperature: 0.4,
-			MaxTokens:   256,
+			Stage:           "nudge",
+			Provider:        nudgeCfg.Provider,
+			Model:           nudgeCfg.Model,
+			ReasoningEffort: nudgeCfg.ReasoningEffort,
+			System:          rendered.System,
+			Prompt:          rendered.User,
+			Temperature:     0.4,
+			MaxTokens:       256,
 		})
 		if err != nil {
 			continue
@@ -181,7 +182,7 @@ func (p *Pipeline) ProcessDueNudges(ctx context.Context, tenantID string) (int, 
 			MessageID:        msgID,
 			Stage:            "nudge",
 			Status:           "ok",
-			Model:            model,
+			Model:            nudgeCfg.Model,
 			PromptTokens:     resp.PromptTokens,
 			CompletionTokens: resp.CompletionTokens,
 			DurationMs:       resp.DurationMs,
