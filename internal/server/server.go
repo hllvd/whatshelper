@@ -20,6 +20,7 @@ import (
 	"whatshelper/internal/channels/simulator"
 	"whatshelper/internal/config"
 	"whatshelper/internal/core"
+	"whatshelper/internal/llm"
 	"whatshelper/internal/security"
 )
 
@@ -36,6 +37,7 @@ type Dependencies struct {
 	RemoteChannels map[string]*bridge.RemoteChannel
 	Pipeline       *brain.Pipeline
 	Knowledge      interface{ Invalidate(tenantID string) }
+	LLMRouter      *llm.DynamicRouter
 }
 
 // Server encapsula o servidor HTTP do Brain com logging estruturado e graceful shutdown.
@@ -158,6 +160,9 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/tasks/pending", s.handleListPendingTasks)
 	mux.HandleFunc("POST /api/tasks/{id}/complete", s.handleCompleteTask)
 	mux.HandleFunc("POST /api/tasks/{id}/approve", s.handleApproveTask)
+	mux.HandleFunc("GET /api/llm/presets", s.handleGetLLMPresets)
+	mux.HandleFunc("GET /api/llm/config", s.handleGetLLMConfig)
+	mux.HandleFunc("PUT /api/llm/config", s.handlePutLLMConfig)
 	mux.HandleFunc("POST /api/replay", s.handlePostReplay)
 	mux.HandleFunc("GET /api/contacts/{contact_id}/sources", s.handleListContactSources)
 	mux.HandleFunc("GET /api/knowledge", s.handleListKnowledge)

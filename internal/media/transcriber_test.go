@@ -2,7 +2,6 @@ package media_test
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,30 +9,35 @@ import (
 	"whatshelper/internal/media"
 )
 
-func TestHTTPTranscriber(t *testing.T) {
-	if media.NewHTTPTranscriber("", "", "", nil) != nil {
-		t.Fatalf("expected nil transcriber when endpoint is empty")
-	}
+func TestDynamicAudioTranscriber_OverrideModelAndProvider(t *testing.T) {
+	var capturedModel string
+	var capturedAuth string
+	var capturedPath string
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer sk-tr" {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
+		capturedPath = r.URL.Path
+		capturedAuth = r.Header.Get("Authorization")
+		if err := r.ParseMultipartForm(1 << 20); err == nil {
+			capturedModel = r.FormValue("model")
 		}
-		if err := r.ParseMultipartForm(4 << 20); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		_ = json.NewEncoder(w).Encode(map[string]string{"text": "Quero confirmar o horário."})
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"text":"olá mundo"}`))
 	}))
 	defer srv.Close()
 
-	tr := media.NewHTTPTranscriber(srv.URL, "sk-tr", "whisper-1", nil)
-	got, err := tr.Transcribe(context.Background(), []byte("fake-ogg"), "audio/ogg")
-	if err != nil {
-		t.Fatalf("Transcribe failed: %v", err)
+	tr := media.NewDynamicAudioTranscriber("", "", "", "sk-openai", srv.URL, "openai", "whisper-1", srv.Client())
+	if tr == nil {
+		t.Fatal("expected non-nil DynamicAudioTranscriber")
 	}
-	if got != "Quero confirmar o horário." {
-		t.Fatalf("unexpected transcription: %q", got)
+
+	txt, err := tr.TranscribeWithConfig(context.Background(), []byte("fake-ogg"), "audio/ogg", "openai", "gpt-4o-transcribe")
+	if err != nil {
+		t.Fatalf("TranscribeWithConfig failed: %v", err)
+	}
+	if txt != "olá mundo" {
+		t.Fatalf("unexpected transcript: %q", txt)
+	}
+	if capturedPath != "/audio/transcriptions" || capturedAuth != "Bearer sk-openai" || capturedModel != "gpt-4o-transcribe" {
+		t.Fatalf("unexpected request: path=%q auth=%q model=%q", capturedPath, capturedAuth, capturedModel)
 	}
 }

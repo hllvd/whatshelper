@@ -43,12 +43,21 @@ func NewHTTPTranscriber(endpoint, apiKey, model string, client *http.Client) *HT
 }
 
 func (t *HTTPTranscriber) Transcribe(ctx context.Context, audio []byte, mimeType string) (string, error) {
+	return t.TranscribeWithModel(ctx, audio, mimeType, t.model)
+}
+
+// TranscribeWithModel executa a transcrição usando um modelo específico (override em tempo real).
+func (t *HTTPTranscriber) TranscribeWithModel(ctx context.Context, audio []byte, mimeType, model string) (string, error) {
 	if len(audio) == 0 {
 		return "", errors.New("transcrição: áudio vazio")
 	}
+	targetModel := strings.TrimSpace(model)
+	if targetModel == "" {
+		targetModel = t.model
+	}
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
-	_ = mw.WriteField("model", t.model)
+	_ = mw.WriteField("model", targetModel)
 	ext := extFromMime(mimeType)
 	part, err := mw.CreateFormFile("file", "audio."+ext)
 	if err != nil {
@@ -102,4 +111,61 @@ func extFromMime(mimeType string) string {
 	default:
 		return "ogg"
 	}
+}
+
+// DynamicAudioTranscriber permite selecionar provedor e modelo de áudio em tempo real,
+// suportando tanto endpoint customizado (TRANSCRIPTION_URL) quanto OpenAI direto (/audio/transcriptions).
+type DynamicAudioTranscriber struct {
+	custom          *HTTPTranscriber
+	openAI          *HTTPTranscriber
+	defaultProvider string
+	defaultModel    string
+}
+
+// NewDynamicAudioTranscriber cria um transcritor dinâmico; retorna nil se nenhum endpoint/chave estiver disponível.
+func NewDynamicAudioTranscriber(customURL, customKey, customModel, openAIKey, openAIBaseURL, defaultProvider, defaultModel string, client *http.Client) *DynamicAudioTranscriber {
+	custom := NewHTTPTranscriber(customURL, customKey, customModel, client)
+	var openAI *HTTPTranscriber
+	if strings.TrimSpace(openAIKey) != "" {
+		base := strings.TrimRight(strings.TrimSpace(openAIBaseURL), "/")
+		if base == "" {
+			base = "https://api.openai.com/v1"
+		}
+		openAI = NewHTTPTranscriber(base+"/audio/transcriptions", openAIKey, defaultModel, client)
+	}
+	if custom == nil && openAI == nil {
+		return nil
+	}
+	return &DynamicAudioTranscriber{
+		custom:          custom,
+		openAI:          openAI,
+		defaultProvider: strings.TrimSpace(defaultProvider),
+		defaultModel:    strings.TrimSpace(defaultModel),
+	}
+}
+
+func (d *DynamicAudioTranscriber) Transcribe(ctx context.Context, audio []byte, mimeType string) (string, error) {
+	return d.TranscribeWithConfig(ctx, audio, mimeType, d.defaultProvider, d.defaultModel)
+}
+
+// TranscribeWithConfig executa a transcrição usando provedor/modelo resolvidos em tempo real.
+func (d *DynamicAudioTranscriber) TranscribeWithConfig(ctx context.Context, audio []byte, mimeType, provider, model string) (string, error) {
+	p := strings.TrimSpace(provider)
+	if p == "" {
+		p = d.defaultProvider
+	}
+	m := strings.TrimSpace(model)
+	if m == "" {
+		m = d.defaultModel
+	}
+	if p == "openai" && d.openAI != nil {
+		return d.openAI.TranscribeWithModel(ctx, audio, mimeType, m)
+	}
+	if d.custom != nil {
+		return d.custom.TranscribeWithModel(ctx, audio, mimeType, m)
+	}
+	if d.openAI != nil {
+		return d.openAI.TranscribeWithModel(ctx, audio, mimeType, m)
+	}
+	return "", errors.New("transcrição indisponível")
 }

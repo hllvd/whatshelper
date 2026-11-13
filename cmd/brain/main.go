@@ -82,11 +82,15 @@ func main() {
 	}
 	blobRepo := s3blob.NewStore(s3Client, cfg.S3Bucket)
 
-	llmClient, analysisModel, responseModel, nudgeModel, err := llm.NewFromConfig(appCtx, cfg, clock)
+	llmRouter, err := llm.NewRouterFromConfig(appCtx, cfg, clock)
 	if err != nil {
 		logger.Error("falha ao inicializar LLM", slog.Any("error", err))
 		os.Exit(1)
 	}
+	defaults := llmRouter.StageDefaults()
+	analysisModel := defaults["analysis"].Model
+	responseModel := defaults["response"].Model
+	nudgeModel := defaults["nudge"].Model
 
 	bus := core.NewInMemoryEventBus(128)
 	simCh := simulator.New(clock, 128)
@@ -113,8 +117,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	audioModel := cfg.AudioModel
+	if audioModel == "" {
+		audioModel = cfg.TranscriptionModel
+	}
 	var transcriber core.AudioTranscriber
-	if t := media.NewHTTPTranscriber(cfg.TranscriptionURL, cfg.TranscriptionAPIKey, cfg.TranscriptionModel, nil); t != nil {
+	if t := media.NewDynamicAudioTranscriber(cfg.TranscriptionURL, cfg.TranscriptionAPIKey, cfg.TranscriptionModel, cfg.OpenAIAPIKey, cfg.OpenAIBaseURL, cfg.LLMProvider, audioModel, nil); t != nil {
 		transcriber = t
 	}
 
@@ -132,7 +140,7 @@ func main() {
 	pipeline := brain.NewPipeline(appCtx, brain.PipelineConfig{
 		Store:               storeRepo,
 		Blobs:               blobRepo,
-		LLM:                 llmClient,
+		LLM:                 llmRouter,
 		Bus:                 bus,
 		Clock:               clock,
 		Tenants:             brain.NewStoreTenantPolicyLoader(storeRepo, brain.NewLocalTenantLoader(cfg.TenantsDir)),
@@ -142,6 +150,8 @@ func main() {
 		ResponseModel:       responseModel,
 		NudgeModel:          nudgeModel,
 		LearningModel:       cfg.LearningModel,
+		VisionModel:         cfg.VisionModel,
+		AudioModel:          audioModel,
 		Debounce:            time.Duration(cfg.DebounceMs) * time.Millisecond,
 		RecentMessagesLimit: cfg.RecentMessagesLimit,
 		RunRetentionDays:    cfg.RunRetentionDays,
@@ -169,6 +179,7 @@ func main() {
 		RemoteChannels: map[string]*bridge.RemoteChannel{"whatsapp": whatsappRemoteCh},
 		Pipeline:       pipeline,
 		Knowledge:      knowledgeSrc,
+		LLMRouter:      llmRouter,
 	})
 
 	serverErrCh := make(chan error, 1)

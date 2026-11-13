@@ -139,12 +139,14 @@ func (p *Pipeline) ProcessDueNudges(ctx context.Context, tenantID string) (int, 
 			continue
 		}
 
-		model := p.cfg.NudgeModel
-		if model == "" {
-			model = p.cfg.ResponseModel
+		fallbackNudge := p.cfg.NudgeModel
+		if fallbackNudge == "" {
+			fallbackNudge = p.cfg.ResponseModel
 		}
+		provider, model := p.resolveStageLLM("nudge", &tenantCfg, fallbackNudge)
 		resp, err := p.cfg.LLM.Generate(ctx, core.LLMRequest{
 			Stage:       "nudge",
+			Provider:    provider,
 			Model:       model,
 			System:      rendered.System,
 			Prompt:      rendered.User,

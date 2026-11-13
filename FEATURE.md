@@ -1,0 +1,82 @@
+# FEATURE — Provedor OpenAI Direto, Roteamento Dinâmico (On the Fly), Presets e Multimodalidade (Visão + Áudio)
+
+## Visão Geral
+
+Esta entrega adiciona ao **Whatshelper Brain**:
+1. **Provedor OpenAI Direto (`LLM_PROVIDER=openai`)**, somando-se a `openrouter`, `anthropic`, `gemini`, `deepseek` e `fake`.
+2. **Roteamento Dinâmico Multi-Provedor (`DynamicRouter`)** com troca de provedor e modelo **em tempo real ("on the fly")** por estágio (`analysis`, `response`, `nudge`, `learning`, `vision`, `audio`) sem reiniciar o serviço.
+3. **Presets Recomendados de Modelos** expostos via API e UI, com suporte a seleção rápida ou digitação de qualquer ID de modelo customizado.
+4. **Processamento Multimodal**:
+   - **Visão (`vision`)**: imagens recebidas (`MessageTypeImage`) são baixadas do BlobStore, enviadas ao provedor/modelo de visão configurado e convertidas em descrição objetiva (`[Imagem descrita]: ...`) antes da análise e resposta.
+   - **Áudio (`audio`)**: transcrição dinâmica (`DynamicAudioTranscriber`) suportando tanto `TRANSCRIPTION_URL` customizada quanto OpenAI `/audio/transcriptions` direto (`whisper-1`, `gpt-4o-transcribe`, etc.) com override por tenant em tempo real.
+
+---
+
+## Arquitetura Implementada
+
+### 1. Provedor OpenAI Direto & Multimodalidade OpenAI-Compatible
+- **Arquivo**: [`internal/llm/openai/client.go`](internal/llm/openai/client.go)
+  - Cliente direto usando `DefaultBaseURL = "https://api.openai.com/v1"` sobre [`internal/llm/openaicompat/client.go`](internal/llm/openaicompat/client.go).
+- **Arquivo**: [`internal/llm/openaicompat/client.go`](internal/llm/openaicompat/client.go)
+  - Suporte a `MediaParts` (`openai.ImageContentPart` com data URI base64 + `openai.TextContentPart`).
+  - Suporte a `response_format: json_schema` para `openai` e `openrouter` quando `JSONSchema` é fornecido (com fallback para `json_object`).
+  - Retorno de `Provider` e `Model` em `core.LLMResponse`.
+- **Arquivo**: [`internal/config/config.go`](internal/config/config.go)
+  - Novas variáveis: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `MODEL_VISION`, `MODEL_AUDIO`.
+  - Inferência automática de `LLM_PROVIDER=openai` quando `OPENAI_API_KEY` está presente e nenhum outro provedor foi explicitado.
+  - Mascaramento automático de `OPENAI_API_KEY` em logs via `Secrets()`.
+
+### 2. Roteamento Dinâmico e Presets
+- **Arquivo**: [`internal/llm/router.go`](internal/llm/router.go)
+  - `NewRouterFromConfig`: inicializa o provedor padrão e registra automaticamente todos os provedores cujas chaves estejam no `.env` (`openai`, `openrouter`, `anthropic`, `gemini`, `deepseek`, além de `fake`).
+  - `Resolve(stage, overrides)`: resolve `{provider, model}` na ordem: `TenantPolicy.LLMOverrides[stage]` → default do estágio no `.env` → `defaultProvider`.
+  - `Generate(ctx, req)`: despacha para o cliente correspondente a `req.Provider`.
+  - `Presets()`: catálogo de modelos recomendados por provedor com tags de capacidade (`text`, `thinking`, `vision`, `audio`).
+- **Arquivo**: [`internal/core/policy.go`](internal/core/policy.go)
+  - `StageLLMConfig{Provider, Model}` e `TenantPolicy.LLMOverrides map[string]StageLLMConfig` persistidos no DynamoDB (`CONFIG#policy`) e suportados via `tenant.yaml` (`llm_overrides`).
+
+### 3. Pipeline Multimodal (Visão + Áudio) e Resolução por Estágio
+- **Arquivo**: [`internal/brain/pipeline.go`](internal/brain/pipeline.go)
+  - `resolveStageLLM` aplicado em `analysis`, `response`, `vision`, `audio` e [`internal/brain/nudge.go`](internal/brain/nudge.go) (`nudge`).
+  - `describeImageMessage`: quando uma imagem chega sem texto, carrega os bytes do BlobStore, chama o estágio `vision` com `MediaParts` e injeta `[Imagem descrita]: <descrição>` no texto da mensagem (fallback seguro para `[Imagem recebida]`).
+- **Arquivo**: [`internal/media/transcriber.go`](internal/media/transcriber.go)
+  - `DynamicAudioTranscriber` com `TranscribeWithConfig(ctx, audio, mimeType, provider, model)` escolhendo entre OpenAI `/audio/transcriptions` direto e `TRANSCRIPTION_URL` customizada conforme o override do estágio `audio`.
+
+### 4. API HTTP & Interface Web ("On the Fly")
+- **Arquivo**: [`internal/server/llm_config.go`](internal/server/llm_config.go)
+  - `GET /api/llm/presets`: lista provedores ativos (sem expor chaves) e presets de modelos.
+  - `GET /api/llm/config?tenant=<id>`: retorna defaults do `.env`, overrides do tenant e configuração efetiva por estágio.
+  - `PUT /api/llm/config?tenant=<id>`: valida estágios e provedores ativos, atualiza `TenantPolicy.LLMOverrides` no `Store` e aplica imediatamente nas próximas mensagens.
+- **UI**: [`internal/server/static/thinking.html`](internal/server/static/thinking.html) e [`internal/server/static/thinking.js`](internal/server/static/thinking.js)
+  - Painel **Modelos LLM (On the Fly)** na tela `/thinking` para selecionar provedor e modelo (via preset ou texto livre) para `Análise / Thinking`, `Resposta`, `Visão (Imagens)` e `Áudio (Transcrição)`.
+
+---
+
+## Como Usar
+
+1. Configure uma ou mais chaves no `.env` (ex.: `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`) e os modelos padrão (`MODEL_ANALYSIS`, `MODEL_RESPONSE`, `MODEL_NUDGE`, `MODEL_VISION`, `MODEL_AUDIO`).
+2. Inicie o brain (`make run` ou `docker compose up`).
+3. Abra `/thinking` na UI web ou chame `PUT /api/llm/config?tenant=demo` para trocar o modelo de qualquer estágio em tempo real sem reiniciar o servidor:
+
+```bash
+curl -X PUT "http://127.0.0.1:8080/api/llm/config?tenant=demo" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "overrides": {
+      "analysis": {"provider": "openai", "model": "o4-mini"},
+      "vision": {"provider": "gemini", "model": "gemini-2.5-flash"},
+      "audio": {"provider": "openai", "model": "gpt-4o-transcribe"}
+    }
+  }'
+```
+
+---
+
+## Verificação
+- Testes unitários adicionados em:
+  - [`internal/llm/openai/client_test.go`](internal/llm/openai/client_test.go)
+  - [`internal/llm/router_test.go`](internal/llm/router_test.go)
+  - [`internal/media/transcriber_test.go`](internal/media/transcriber_test.go)
+  - [`internal/brain/llm_routing_test.go`](internal/brain/llm_routing_test.go)
+  - [`internal/server/llm_config_test.go`](internal/server/llm_config_test.go)
+- Suite completa validada com `make test` e `./scripts/tests.sh all`.

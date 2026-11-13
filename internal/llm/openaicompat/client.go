@@ -2,6 +2,8 @@ package openaicompat
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -94,7 +96,26 @@ func (c *Client) Generate(ctx context.Context, req core.LLMRequest) (*core.LLMRe
 	if strings.TrimSpace(req.System) != "" {
 		messages = append(messages, openai.SystemMessage(req.System))
 	}
-	messages = append(messages, openai.UserMessage(promptText))
+	if len(req.MediaParts) > 0 {
+		parts := make([]openai.ChatCompletionContentPartUnionParam, 0, 1+len(req.MediaParts))
+		parts = append(parts, openai.TextContentPart(promptText))
+		for _, mp := range req.MediaParts {
+			if len(mp.Data) == 0 {
+				continue
+			}
+			mime := strings.TrimSpace(mp.MimeType)
+			if mime == "" {
+				mime = "image/jpeg"
+			}
+			dataURI := fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(mp.Data))
+			parts = append(parts, openai.ImageContentPart(openai.ChatCompletionContentPartImageImageURLParam{
+				URL: dataURI,
+			}))
+		}
+		messages = append(messages, openai.UserMessage(parts))
+	} else {
+		messages = append(messages, openai.UserMessage(promptText))
+	}
 
 	params := openai.ChatCompletionNewParams{
 		Model:     shared.ChatModel(strings.TrimSpace(req.Model)),
@@ -105,9 +126,22 @@ func (c *Client) Generate(ctx context.Context, req core.LLMRequest) (*core.LLMRe
 		params.Temperature = openai.Float(req.Temperature)
 	}
 	if strings.TrimSpace(req.JSONSchema) != "" {
-		jsonObj := shared.NewResponseFormatJSONObjectParam()
-		params.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
-			OfJSONObject: &jsonObj,
+		var schemaMap map[string]any
+		if (c.provider == "openai" || c.provider == "openrouter") && json.Unmarshal([]byte(req.JSONSchema), &schemaMap) == nil && len(schemaMap) > 0 {
+			params.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
+				OfJSONSchema: &shared.ResponseFormatJSONSchemaParam{
+					JSONSchema: shared.ResponseFormatJSONSchemaJSONSchemaParam{
+						Name:   "analysis_output",
+						Schema: schemaMap,
+						Strict: openai.Bool(false),
+					},
+				},
+			}
+		} else {
+			jsonObj := shared.NewResponseFormatJSONObjectParam()
+			params.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
+				OfJSONObject: &jsonObj,
+			}
 		}
 	}
 
@@ -128,6 +162,8 @@ func (c *Client) Generate(ctx context.Context, req core.LLMRequest) (*core.LLMRe
 
 	return &core.LLMResponse{
 		Content:          content,
+		Provider:         c.provider,
+		Model:            strings.TrimSpace(req.Model),
 		PromptTokens:     int(comp.Usage.PromptTokens),
 		CompletionTokens: int(comp.Usage.CompletionTokens),
 		DurationMs:       durationMs,

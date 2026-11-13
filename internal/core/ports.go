@@ -137,13 +137,21 @@ type VersionedBlobStore interface {
 	GetVersion(ctx context.Context, key, versionID string) ([]byte, error)
 }
 
+// MediaPart representa um anexo multimodal (ex.: imagem) enviado ao LLM.
+type MediaPart struct {
+	MimeType string `json:"mime_type"`
+	Data     []byte `json:"data"`
+}
+
 // LLMRequest estrutura a chamada para o provedor de modelo de linguagem.
 type LLMRequest struct {
-	Stage       string            `json:"stage"` // "analysis", "response", "nudge", etc.
+	Stage       string            `json:"stage"` // "analysis", "response", "nudge", "learning", "vision"
+	Provider    string            `json:"provider,omitempty"`
 	Model       string            `json:"model"`
 	System      string            `json:"system"`
 	Prompt      string            `json:"prompt"`
 	JSONSchema  string            `json:"json_schema,omitempty"`
+	MediaParts  []MediaPart       `json:"media_parts,omitempty"`
 	Temperature float64           `json:"temperature"`
 	MaxTokens   int               `json:"max_tokens"`
 	Metadata    map[string]string `json:"metadata,omitempty"`
@@ -152,6 +160,8 @@ type LLMRequest struct {
 // LLMResponse contém a resposta e métricas de execução do LLM.
 type LLMResponse struct {
 	Content          string `json:"content"`
+	Provider         string `json:"provider,omitempty"`
+	Model            string `json:"model,omitempty"`
 	PromptTokens     int    `json:"prompt_tokens"`
 	CompletionTokens int    `json:"completion_tokens"`
 	DurationMs       int64  `json:"duration_ms"`

@@ -89,7 +89,7 @@ func TestOpenRouterClient_GenerateHeadersAndErrors(t *testing.T) {
 		t.Fatalf("expected /chat/completions, got %q", capturedPath)
 	}
 	rf, _ := capturedBody["response_format"].(map[string]any)
-	if rf["type"] != "json_object" {
-		t.Fatalf("expected json_object response_format, got %+v", rf)
+	if rf["type"] != "json_schema" {
+		t.Fatalf("expected json_schema response_format, got %+v", rf)
 	}
 }

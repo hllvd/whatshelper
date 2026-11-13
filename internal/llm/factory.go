@@ -10,6 +10,7 @@ import (
 	"whatshelper/internal/llm/anthropic"
 	"whatshelper/internal/llm/deepseek"
 	"whatshelper/internal/llm/gemini"
+	"whatshelper/internal/llm/openai"
 	"whatshelper/internal/llm/openrouter"
 )
 
@@ -20,6 +21,12 @@ func NewFromConfig(ctx context.Context, cfg config.Config, clock core.Clock) (co
 	}
 
 	switch cfg.LLMProvider {
+	case "openai":
+		client, err := openai.New(cfg.OpenAIAPIKey, cfg.OpenAIBaseURL, clock)
+		if err != nil {
+			return nil, "", "", "", err
+		}
+		return client, cfg.AnalysisModel, cfg.ResponseModel, cfg.NudgeModel, nil
 	case "anthropic":
 		client, err := anthropic.New(cfg.AnthropicAPIKey, clock)
 		if err != nil {

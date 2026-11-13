@@ -4,6 +4,7 @@
   const stateFacts = document.getElementById('state-facts');
   const stateSignals = document.getElementById('state-signals');
   const timeline = document.getElementById('timeline');
+  const llmConfigCard = document.getElementById('llm-config-card');
   const journeyCard = document.getElementById('journey-card');
   const thinkingTitle = document.getElementById('thinking-title');
   const sseStatus = document.getElementById('sse-status');
@@ -293,9 +294,150 @@
     }
   }
 
+  async function loadLLMConfigCard() {
+    if (!llmConfigCard) return;
+    try {
+      const [presetsRes, cfgRes] = await Promise.all([
+        fetch('/api/llm/presets'),
+        fetch(`/api/llm/config?tenant=${encodeURIComponent(TENANT)}`)
+      ]);
+      if (!presetsRes.ok || !cfgRes.ok) return;
+      const presetsData = await presetsRes.json();
+      const cfgData = await cfgRes.json();
+
+      const activeProviders = presetsData.active_providers || [];
+      const presets = presetsData.presets || [];
+      const effective = cfgData.effective || {};
+      const stages = [
+        { key: 'analysis', label: 'Análise / Thinking' },
+        { key: 'response', label: 'Resposta' },
+        { key: 'vision', label: 'Visão (Imagens)' },
+        { key: 'audio', label: 'Áudio (Transcrição)' }
+      ];
+
+      llmConfigCard.textContent = '';
+      const hdr = document.createElement('div');
+      hdr.className = 'run-header';
+      const title = document.createElement('strong');
+      title.textContent = 'Modelos LLM (On the Fly)';
+      const statusSpan = document.createElement('span');
+      statusSpan.style.fontSize = '0.82rem';
+      statusSpan.textContent = `Provedor padrão: ${cfgData.default_provider || '-'}`;
+      hdr.appendChild(title);
+      hdr.appendChild(statusSpan);
+      llmConfigCard.appendChild(hdr);
+
+      const grid = document.createElement('div');
+      grid.style.display = 'grid';
+      grid.style.gridTemplateColumns = 'repeat(auto-fit, minmax(220px, 1fr))';
+      grid.style.gap = '0.5rem';
+      grid.style.marginTop = '0.5rem';
+
+      const controls = {};
+      stages.forEach(st => {
+        const box = document.createElement('div');
+        box.style.display = 'flex';
+        box.style.flexDirection = 'column';
+        box.style.gap = '0.25rem';
+
+        const lbl = document.createElement('label');
+        lbl.textContent = st.label;
+        lbl.style.fontSize = '0.8rem';
+        lbl.style.fontWeight = '600';
+
+        const provSel = document.createElement('select');
+        activeProviders.forEach(p => {
+          const opt = document.createElement('option');
+          opt.value = p;
+          opt.textContent = p;
+          provSel.appendChild(opt);
+        });
+        const cur = effective[st.key] || {};
+        if (cur.provider) provSel.value = cur.provider;
+
+        const listId = `llm-presets-${st.key}`;
+        const dl = document.createElement('datalist');
+        dl.id = listId;
+        const populatePresets = () => {
+          dl.textContent = '';
+          presets.filter(p => p.provider === provSel.value).forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.model;
+            opt.label = p.label;
+            dl.appendChild(opt);
+          });
+        };
+        populatePresets();
+        provSel.addEventListener('change', populatePresets);
+
+        const modelInput = document.createElement('input');
+        modelInput.type = 'text';
+        modelInput.setAttribute('list', listId);
+        modelInput.value = cur.model || '';
+        modelInput.placeholder = 'Modelo (preset ou custom)';
+
+        box.appendChild(lbl);
+        box.appendChild(provSel);
+        box.appendChild(modelInput);
+        box.appendChild(dl);
+        grid.appendChild(box);
+        controls[st.key] = { provSel, modelInput };
+      });
+      llmConfigCard.appendChild(grid);
+
+      const actions = document.createElement('div');
+      actions.style.display = 'flex';
+      actions.style.alignItems = 'center';
+      actions.style.gap = '0.6rem';
+      actions.style.marginTop = '0.6rem';
+
+      const saveBtn = document.createElement('button');
+      saveBtn.type = 'button';
+      saveBtn.textContent = 'Aplicar Modelos';
+      const feedback = document.createElement('span');
+      feedback.style.fontSize = '0.82rem';
+
+      saveBtn.addEventListener('click', async () => {
+        const overrides = {};
+        stages.forEach(st => {
+          overrides[st.key] = {
+            provider: controls[st.key].provSel.value,
+            model: controls[st.key].modelInput.value.trim()
+          };
+        });
+        saveBtn.disabled = true;
+        feedback.textContent = 'Salvando...';
+        try {
+          const putRes = await fetch(`/api/llm/config?tenant=${encodeURIComponent(TENANT)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ overrides })
+          });
+          if (!putRes.ok) {
+            const errJson = await putRes.json().catch(() => ({}));
+            feedback.textContent = errJson.error || 'Erro ao salvar';
+          } else {
+            feedback.textContent = 'Modelos atualizados em tempo real!';
+          }
+        } catch (e) {
+          feedback.textContent = 'Falha de rede ao salvar';
+        } finally {
+          saveBtn.disabled = false;
+        }
+      });
+
+      actions.appendChild(saveBtn);
+      actions.appendChild(feedback);
+      llmConfigCard.appendChild(actions);
+    } catch (err) {
+      console.error('Erro ao carregar modelos LLM:', err);
+    }
+  }
+
   connectSSE();
   loadSources();
   loadState();
+  loadLLMConfigCard();
   loadJourneyCard();
   loadTimeline();
 })();

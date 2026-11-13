@@ -58,6 +58,12 @@ func (m TakeoverMode) IsValid() bool {
 	return m == "" || m == TakeoverModePause || m == TakeoverModeRecordOnly || m == TakeoverModeIgnore
 }
 
+// StageLLMConfig define override de provider/modelo para um estágio ou capacidade ("analysis", "response", "nudge", "learning", "vision", "audio").
+type StageLLMConfig struct {
+	Provider string `yaml:"provider,omitempty" json:"provider,omitempty"`
+	Model    string `yaml:"model,omitempty" json:"model,omitempty"`
+}
+
 // TakeoverPolicy configura a política de pausa automática quando um humano assume pelo aparelho (EVT-04).
 type TakeoverPolicy struct {
 	Mode                 TakeoverMode `yaml:"mode" json:"mode"`
@@ -66,18 +72,19 @@ type TakeoverPolicy struct {
 
 // TenantPolicy reúne toda a política operacional e de segurança de um tenant.
 type TenantPolicy struct {
-	ID               string          `yaml:"id" json:"id"`
-	Name             string          `yaml:"name" json:"name"`
-	Pack             string          `yaml:"pack" json:"pack"`
-	Mode             OperationMode   `yaml:"mode" json:"mode"`
-	Timezone         string          `yaml:"timezone" json:"timezone"`
-	BusinessHours    BusinessHours   `yaml:"business_hours" json:"business_hours"`
-	OutOfHoursReply  string          `yaml:"out_of_hours_reply" json:"out_of_hours_reply"`
-	ProactiveEnabled bool            `yaml:"proactive_enabled" json:"proactive_enabled"`
-	BotEnabled       bool            `yaml:"bot_enabled" json:"bot_enabled"`
-	RateLimit        RateLimitPolicy `yaml:"rate_limit" json:"rate_limit"`
-	Nudge            NudgePolicy     `yaml:"nudge" json:"nudge"`
-	Takeover         TakeoverPolicy  `yaml:"takeover" json:"takeover"`
+	ID               string                    `yaml:"id" json:"id"`
+	Name             string                    `yaml:"name" json:"name"`
+	Pack             string                    `yaml:"pack" json:"pack"`
+	Mode             OperationMode             `yaml:"mode" json:"mode"`
+	Timezone         string                    `yaml:"timezone" json:"timezone"`
+	BusinessHours    BusinessHours             `yaml:"business_hours" json:"business_hours"`
+	OutOfHoursReply  string                    `yaml:"out_of_hours_reply" json:"out_of_hours_reply"`
+	ProactiveEnabled bool                      `yaml:"proactive_enabled" json:"proactive_enabled"`
+	BotEnabled       bool                      `yaml:"bot_enabled" json:"bot_enabled"`
+	RateLimit        RateLimitPolicy           `yaml:"rate_limit" json:"rate_limit"`
+	Nudge            NudgePolicy               `yaml:"nudge" json:"nudge"`
+	Takeover         TakeoverPolicy            `yaml:"takeover" json:"takeover"`
+	LLMOverrides     map[string]StageLLMConfig `yaml:"llm_overrides,omitempty" json:"llm_overrides,omitempty"`
 }
 
 var (

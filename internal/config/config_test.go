@@ -85,8 +85,24 @@ func TestConfig_ValidateAnthropic(t *testing.T) {
 	}{
 		{
 			name:    "invalid provider",
-			cfg:     config.Config{LLMProvider: "openai"},
+			cfg:     config.Config{LLMProvider: "unknown-provider"},
 			wantErr: config.ErrInvalidLLMProvider,
+		},
+		{
+			name:    "openai missing key",
+			cfg:     config.Config{LLMProvider: "openai"},
+			wantErr: config.ErrMissingOpenAIKey,
+		},
+		{
+			name: "openai valid",
+			cfg: config.Config{
+				LLMProvider:   "openai",
+				OpenAIAPIKey:  "sk-openai-test",
+				AnalysisModel: "gpt-4.1",
+				ResponseModel: "gpt-4.1-mini",
+				NudgeModel:    "gpt-4.1-nano",
+			},
+			wantErr: nil,
 		},
 		{
 			name:    "anthropic missing key",

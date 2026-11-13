@@ -74,6 +74,8 @@ type PipelineConfig struct {
 	ResponseModel       string
 	NudgeModel          string
 	LearningModel       string
+	VisionModel         string
+	AudioModel          string
 	Debounce            time.Duration
 	AfterFunc           AfterFunc
 	RecentMessagesLimit int
@@ -365,8 +367,43 @@ func (p *Pipeline) handleHumanTakeover(ctx context.Context, msg core.NormalizedM
 // NeutralAudioFallbackReply é enviada ao cliente quando um áudio chega e a transcrição automática não está disponível.
 const NeutralAudioFallbackReply = "Recebi seu áudio, mas no momento não consegui transcrevê-lo automaticamente. Já avisei nossa equipe para responder por aqui."
 
+type stageLLMResolver interface {
+	Resolve(stage string, overrides map[string]core.StageLLMConfig) core.StageLLMConfig
+}
+
+type configAudioTranscriber interface {
+	TranscribeWithConfig(ctx context.Context, audio []byte, mimeType, provider, model string) (string, error)
+}
+
+func (p *Pipeline) resolveStageLLM(stage string, tenantCfg *core.TenantPolicy, fallbackModel string) (string, string) {
+	var overrides map[string]core.StageLLMConfig
+	if tenantCfg != nil {
+		overrides = tenantCfg.LLMOverrides
+	}
+	if resolver, ok := p.cfg.LLM.(stageLLMResolver); ok {
+		resolved := resolver.Resolve(stage, overrides)
+		model := resolved.Model
+		if model == "" {
+			model = fallbackModel
+		}
+		return resolved.Provider, model
+	}
+	var provider, model string
+	if overrides != nil {
+		if ov, ok := overrides[stage]; ok {
+			provider = ov.Provider
+			model = ov.Model
+		}
+	}
+	if model == "" {
+		model = fallbackModel
+	}
+	return provider, model
+}
+
 func (p *Pipeline) prepareMediaBatch(
 	ctx context.Context,
+	tenantCfg *core.TenantPolicy,
 	businessActor string,
 	batch []core.NormalizedMessage,
 	runID, traceRef string,
@@ -381,7 +418,7 @@ func (p *Pipeline) prepareMediaBatch(
 		}
 		switch msg.Type {
 		case core.MessageTypeAudio:
-			transcript, err := p.transcribeAudioMessage(ctx, msg)
+			transcript, err := p.transcribeAudioMessage(ctx, msg, tenantCfg)
 			if err != nil || strings.TrimSpace(transcript) == "" {
 				if p.notifier != nil {
 					_ = p.notifier.Notify(ctx, core.AdminAlert{
@@ -414,7 +451,11 @@ func (p *Pipeline) prepareMediaBatch(
 			}
 			out[i].Text = "[Áudio transcrito]: " + strings.TrimSpace(transcript)
 		case core.MessageTypeImage:
-			out[i].Text = "[Imagem recebida]"
+			if desc := p.describeImageMessage(ctx, msg, tenantCfg); desc != "" {
+				out[i].Text = "[Imagem descrita]: " + desc
+			} else {
+				out[i].Text = "[Imagem recebida]"
+			}
 		case core.MessageTypeDoc:
 			out[i].Text = "[Documento recebido]"
 		}
@@ -422,7 +463,53 @@ func (p *Pipeline) prepareMediaBatch(
 	return out, false, nil
 }
 
-func (p *Pipeline) transcribeAudioMessage(ctx context.Context, msg core.NormalizedMessage) (string, error) {
+func (p *Pipeline) describeImageMessage(ctx context.Context, msg core.NormalizedMessage, tenantCfg *core.TenantPolicy) string {
+	if p.cfg.LLM == nil || p.cfg.Blobs == nil || strings.TrimSpace(msg.MediaRef) == "" {
+		return ""
+	}
+	fallbackVision := p.cfg.VisionModel
+	if fallbackVision == "" {
+		fallbackVision = p.cfg.AnalysisModel
+	}
+	provider, model := p.resolveStageLLM("vision", tenantCfg, fallbackVision)
+	if model == "" && provider == "" {
+		return ""
+	}
+	imgBytes, err := p.cfg.Blobs.Get(ctx, msg.MediaRef)
+	if err != nil || len(imgBytes) == 0 {
+		return ""
+	}
+	resp, err := p.cfg.LLM.Generate(ctx, core.LLMRequest{
+		Stage:       "vision",
+		Provider:    provider,
+		Model:       model,
+		System:      "Descreva objetivamente o conteúdo relevante da imagem enviada pelo cliente em português claro e conciso.",
+		Prompt:      "Descreva esta imagem.",
+		MediaParts:  []core.MediaPart{{MimeType: inferImageMime(msg.MediaRef), Data: imgBytes}},
+		Temperature: 0.2,
+		MaxTokens:   512,
+	})
+	if err != nil || resp == nil {
+		return ""
+	}
+	return strings.TrimSpace(resp.Content)
+}
+
+func inferImageMime(mediaRef string) string {
+	lower := strings.ToLower(mediaRef)
+	switch {
+	case strings.HasSuffix(lower, ".png"):
+		return "image/png"
+	case strings.HasSuffix(lower, ".webp"):
+		return "image/webp"
+	case strings.HasSuffix(lower, ".gif"):
+		return "image/gif"
+	default:
+		return "image/jpeg"
+	}
+}
+
+func (p *Pipeline) transcribeAudioMessage(ctx context.Context, msg core.NormalizedMessage, tenantCfg *core.TenantPolicy) (string, error) {
 	if p.cfg.Transcriber == nil || p.cfg.Blobs == nil || strings.TrimSpace(msg.MediaRef) == "" {
 		return "", errors.New("transcrição indisponível")
 	}
@@ -430,7 +517,12 @@ func (p *Pipeline) transcribeAudioMessage(ctx context.Context, msg core.Normaliz
 	if err != nil {
 		return "", err
 	}
-	return p.cfg.Transcriber.Transcribe(ctx, audioBytes, inferAudioMime(msg.MediaRef))
+	mimeType := inferAudioMime(msg.MediaRef)
+	if dyn, ok := p.cfg.Transcriber.(configAudioTranscriber); ok {
+		audioProvider, audioModel := p.resolveStageLLM("audio", tenantCfg, p.cfg.AudioModel)
+		return dyn.TranscribeWithConfig(ctx, audioBytes, mimeType, audioProvider, audioModel)
+	}
+	return p.cfg.Transcriber.Transcribe(ctx, audioBytes, mimeType)
 }
 
 func inferAudioMime(mediaRef string) string {
@@ -511,7 +603,7 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 		return p.failPipeline(ctx, latest, runID, traceRef, nil, err)
 	}
 
-	preparedBatch, handled, err := p.prepareMediaBatch(ctx, pk.Actors.Business, batch, runID, traceRef)
+	preparedBatch, handled, err := p.prepareMediaBatch(ctx, &tenantCfg, pk.Actors.Business, batch, runID, traceRef)
 	if err != nil {
 		return p.failPipeline(ctx, latest, runID, traceRef, nil, err)
 	}
@@ -621,6 +713,7 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 			At:        p.now(),
 		})
 
+		analysisProvider, analysisModel := p.resolveStageLLM("analysis", &tenantCfg, p.cfg.AnalysisModel)
 		p.publish(core.Event{
 			ID:        newID("ev"),
 			Type:      core.EventPromptSent,
@@ -631,17 +724,18 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 			RunID:     runID,
 			At:        p.now(),
 			Payload: map[string]any{
-				"stage":  "analysis",
-				"model":  p.cfg.AnalysisModel,
-				"system": renderedAnalysis.System,
-				"prompt": renderedAnalysis.User,
+				"stage":    "analysis",
+				"provider": analysisProvider,
+				"model":    analysisModel,
+				"system":   renderedAnalysis.System,
+				"prompt":   renderedAnalysis.User,
 			},
 		})
 
-		analysisOutcome, err = GenerateStructuredAnalysis(ctx, p.cfg.LLM, p.cfg.AnalysisModel, pk, renderedAnalysis)
+		analysisOutcome, err = GenerateStructuredAnalysisWithProvider(ctx, p.cfg.LLM, analysisProvider, analysisModel, pk, renderedAnalysis)
 		trace.Analysis = &StageTrace{
 			Stage:            "analysis",
-			Model:            p.cfg.AnalysisModel,
+			Model:            analysisModel,
 			SystemPrompt:     renderedAnalysis.System,
 			UserPrompt:       renderedAnalysis.User,
 			RawOutput:        analysisOutcome.RawOutput,
@@ -1009,6 +1103,7 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 		return p.failPipeline(ctx, latest, runID, traceRef, trace, err)
 	}
 
+	responseProvider, responseModel := p.resolveStageLLM("response", &tenantCfg, p.cfg.ResponseModel)
 	p.publish(core.Event{
 		ID:        newID("ev"),
 		Type:      core.EventPromptSent,
@@ -1019,16 +1114,18 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 		RunID:     runID,
 		At:        p.now(),
 		Payload: map[string]any{
-			"stage":  "response",
-			"model":  p.cfg.ResponseModel,
-			"system": renderedReply.System,
-			"prompt": renderedReply.User,
+			"stage":    "response",
+			"provider": responseProvider,
+			"model":    responseModel,
+			"system":   renderedReply.System,
+			"prompt":   renderedReply.User,
 		},
 	})
 
 	replyResp, err := p.cfg.LLM.Generate(ctx, core.LLMRequest{
 		Stage:       "response",
-		Model:       p.cfg.ResponseModel,
+		Provider:    responseProvider,
+		Model:       responseModel,
 		System:      renderedReply.System,
 		Prompt:      renderedReply.User,
 		Temperature: 0.3,

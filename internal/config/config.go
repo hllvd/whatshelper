@@ -30,7 +30,9 @@ type Config struct {
 	S3AccessKey         string
 	S3SecretKey         string
 	S3UseSSL            bool
-	LLMProvider         string // "fake" | "anthropic" | "gemini" | "deepseek" | "openrouter"
+	LLMProvider         string // "fake" | "openai" | "anthropic" | "gemini" | "deepseek" | "openrouter"
+	OpenAIAPIKey        string
+	OpenAIBaseURL       string
 	AnthropicAPIKey     string
 	GeminiAPIKey        string
 	DeepSeekAPIKey      string
@@ -43,6 +45,8 @@ type Config struct {
 	ResponseModel       string
 	NudgeModel          string
 	LearningModel       string
+	VisionModel         string
+	AudioModel          string
 	TranscriptionURL    string
 	TranscriptionAPIKey string
 	TranscriptionModel  string
@@ -54,8 +58,9 @@ type Config struct {
 }
 
 var (
-	ErrInvalidLLMProvider   = errors.New("LLM_PROVIDER inválido: deve ser 'fake', 'anthropic', 'gemini', 'deepseek' ou 'openrouter'")
+	ErrInvalidLLMProvider   = errors.New("LLM_PROVIDER inválido: deve ser 'fake', 'openai', 'anthropic', 'gemini', 'deepseek' ou 'openrouter'")
 	ErrAmbiguousLLMProvider = errors.New("múltiplas chaves de LLM definidas sem LLM_PROVIDER explícito")
+	ErrMissingOpenAIKey     = errors.New("OPENAI_API_KEY é obrigatório quando LLM_PROVIDER=openai")
 	ErrMissingAnthropicKey  = errors.New("ANTHROPIC_API_KEY é obrigatório quando LLM_PROVIDER=anthropic")
 	ErrMissingGeminiKey     = errors.New("GEMINI_API_KEY é obrigatório quando LLM_PROVIDER=gemini")
 	ErrMissingDeepSeekKey   = errors.New("DEEPSEEK_API_KEY é obrigatório quando LLM_PROVIDER=deepseek")
@@ -73,11 +78,13 @@ type providerKeyEntry struct {
 // LoadFromEnv carrega a configuração a partir do ambiente, preenchendo padrões seguros.
 // Nomes de modelo de LLM nunca são fixados no código; devem vir de variáveis de ambiente.
 func LoadFromEnv() Config {
+	openAIKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
 	anthropicKey := strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY"))
 	geminiKey := strings.TrimSpace(os.Getenv("GEMINI_API_KEY"))
 	deepseekKey := strings.TrimSpace(os.Getenv("DEEPSEEK_API_KEY"))
 	openRouterKey := strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY"))
 	provider := inferLLMProvider(getEnv("LLM_PROVIDER", ""), []providerKeyEntry{
+		{name: "openai", key: openAIKey},
 		{name: "anthropic", key: anthropicKey},
 		{name: "gemini", key: geminiKey},
 		{name: "deepseek", key: deepseekKey},
@@ -103,6 +110,8 @@ func LoadFromEnv() Config {
 		S3SecretKey:         getEnv("AWS_SECRET_ACCESS_KEY", "minioadmin"),
 		S3UseSSL:            getEnvBool("S3_USE_SSL", false),
 		LLMProvider:         strings.ToLower(provider),
+		OpenAIAPIKey:        openAIKey,
+		OpenAIBaseURL:       getEnv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
 		AnthropicAPIKey:     anthropicKey,
 		GeminiAPIKey:        geminiKey,
 		DeepSeekAPIKey:      deepseekKey,
@@ -115,6 +124,8 @@ func LoadFromEnv() Config {
 		ResponseModel:       strings.TrimSpace(os.Getenv("MODEL_RESPONSE")),
 		NudgeModel:          strings.TrimSpace(os.Getenv("MODEL_NUDGE")),
 		LearningModel:       strings.TrimSpace(os.Getenv("MODEL_LEARNING")),
+		VisionModel:         strings.TrimSpace(os.Getenv("MODEL_VISION")),
+		AudioModel:          strings.TrimSpace(os.Getenv("MODEL_AUDIO")),
 		TranscriptionURL:    strings.TrimSpace(os.Getenv("TRANSCRIPTION_URL")),
 		TranscriptionAPIKey: strings.TrimSpace(os.Getenv("TRANSCRIPTION_API_KEY")),
 		TranscriptionModel:  strings.TrimSpace(os.Getenv("TRANSCRIPTION_MODEL")),
@@ -159,6 +170,7 @@ func (c Config) Secrets() []string {
 	candidates := []string{
 		c.APIToken,
 		c.ConnectorToken,
+		c.OpenAIAPIKey,
 		c.AnthropicAPIKey,
 		c.GeminiAPIKey,
 		c.DeepSeekAPIKey,
@@ -202,6 +214,7 @@ func (c Config) Validate() error {
 	}
 
 	requiredKeys := map[string]providerKeyEntry{
+		"openai":     {key: c.OpenAIAPIKey, missing: ErrMissingOpenAIKey},
 		"anthropic":  {key: c.AnthropicAPIKey, missing: ErrMissingAnthropicKey},
 		"gemini":     {key: c.GeminiAPIKey, missing: ErrMissingGeminiKey},
 		"deepseek":   {key: c.DeepSeekAPIKey, missing: ErrMissingDeepSeekKey},

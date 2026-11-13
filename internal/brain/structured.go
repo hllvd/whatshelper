@@ -95,12 +95,25 @@ func GenerateStructuredAnalysis(
 	p *pack.Pack,
 	rendered pack.RenderedPrompt,
 ) (*StructuredAnalysisOutcome, error) {
+	return GenerateStructuredAnalysisWithProvider(ctx, llm, "", model, p, rendered)
+}
+
+// GenerateStructuredAnalysisWithProvider executa a chamada de análise especificando também o provedor.
+func GenerateStructuredAnalysisWithProvider(
+	ctx context.Context,
+	llm core.LLM,
+	provider string,
+	model string,
+	p *pack.Pack,
+	rendered pack.RenderedPrompt,
+) (*StructuredAnalysisOutcome, error) {
 	outcome := &StructuredAnalysisOutcome{
 		Status: "fallback",
 	}
 
 	resp1, err := llm.Generate(ctx, core.LLMRequest{
 		Stage:       "analysis",
+		Provider:    provider,
 		Model:       model,
 		System:      rendered.System,
 		Prompt:      rendered.User,
@@ -131,6 +144,7 @@ func GenerateStructuredAnalysis(
 
 	resp2, err := llm.Generate(ctx, core.LLMRequest{
 		Stage:       "analysis_repair",
+		Provider:    provider,
 		Model:       model,
 		System:      rendered.System,
 		Prompt:      repairPrompt,
