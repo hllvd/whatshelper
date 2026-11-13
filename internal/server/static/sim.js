@@ -14,8 +14,36 @@
   const sseStatus = document.getElementById('sse-status');
 
   const CHANNEL = 'simulator';
+  const LS_TENANT = 'whatshelper.activeTenant';
+  const LS_CHANNEL = 'whatshelper.activeChannel';
+  const LS_SOURCE = 'whatshelper.activeSource';
+
+  function saveActiveChat(tenant, channel, source) {
+    try {
+      localStorage.setItem(LS_TENANT, tenant);
+      localStorage.setItem(LS_CHANNEL, channel);
+      localStorage.setItem(LS_SOURCE, source);
+    } catch (_) {}
+  }
+
+  let storedTenant = '';
+  let storedChannel = '';
+  let storedSource = '';
+  try {
+    storedTenant = localStorage.getItem(LS_TENANT) || '';
+    storedChannel = localStorage.getItem(LS_CHANNEL) || '';
+    storedSource = localStorage.getItem(LS_SOURCE) || '';
+  } catch (_) {}
+
+  if (storedTenant && tenantInput) {
+    tenantInput.value = storedTenant;
+  }
   let activeTenant = (tenantInput && tenantInput.value.trim()) || 'demo';
-  let activeSource = sessionInput.value.trim() || 'sim-user-1';
+  let activeSource = (storedChannel === CHANNEL && storedSource) ? storedSource : (sessionInput.value.trim() || '');
+  if (activeSource) {
+    sessionInput.value = activeSource;
+  }
+  let hasExplicitSelection = Boolean(storedChannel === CHANNEL && storedSource);
   let sse = null;
 
   function renderBubble(direction, text, ts, messageId, origin) {
@@ -100,8 +128,22 @@
       const res = await fetch(`/api/sources?tenant=${encodeURIComponent(activeTenant)}`);
       if (!res.ok) return;
       const data = await res.json();
+      const sources = data.sources || [];
+      const simSources = sources.filter(s => s.channel === CHANNEL);
+      if (!hasExplicitSelection && simSources.length > 0) {
+        activeSource = simSources[0].source_key;
+        sessionInput.value = activeSource;
+        saveActiveChat(activeTenant, CHANNEL, activeSource);
+        hasExplicitSelection = true;
+        connectSSE();
+        loadMessages();
+      } else if (!activeSource) {
+        activeSource = 'sim-user-1';
+        sessionInput.value = activeSource;
+        saveActiveChat(activeTenant, CHANNEL, activeSource);
+      }
       sourcesList.textContent = '';
-      for (const s of (data.sources || [])) {
+      for (const s of sources) {
         const li = document.createElement('li');
         const btn = document.createElement('button');
         btn.type = 'button';
@@ -111,7 +153,9 @@
         }
         btn.addEventListener('click', () => {
           activeSource = s.source_key;
+          hasExplicitSelection = true;
           sessionInput.value = activeSource;
+          saveActiveChat(activeTenant, s.channel, s.source_key);
           connectSSE();
           loadMessages();
           loadSources();
@@ -393,6 +437,7 @@
   if (tenantInput) {
     tenantInput.addEventListener('change', () => {
       activeTenant = tenantInput.value.trim() || 'demo';
+      saveActiveChat(activeTenant, CHANNEL, activeSource);
       connectSSE();
       loadMessages();
       loadSources();
@@ -402,6 +447,8 @@
 
   sessionInput.addEventListener('change', () => {
     activeSource = sessionInput.value.trim() || 'sim-user-1';
+    hasExplicitSelection = true;
+    saveActiveChat(activeTenant, CHANNEL, activeSource);
     connectSSE();
     loadMessages();
     loadSources();
@@ -409,14 +456,18 @@
 
   newSessionBtn.addEventListener('click', () => {
     activeSource = 'sim-' + Math.random().toString(36).slice(2, 8);
+    hasExplicitSelection = true;
     sessionInput.value = activeSource;
+    saveActiveChat(activeTenant, CHANNEL, activeSource);
     connectSSE();
     loadMessages();
     loadSources();
   });
 
-  connectSSE();
-  loadMessages();
+  if (activeSource) {
+    connectSSE();
+    loadMessages();
+  }
   loadSources();
   loadPendingTasks();
   loadUnknownOrigins();

@@ -15,9 +15,30 @@
   const whatifForm = document.getElementById('whatif-form');
   const whatifResult = document.getElementById('whatif-result').querySelector('code');
 
+  const LS_TENANT = 'whatshelper.activeTenant';
+  const LS_CHANNEL = 'whatshelper.activeChannel';
+  const LS_SOURCE = 'whatshelper.activeSource';
+
+  function saveActiveChat(tenant, channel, source) {
+    try {
+      localStorage.setItem(LS_TENANT, tenant);
+      localStorage.setItem(LS_CHANNEL, channel);
+      localStorage.setItem(LS_SOURCE, source);
+    } catch (_) {}
+  }
+
   let activeTenant = (tenantInput && tenantInput.value.trim()) || 'demo';
   let activeChannel = 'simulator';
   let activeSource = 'sim-user-1';
+  try {
+    const st = localStorage.getItem(LS_TENANT);
+    if (st) {
+      activeTenant = st;
+      if (tenantInput) tenantInput.value = st;
+    }
+    activeChannel = localStorage.getItem(LS_CHANNEL) || 'simulator';
+    activeSource = localStorage.getItem(LS_SOURCE) || 'sim-user-1';
+  } catch (_) {}
 
   if (window.mermaid) {
     window.mermaid.initialize({ startOnLoad: false, theme: 'neutral' });
@@ -32,6 +53,7 @@
     if (sources.length > 0 && !sources.some(s => s.channel === activeChannel && s.source_key === activeSource)) {
       activeChannel = sources[0].channel;
       activeSource = sources[0].source_key;
+      saveActiveChat(activeTenant, activeChannel, activeSource);
     }
     for (const s of sources) {
       const li = document.createElement('li');
@@ -44,6 +66,7 @@
       btn.addEventListener('click', () => {
         activeChannel = s.channel;
         activeSource = s.source_key;
+        saveActiveChat(activeTenant, activeChannel, activeSource);
         loadJourney();
         loadSources();
       });
@@ -221,6 +244,7 @@
   if (tenantInput) {
     tenantInput.addEventListener('change', () => {
       activeTenant = tenantInput.value.trim() || 'demo';
+      saveActiveChat(activeTenant, activeChannel, activeSource);
       loadWorkflows();
       loadSources().then(loadJourney);
       loadFunnelMetrics();

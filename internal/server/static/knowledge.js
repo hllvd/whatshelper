@@ -22,6 +22,12 @@
   const policyMode = document.getElementById('policy-mode');
   const policyStatus = document.getElementById('policy-status');
 
+  const LS_TENANT = 'whatshelper.activeTenant';
+  try {
+    const st = localStorage.getItem(LS_TENANT);
+    if (st && tenantInput) tenantInput.value = st;
+  } catch (_) {}
+
   let activeTenant = tenantInput.value.trim() || 'demo';
   let activeFile = '';
   let cachedPolicy = null;
@@ -318,6 +324,7 @@
 
   reloadBtn.addEventListener('click', () => {
     activeTenant = tenantInput.value.trim() || 'demo';
+    try { localStorage.setItem(LS_TENANT, activeTenant); } catch (_) {}
     activeFile = '';
     loadFiles();
     loadPolicy();

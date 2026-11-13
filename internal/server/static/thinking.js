@@ -9,9 +9,26 @@
   const thinkingTitle = document.getElementById('thinking-title');
   const sseStatus = document.getElementById('sse-status');
 
-  const TENANT = 'demo';
+  const LS_TENANT = 'whatshelper.activeTenant';
+  const LS_CHANNEL = 'whatshelper.activeChannel';
+  const LS_SOURCE = 'whatshelper.activeSource';
+
+  function saveActiveChat(tenant, channel, source) {
+    try {
+      localStorage.setItem(LS_TENANT, tenant);
+      localStorage.setItem(LS_CHANNEL, channel);
+      localStorage.setItem(LS_SOURCE, source);
+    } catch (_) {}
+  }
+
+  let TENANT = 'demo';
   let activeChannel = 'simulator';
   let activeSource = 'sim-user-1';
+  try {
+    TENANT = localStorage.getItem(LS_TENANT) || 'demo';
+    activeChannel = localStorage.getItem(LS_CHANNEL) || 'simulator';
+    activeSource = localStorage.getItem(LS_SOURCE) || 'sim-user-1';
+  } catch (_) {}
   let sse = null;
 
   function makeDetails(title, content) {
@@ -182,6 +199,7 @@
       if (sources.length > 0 && !sources.some((s) => s.channel === activeChannel && s.source_key === activeSource)) {
         activeChannel = sources[0].channel;
         activeSource = sources[0].source_key;
+        saveActiveChat(TENANT, activeChannel, activeSource);
         connectSSE();
         loadState();
         loadJourneyCard();
@@ -199,6 +217,7 @@
         btn.addEventListener('click', () => {
           activeChannel = s.channel;
           activeSource = s.source_key;
+          saveActiveChat(TENANT, activeChannel, activeSource);
           connectSSE();
           loadState();
           loadJourneyCard();
