@@ -172,6 +172,15 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/tenants/{id}/policy", s.handleGetTenantPolicy)
 	mux.HandleFunc("PUT /api/tenants/{id}/policy", s.handlePutTenantPolicy)
 
+	// Jornada (FSM), Outbox, What-If, Origem no Simulador & Métricas de Funil (UIX-09..13, OBS-06)
+	mux.HandleFunc("GET /api/sources/{channel}/{key}/journey", s.handleGetSourceJourney)
+	mux.HandleFunc("POST /api/journey/what-if", s.handleJourneyWhatIf)
+	mux.HandleFunc("GET /api/outbox", s.handleListOutbox)
+	mux.HandleFunc("POST /api/outbox/{channel}/{key}/{id}/reprocess", s.handleReprocessOutbox)
+	mux.HandleFunc("GET /api/metrics/funnel", s.handleGetFunnelMetrics)
+	mux.HandleFunc("POST /api/sim/origin", s.handlePostSimOrigin)
+	mux.HandleFunc("GET /api/messages/unknown-origin", s.handleListUnknownOriginMessages)
+
 	// Protocolo Connector <-> Brain v1 (CH-02)
 	mux.HandleFunc("POST /api/connectors/v1/inbound", s.handleConnectorInbound)
 	mux.HandleFunc("POST /api/connectors/v1/media", s.handleConnectorMedia)
@@ -187,6 +196,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /{$}", s.serveStaticFile(subFS, "index.html", "text/html; charset=utf-8"))
 	mux.HandleFunc("GET /thinking", s.serveStaticFile(subFS, "thinking.html", "text/html; charset=utf-8"))
 	mux.HandleFunc("GET /knowledge", s.serveStaticFile(subFS, "knowledge.html", "text/html; charset=utf-8"))
+	mux.HandleFunc("GET /journey", s.serveStaticFile(subFS, "journey.html", "text/html; charset=utf-8"))
 }
 
 func (s *Server) serveStaticFile(fsys fs.FS, name, contentType string) http.HandlerFunc {

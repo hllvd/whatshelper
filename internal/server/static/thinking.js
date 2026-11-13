@@ -4,6 +4,7 @@
   const stateFacts = document.getElementById('state-facts');
   const stateSignals = document.getElementById('state-signals');
   const timeline = document.getElementById('timeline');
+  const journeyCard = document.getElementById('journey-card');
   const thinkingTitle = document.getElementById('thinking-title');
   const sseStatus = document.getElementById('sse-status');
 
@@ -182,6 +183,7 @@
         activeSource = sources[0].source_key;
         connectSSE();
         loadState();
+        loadJourneyCard();
         loadTimeline();
       }
 
@@ -198,6 +200,7 @@
           activeSource = s.source_key;
           connectSSE();
           loadState();
+          loadJourneyCard();
           loadTimeline();
           loadSources();
         });
@@ -225,6 +228,7 @@
       const data = JSON.parse(ev.data);
       if (data.channel === activeChannel && data.source_key === activeSource) {
         loadState();
+        loadJourneyCard();
         loadTimeline();
       }
       loadSources();
@@ -243,8 +247,55 @@
     });
   }
 
+  async function loadJourneyCard() {
+    if (!journeyCard) return;
+    try {
+      const res = await fetch(`/api/sources/${encodeURIComponent(activeChannel)}/${encodeURIComponent(activeSource)}/journey?tenant=${encodeURIComponent(TENANT)}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      journeyCard.textContent = '';
+
+      const hdr = document.createElement('div');
+      hdr.className = 'run-header';
+      const st = data.state || {};
+      const left = document.createElement('strong');
+      left.textContent = `Jornada (FSM) · Estado atual: ${st.state || (data.journey && data.journey.initial_state) || '-'}`;
+      const right = document.createElement('span');
+      right.textContent = `Estagnação: ${st.stagnation_count || 0} · Turnos no estado: ${st.turns_in_state || 0}`;
+      hdr.appendChild(left);
+      hdr.appendChild(right);
+      journeyCard.appendChild(hdr);
+
+      if (st.dimensions && Object.keys(st.dimensions).length > 0) {
+        const dims = document.createElement('div');
+        dims.className = 'metrics-row';
+        dims.textContent = 'Dimensões: ' + Object.entries(st.dimensions).map(([k, v]) => `${k}=${v}`).join(' · ');
+        journeyCard.appendChild(dims);
+      }
+
+      const transitions = data.transitions || [];
+      if (transitions.length > 0) {
+        const trLines = transitions.slice(0, 5).map(t =>
+          `${t.from_state || '-'} -> ${t.to_state} (${t.event_type}) · regra=${t.rule_id || '-'} · ${t.reason || ''}`
+        ).join('\n');
+        journeyCard.appendChild(makeDetails(`Transições recentes (${transitions.length})`, trLines));
+      }
+
+      const outbox = data.outbox || [];
+      if (outbox.length > 0) {
+        const obLines = outbox.slice(0, 8).map(o =>
+          `[${o.status}] ${o.action_type} (${o.id}) · tentativas=${o.attempts}${o.last_error ? ' · erro: ' + o.last_error : ''}`
+        ).join('\n');
+        journeyCard.appendChild(makeDetails(`Outbox & Ações (${outbox.length})`, obLines));
+      }
+    } catch (err) {
+      console.error('Erro ao carregar jornada:', err);
+    }
+  }
+
   connectSSE();
   loadSources();
   loadState();
+  loadJourneyCard();
   loadTimeline();
 })();

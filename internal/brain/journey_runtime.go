@@ -8,6 +8,18 @@ import (
 	"whatshelper/internal/pack"
 )
 
+// LoadTenantPack carrega o pack configurado para o tenant (usado pela UI de jornada e what-if).
+func (p *Pipeline) LoadTenantPack(ctx context.Context, tenantID string) (*pack.Pack, error) {
+	if p.cfg.Tenants == nil || p.cfg.PackLoader == nil {
+		return nil, fmt.Errorf("pipeline sem carregador de pack")
+	}
+	tenantCfg, err := p.cfg.Tenants.LoadTenant(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	return p.cfg.PackLoader(tenantCfg.Pack)
+}
+
 // EmitSystemEvent injeta um evento de sistema (ex.: system_timeout, session_start, integration_result)
 // na FSM de jornada do pack, grava a transição e o outbox de forma atômica e despacha efeitos.
 func (p *Pipeline) EmitSystemEvent(

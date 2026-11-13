@@ -214,12 +214,12 @@ A ordem de execução está nos milestones M0 → M5, no final do arquivo.
 ## QA e UI (Jornada & Funil)
 
 - [x] **QA-06 — Testes:** tabela do FSM, propriedades (estados alcançáveis e saídas), idempotência do outbox, falha no meio da transação, replay com FSM.
-- [ ] **UIX-09 — Cartão de jornada no `/thinking`:** estado atual, evento, regra casada, avaliação de cada guard, ações emitidas e status no outbox.
-- [ ] **UIX-10 — Página `/journey`:** diagrama (Mermaid) gerado do `journey.yaml`, estado atual destacado, relatório de validação.
-- [ ] **UIX-11 — Simulador "e se":** escolher estado + evento + análise simulada e ver a transição resultante sem enviar nada.
-- [ ] **UIX-12 — Visão do outbox:** pendentes, falhas, reprocessar.
-- [ ] **UIX-13 — Simulador:** botões "responder como dono (celular)" e "simular eco do bot", badge de `origin` em cada mensagem e lista de `origin=unknown` para auditoria.
-- [ ] **OBS-06 — Métricas de funil:** tempo por estágio, conversão entre estágios, abandono, estagnação.
+- [x] **UIX-09 — Cartão de jornada no `/thinking`:** estado atual, evento, regra casada, avaliação de cada guard, ações emitidas e status no outbox.
+- [x] **UIX-10 — Página `/journey`:** diagrama (Mermaid) gerado do `journey.yaml`, estado atual destacado, relatório de validação.
+- [x] **UIX-11 — Simulador "e se":** escolher estado + evento + análise simulada e ver a transição resultante sem enviar nada.
+- [x] **UIX-12 — Visão do outbox:** pendentes, falhas, reprocessar.
+- [x] **UIX-13 — Simulador:** botões "responder como dono (celular)" e "simular eco do bot", badge de `origin` em cada mensagem e lista de `origin=unknown` para auditoria.
+- [x] **OBS-06 — Métricas de funil:** tempo por estágio, conversão entre estágios, abandono, estagnação.
 
 > **Ideias futuras (fora dos milestones):** lead scoring declarativo (regras sobre facts), exportação para CRM, SLA por estágio, atribuição a atendentes, mais de uma jornada por conversa.
 

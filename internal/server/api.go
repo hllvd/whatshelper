@@ -26,13 +26,14 @@ type simMessageRequest struct {
 }
 
 type chatMessageView struct {
-	MessageID string           `json:"message_id"`
-	Timestamp time.Time        `json:"timestamp"`
-	Direction core.Direction   `json:"direction"`
-	Type      core.MessageType `json:"type"`
-	Text      string           `json:"text"`
-	Sender    string           `json:"sender,omitempty"`
-	RawRef    string           `json:"raw_ref,omitempty"`
+	MessageID string             `json:"message_id"`
+	Timestamp time.Time          `json:"timestamp"`
+	Direction core.Direction     `json:"direction"`
+	Origin    core.MessageOrigin `json:"origin,omitempty"`
+	Type      core.MessageType   `json:"type"`
+	Text      string             `json:"text"`
+	Sender    string             `json:"sender,omitempty"`
+	RawRef    string             `json:"raw_ref,omitempty"`
 }
 
 func (s *Server) handlePostSimMessage(w http.ResponseWriter, r *http.Request) {
@@ -155,6 +156,7 @@ func (s *Server) loadChatMessages(ctx context.Context, tenant, channel, key stri
 			MessageID: m.MessageID,
 			Timestamp: m.Timestamp,
 			Direction: m.Direction,
+			Origin:    m.Origin,
 			Type:      m.Type,
 			Text:      text,
 			Sender:    m.Sender,

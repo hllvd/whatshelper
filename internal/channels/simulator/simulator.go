@@ -51,10 +51,11 @@ func (c *Channel) ID() string {
 
 func (c *Channel) Capabilities() core.ChannelCapabilities {
 	return core.ChannelCapabilities{
-		PlainTextOnly: true,
-		Media:         false,
-		Typing:        true,
-		Reactions:     false,
+		PlainTextOnly:      true,
+		Media:              false,
+		Typing:             true,
+		Reactions:          false,
+		ReportsOwnMessages: true,
 	}
 }
 

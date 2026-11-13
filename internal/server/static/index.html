@@ -15,6 +15,7 @@
         <li><a href="/" aria-current="page">Chat Simulador</a></li>
         <li><a href="/thinking">Pensando (Traces)</a></li>
         <li><a href="/knowledge">Conhecimento</a></li>
+        <li><a href="/journey">Jornada & Funil</a></li>
       </ul>
     </nav>
   </header>
@@ -33,6 +34,8 @@
       <ul id="sources-list" class="source-list"></ul>
       <h2>Pendências e Aprovações</h2>
       <div id="pending-tasks" style="display:flex;flex-direction:column;gap:0.5rem;"></div>
+      <h2>Auditoria origin=unknown</h2>
+      <ul id="unknown-origin-list" class="source-list"></ul>
     </aside>
 
     <main class="panel chat-container">
@@ -43,6 +46,8 @@
           <button id="btn-pause" type="button" class="btn-sm">Pausar Bot</button>
           <button id="btn-handoff" type="button" class="btn-sm">Assumir Humano</button>
           <button id="btn-resume" type="button" class="btn-sm">Reativar</button>
+          <button id="btn-sim-human-phone" type="button" class="btn-sm">Responder como dono (celular)</button>
+          <button id="btn-sim-bot-echo" type="button" class="btn-sm">Simular eco do bot</button>
           <span id="sse-status" class="status-pill" aria-live="polite">Conectando SSE...</span>
         </div>
       </div>

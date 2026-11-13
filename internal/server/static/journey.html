@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <title>Whatshelper — Jornada & Funil</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>Whatshelper Brain — Jornada & Funil</h1>
+    <nav aria-label="Navegação principal">
+      <ul class="nav-links">
+        <li><a href="/">Chat Simulador</a></li>
+        <li><a href="/thinking">Pensando (Traces)</a></li>
+        <li><a href="/knowledge">Conhecimento</a></li>
+        <li><a href="/journey" aria-current="page">Jornada & Funil</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <div class="layout-grid">
+    <aside class="panel" aria-label="Conversas e métricas de funil">
+      <h2>Conversas</h2>
+      <div class="session-controls">
+        <label for="tenant-input">Tenant</label>
+        <input id="tenant-input" type="text" value="demo" autocomplete="off">
+      </div>
+      <ul id="sources-list" class="source-list"></ul>
+
+      <h2>Métricas de Funil (OBS-06)</h2>
+      <div id="funnel-summary" style="font-size:0.86rem;margin-bottom:0.5rem;"></div>
+      <table class="kv-table" aria-label="Estágios do funil">
+        <thead>
+          <tr><th>Estágio</th><th>Qtd</th><th>Média (min)</th></tr>
+        </thead>
+        <tbody id="funnel-stages"></tbody>
+      </table>
+      <table class="kv-table" aria-label="Conversões entre estágios">
+        <thead>
+          <tr><th>Transição</th><th>Qtd</th><th>Taxa</th></tr>
+        </thead>
+        <tbody id="funnel-conversions"></tbody>
+      </table>
+    </aside>
+
+    <main class="panel" style="display:flex;flex-direction:column;gap:1rem;">
+      <section class="run-card" aria-label="Diagrama Mermaid e Validação">
+        <div class="run-header">
+          <strong>Mapa da Jornada (UIX-10)</strong>
+          <span id="journey-validation-badge" class="status-pill">-</span>
+        </div>
+        <div id="mermaid-container" style="overflow:auto;padding:0.5rem 0;"></div>
+        <details>
+          <summary>Código Mermaid</summary>
+          <pre><code id="mermaid-raw"></code></pre>
+        </details>
+      </section>
+
+      <section class="run-card" aria-label="Simulador E se">
+        <div class="run-header">
+          <strong>Simulador "E se?" (UIX-11 — sem efeitos colaterais)</strong>
+        </div>
+        <form id="whatif-form" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0.5rem;margin-top:0.5rem;">
+          <label>Estado Atual
+            <input id="wi-state" type="text" placeholder="ex.: discovery">
+          </label>
+          <label>Evento
+            <select id="wi-event">
+              <option value="user_message">user_message</option>
+              <option value="system_timeout">system_timeout</option>
+              <option value="session_start">session_start</option>
+              <option value="human_takeover">human_takeover</option>
+              <option value="human_release">human_release</option>
+            </select>
+          </label>
+          <label>Intent
+            <input id="wi-intent" type="text" placeholder="ex.: report_bug">
+          </label>
+          <label>Estagnação
+            <input id="wi-stagnation" type="number" value="0" min="0">
+          </label>
+          <label style="grid-column:1 / -1;">Facts (JSON)
+            <input id="wi-facts" type="text" value='{"Budget":"5000"}'>
+          </label>
+          <label style="grid-column:1 / -1;">Signals (JSON)
+            <input id="wi-signals" type="text" value='{"has_new_question":false}'>
+          </label>
+          <label style="grid-column:1 / -1;">Dimensions (JSON)
+            <input id="wi-dims" type="text" value='{"sentiment":"neutral","urgency":"medium"}'>
+          </label>
+          <button type="submit" class="primary">Simular Transição</button>
+        </form>
+        <pre id="whatif-result" style="margin-top:0.5rem;"><code></code></pre>
+      </section>
+
+      <section class="run-card" aria-label="Outbox Transacional">
+        <div class="run-header">
+          <strong>Outbox Transacional (UIX-12)</strong>
+          <div class="toolbar-row">
+            <select id="outbox-filter">
+              <option value="">Todos</option>
+              <option value="pending">pending</option>
+              <option value="failed">failed</option>
+              <option value="dead">dead</option>
+              <option value="done">done</option>
+            </select>
+            <button id="btn-refresh-outbox" type="button" class="btn-sm">Atualizar</button>
+          </div>
+        </div>
+        <table class="kv-table" aria-label="Itens do Outbox">
+          <thead>
+            <tr><th>ID</th><th>Fonte</th><th>Ação</th><th>Status</th><th>Tentativas</th><th>Erro</th><th>Ação</th></tr>
+          </thead>
+          <tbody id="outbox-tbody"></tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <script src="/static/journey.js"></script>
+</body>
+</html>

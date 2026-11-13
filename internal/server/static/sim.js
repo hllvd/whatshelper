@@ -4,6 +4,7 @@
   const newSessionBtn = document.getElementById('new-session-btn');
   const sourcesList = document.getElementById('sources-list');
   const pendingTasksEl = document.getElementById('pending-tasks');
+  const unknownOriginListEl = document.getElementById('unknown-origin-list');
   const chatMessages = document.getElementById('chat-messages');
   const chatForm = document.getElementById('chat-form');
   const chatInput = document.getElementById('chat-input');
@@ -17,7 +18,7 @@
   let activeSource = sessionInput.value.trim() || 'sim-user-1';
   let sse = null;
 
-  function renderBubble(direction, text, ts, messageId) {
+  function renderBubble(direction, text, ts, messageId, origin) {
     const el = document.createElement('article');
     el.className = 'bubble ' + (direction === 'inbound' ? 'inbound' : 'outbound');
 
@@ -30,6 +31,14 @@
     const label = direction === 'inbound' ? 'Cliente' : 'Assistente';
     const timeStr = ts ? new Date(ts).toLocaleTimeString('pt-BR') : '';
     meta.textContent = label + (timeStr ? ' · ' + timeStr : '');
+    if (origin) {
+      const badge = document.createElement('span');
+      badge.className = 'status-pill';
+      badge.style.marginLeft = '0.4rem';
+      badge.style.fontSize = '0.7rem';
+      badge.textContent = 'origin:' + origin;
+      meta.appendChild(badge);
+    }
     el.appendChild(meta);
 
     if (direction === 'outbound') {
@@ -74,7 +83,7 @@
       if (msgRes.ok) {
         const data = await msgRes.json();
         for (const m of (data.messages || [])) {
-          renderBubble(m.direction, m.text, m.timestamp, m.message_id);
+          renderBubble(m.direction, m.text, m.timestamp, m.message_id, m.origin);
         }
       }
       if (stateRes.ok) {
@@ -291,6 +300,59 @@
   document.getElementById('btn-handoff').addEventListener('click', () => setSourceStatus('human', 'assumido por humano'));
   document.getElementById('btn-resume').addEventListener('click', () => setSourceStatus('active', 'reativado pelo operador'));
 
+  async function submitSimOrigin(mode, defaultText) {
+    const text = window.prompt('Texto da mensagem simulada:', defaultText);
+    if (!text || !text.trim()) return;
+    await fetch('/api/sim/origin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tenant_id: activeTenant,
+        channel: CHANNEL,
+        source_key: activeSource,
+        mode,
+        text: text.trim(),
+      }),
+    });
+    loadMessages();
+    loadUnknownOrigins();
+  }
+
+  const btnHumanPhone = document.getElementById('btn-sim-human-phone');
+  if (btnHumanPhone) {
+    btnHumanPhone.addEventListener('click', () => submitSimOrigin('human_phone', 'Oi, aqui é o atendente pelo celular!'));
+  }
+  const btnBotEcho = document.getElementById('btn-sim-bot-echo');
+  if (btnBotEcho) {
+    btnBotEcho.addEventListener('click', () => submitSimOrigin('bot_echo', 'Eco simulado do robô'));
+  }
+
+  async function loadUnknownOrigins() {
+    if (!unknownOriginListEl) return;
+    try {
+      const res = await fetch(`/api/messages/unknown-origin?tenant=${encodeURIComponent(activeTenant)}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      unknownOriginListEl.textContent = '';
+      const msgs = data.messages || [];
+      if (msgs.length === 0) {
+        const li = document.createElement('li');
+        li.style.fontSize = '0.8rem';
+        li.textContent = 'Nenhuma mensagem origin=unknown.';
+        unknownOriginListEl.appendChild(li);
+        return;
+      }
+      for (const m of msgs.slice(0, 10)) {
+        const li = document.createElement('li');
+        li.style.fontSize = '0.8rem';
+        li.textContent = `${m.channel}:${m.source_key} · ${m.text || m.message_id}`;
+        unknownOriginListEl.appendChild(li);
+      }
+    } catch (err) {
+      console.error('Erro ao carregar auditoria origin=unknown:', err);
+    }
+  }
+
   if (tenantInput) {
     tenantInput.addEventListener('change', () => {
       activeTenant = tenantInput.value.trim() || 'demo';
@@ -320,4 +382,5 @@
   loadMessages();
   loadSources();
   loadPendingTasks();
+  loadUnknownOrigins();
 })();
