@@ -147,6 +147,39 @@ func LoadJourneyFromFile(dir string, p *Pack) (*JourneyDef, error) {
 	return ParseJourneyYAML(data, p)
 }
 
+// LoadJourneysFromDir carrega todas as jornadas em <dir>/journeys/*.yaml (opcional).
+func LoadJourneysFromDir(dir string, p *Pack) (map[string]*JourneyDef, error) {
+	journeysDir := filepath.Join(dir, "journeys")
+	entries, err := os.ReadDir(journeysDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("%w: erro ao listar %s: %v", ErrInvalidPack, journeysDir, err)
+	}
+	out := make(map[string]*JourneyDef)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(entry.Name()))
+		if ext != ".yaml" && ext != ".yml" {
+			continue
+		}
+		name := strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))
+		data, readErr := os.ReadFile(filepath.Join(journeysDir, entry.Name()))
+		if readErr != nil {
+			return nil, fmt.Errorf("%w: erro ao ler journeys/%s: %v", ErrInvalidPack, entry.Name(), readErr)
+		}
+		j, parseErr := ParseJourneyYAML(data, p)
+		if parseErr != nil {
+			return nil, fmt.Errorf("journeys/%s: %w", entry.Name(), parseErr)
+		}
+		out[name] = j
+	}
+	return out, nil
+}
+
 // ValidateJourney valida estados, transições, prioridades únicas, ações e compila todos os guards.
 func ValidateJourney(j *JourneyDef, p *Pack) error {
 	if j == nil {

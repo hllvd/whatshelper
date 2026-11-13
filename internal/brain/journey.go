@@ -49,12 +49,14 @@ func NextJourney(in NextJourneyInput) NextJourneyOutput {
 	stagnation := 0
 	returnTo := ""
 	if in.Current != nil {
-		if strings.TrimSpace(in.Current.State) != "" {
-			curState = in.Current.State
+		if st := strings.TrimSpace(in.Current.State); st != "" {
+			if _, exists := in.Journey.States[st]; exists {
+				curState = st
+				enteredAt = in.Current.EnteredAt
+				stagnation = in.Current.StagnationCount
+				returnTo = in.Current.ReturnToState
+			}
 		}
-		enteredAt = in.Current.EnteredAt
-		stagnation = in.Current.StagnationCount
-		returnTo = in.Current.ReturnToState
 	}
 
 	timeInStateMins := 0

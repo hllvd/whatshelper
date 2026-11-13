@@ -1,0 +1,108 @@
+version: "1"
+initial_state: entender_dor
+
+defaults:
+  stagnation_threshold: 3
+  stagnation_to: handoff_human
+  fallback_directive:
+    goal: "Acolher o lead, entender sua necessidade e conduzir para o agendamento."
+    constraints:
+      - "Use apenas informações verificadas da base de conhecimento."
+      - "Não invente preços, disponibilidade ou prazos."
+
+global_rules:
+  - id: leads_global_human
+    priority: 100
+    on_event: user_message
+    guard: 'dimensions["sentiment"] == "frustrated" || signals["wants_human"] == true'
+    to: handoff_human
+    reason: "Lead frustrado ou solicitou atendimento humano"
+    actions:
+      - type: notify_admin
+        params:
+          reason: "Atendimento humano solicitado no fluxo de leads"
+      - type: handoff
+    directive:
+      goal: "Informar com empatia que um especialista assumirá o atendimento."
+      constraints:
+        - "Seja breve e respeitoso."
+
+states:
+  entender_dor:
+    description: "Entender a dor, região e objetivo do lead"
+    stagnation_threshold: 3
+    stagnation_to: handoff_human
+    directive:
+      goal: "Entender o que o lead busca (tipo, região e faixa de orçamento)."
+      must_ask:
+        - "O que você está buscando hoje e em qual região?"
+      constraints:
+        - "Faça no máximo 1 ou 2 perguntas diretas."
+    rules:
+      - id: dor_to_reuniao_direto
+        priority: 30
+        on_event: user_message
+        guard: 'HasFact("Location") && (HasFact("Budget") || HasFact("Max Price")) && (signals["has_pending_visit"] == true || HasFact("Viewing Interest"))'
+        to: marcar_reuniao
+        reason: "Lead já qualificado com interesse em agendamento"
+        actions:
+          - type: create_task
+            params:
+              type: visit_follow_up
+              title: "Confirmar agenda com lead qualificado"
+      - id: dor_to_apresentacao
+        priority: 20
+        on_event: user_message
+        guard: 'HasFact("Location") || HasFact("Property Type") || HasFact("Budget")'
+        to: breve_apresentacao
+        reason: "Necessidade inicial do lead identificada"
+
+  breve_apresentacao:
+    description: "Apresentar opções aderentes e qualificar para agendamento"
+    stagnation_threshold: 3
+    stagnation_to: handoff_human
+    directive:
+      goal: "Fazer uma breve apresentação aderente ao perfil e convidar para uma conversa/visita."
+      must_ask:
+        - "Qual faixa de orçamento e melhor horário para conversarmos?"
+      constraints:
+        - "Apresente apenas opções da base de conhecimento."
+    rules:
+      - id: apresentacao_to_reuniao
+        priority: 30
+        on_event: user_message
+        intent: schedule_visit
+        to: marcar_reuniao
+        reason: "Lead solicitou agendamento"
+        actions:
+          - type: create_task
+            params:
+              type: visit_follow_up
+              title: "Agendar reunião/visita com lead"
+      - id: apresentacao_to_reuniao_qualified
+        priority: 20
+        on_event: user_message
+        guard: '(HasFact("Budget") || HasFact("Max Price")) && HasFact("Location")'
+        to: marcar_reuniao
+        reason: "Lead qualificado para próximo passo"
+        actions:
+          - type: create_task
+            params:
+              type: visit_follow_up
+              title: "Confirmar agenda com lead"
+
+  marcar_reuniao:
+    description: "Agendamento de reunião ou visita confirmado"
+    terminal: true
+    directive:
+      goal: "Confirmar o interesse no agendamento e avisar que o consultor confirmará o horário."
+      constraints:
+        - "Não confirme horário exato sem confirmação humana."
+
+  handoff_human:
+    description: "Encaminhado para especialista humano"
+    terminal: true
+    directive:
+      goal: "Informar que um consultor humano dará sequência ao atendimento."
+      constraints:
+        - "Não faça novas perguntas."

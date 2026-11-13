@@ -80,3 +80,22 @@ curl -X PUT "http://127.0.0.1:8080/api/llm/config?tenant=demo" \
   - [`internal/brain/llm_routing_test.go`](internal/brain/llm_routing_test.go)
   - [`internal/server/llm_config_test.go`](internal/server/llm_config_test.go)
 - Suite completa validada com `make test` e `./scripts/tests.sh all`.
+
+---
+
+## 2026-11-13 — Workflows FSM Parametrizáveis por Pack + Seletor na UI (`/journey`)
+
+### Itens Implementados
+- **Campo `workflow` em [`TenantPolicy`](file:///Users/hudson/development/whatshelper/internal/core/policy.go#L74-L88)**: padrão `"support"`, configurável em `tenant.yaml` e persistido no DynamoDB via `PUT /api/tenants/{id}/policy`.
+- **Múltiplas jornadas por pack**:
+  - [`LoadJourneysFromDir`](file:///Users/hudson/development/whatshelper/internal/pack/journey.go) e [`Pack.ResolveJourney`](file:///Users/hudson/development/whatshelper/internal/pack/pack.go) carregam e validam `packs/<pack>/journeys/*.yaml` (com fallback para `"support"` e para o `journey.yaml` legado).
+  - Jornadas criadas em `packs/realestate/journeys/` (`support.yaml`, `leads.yaml`, `hybrid.yaml`) e `packs/support/journeys/support.yaml`.
+- **Reset seguro de estado em [`NextJourney`](file:///Users/hudson/development/whatshelper/internal/brain/journey.go)**: quando uma conversa em andamento possui estado que não existe no novo workflow ativo, o FSM reinicia automaticamente para `initial_state` da nova jornada.
+- **API & UI (`/journey`)**:
+  - `GET /api/workflows?tenant=<id>` em [`internal/server/journey_api.go`](file:///Users/hudson/development/whatshelper/internal/server/journey_api.go) lista os workflows disponíveis no pack do tenant.
+  - `GET /api/sources/{channel}/{key}/journey`, `POST /api/journey/what-if` e `GET /api/journey/funnel` passam a usar `pk.ResolveJourney(policy.Workflow)`.
+  - Seletor **Workflow Ativo (FSM)** adicionado em [`journey.html`](file:///Users/hudson/development/whatshelper/internal/server/static/journey.html) e [`journey.js`](file:///Users/hudson/development/whatshelper/internal/server/static/journey.js), salvando via `PUT /api/tenants/{id}/policy` e recarregando o diagrama Mermaid em tempo real.
+- **Testes**:
+  - [`internal/pack/journey_multi_test.go`](file:///Users/hudson/development/whatshelper/internal/pack/journey_multi_test.go)
+  - [`internal/brain/journey_workflow_test.go`](file:///Users/hudson/development/whatshelper/internal/brain/journey_workflow_test.go)
+  - [`internal/server/workflows_api_test.go`](file:///Users/hudson/development/whatshelper/internal/server/workflows_api_test.go)

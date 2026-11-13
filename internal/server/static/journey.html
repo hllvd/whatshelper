@@ -46,6 +46,17 @@
     </aside>
 
     <main class="panel" style="display:flex;flex-direction:column;gap:1rem;">
+      <section class="run-card" aria-label="Seletor de Workflow FSM">
+        <div class="run-header" style="flex-wrap:wrap;gap:0.5rem;">
+          <strong>Workflow Ativo (FSM)</strong>
+          <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+            <select id="workflow-select" aria-label="Workflow do FSM"></select>
+            <button id="btn-apply-workflow" type="button">Aplicar Workflow</button>
+            <span id="workflow-feedback" style="font-size:0.82rem;"></span>
+          </div>
+        </div>
+      </section>
+
       <section class="run-card" aria-label="Diagrama Mermaid e Validação">
         <div class="run-header">
           <strong>Mapa da Jornada (UIX-10)</strong>

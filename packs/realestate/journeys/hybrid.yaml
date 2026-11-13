@@ -1,0 +1,169 @@
+version: "1"
+initial_state: triagem
+
+defaults:
+  stagnation_threshold: 3
+  stagnation_to: handoff_human
+  fallback_directive:
+    goal: "Identificar se o cliente busca atendimento de suporte ou qualificação comercial e conduzir com clareza."
+    constraints:
+      - "Use apenas informações verificadas da base de conhecimento."
+      - "Não invente preços, disponibilidade ou prazos."
+
+global_rules:
+  - id: hybrid_global_human
+    priority: 100
+    on_event: user_message
+    guard: 'dimensions["sentiment"] == "frustrated" || signals["wants_human"] == true'
+    to: handoff_human
+    reason: "Solicitação de atendimento humano ou frustração detectada"
+    actions:
+      - type: notify_admin
+        params:
+          reason: "Atendimento humano solicitado no fluxo híbrido"
+      - type: handoff
+    directive:
+      goal: "Reconhecer com empatia e avisar que um especialista assumirá."
+      constraints:
+        - "Seja breve."
+
+states:
+  triagem:
+    description: "Triagem inicial: classifica entre fluxo de Lead ou Suporte"
+    stagnation_threshold: 3
+    stagnation_to: handoff_human
+    directive:
+      goal: "Entender se o contato é uma dúvida de suporte ou interesse comercial (lead)."
+      must_ask:
+        - "Você gostaria de tirar uma dúvida de suporte ou conhecer opções disponíveis?"
+      constraints:
+        - "Faça apenas 1 pergunta objetiva."
+    rules:
+      - id: triagem_to_lead_reuniao
+        priority: 30
+        on_event: user_message
+        guard: 'HasFact("Location") && (HasFact("Budget") || HasFact("Max Price")) && (signals["has_pending_visit"] == true || HasFact("Viewing Interest"))'
+        to: marcar_reuniao
+        reason: "Lead já qualificado com interesse em agendamento"
+        actions:
+          - type: create_task
+            params:
+              type: visit_follow_up
+              title: "Confirmar agenda com lead"
+      - id: triagem_to_lead
+        priority: 25
+        on_event: user_message
+        guard: 'HasFact("Location") || HasFact("Property Type") || HasFact("Budget") || signals["has_pending_visit"] == true'
+        to: entender_dor
+        reason: "Interesse comercial identificado -> ramo Lead"
+      - id: triagem_to_support
+        priority: 20
+        on_event: user_message
+        intent: ask_info
+        to: responder_pergunta
+        reason: "Dúvida identificada -> ramo Suporte"
+
+  entender_dor:
+    description: "[Lead] Entendimento da necessidade e faixa de valor"
+    stagnation_threshold: 3
+    stagnation_to: handoff_human
+    directive:
+      goal: "Qualificar região, tipo e orçamento para apresentar opções."
+      must_ask:
+        - "Qual região e faixa de orçamento você considera?"
+      constraints:
+        - "Máximo 1 ou 2 perguntas."
+    rules:
+      - id: hybrid_dor_to_apresentacao
+        priority: 20
+        on_event: user_message
+        guard: 'HasFact("Location") && (HasFact("Budget") || HasFact("Max Price"))'
+        to: breve_apresentacao
+        reason: "Critérios do lead preenchidos"
+
+  breve_apresentacao:
+    description: "[Lead] Breve apresentação e convite para reunião/visita"
+    stagnation_threshold: 3
+    stagnation_to: handoff_human
+    directive:
+      goal: "Apresentar brevemente opções da base e propor agendamento."
+      must_ask:
+        - "Gostaria de agendar uma conversa ou visita?"
+      constraints:
+        - "Não invente disponibilidade."
+    rules:
+      - id: hybrid_apresentacao_to_reuniao
+        priority: 20
+        on_event: user_message
+        intent: schedule_visit
+        to: marcar_reuniao
+        reason: "Lead pediu agendamento"
+        actions:
+          - type: create_task
+            params:
+              type: visit_follow_up
+              title: "Agendar reunião/visita"
+
+  marcar_reuniao:
+    description: "[Lead] Reunião ou visita encaminhada"
+    terminal: true
+    directive:
+      goal: "Confirmar o agendamento e informar que o consultor entrará em contato."
+      constraints:
+        - "Não prometa horário sem confirmação humana."
+
+  responder_pergunta:
+    description: "[Suporte] Resposta com base de conhecimento"
+    stagnation_threshold: 3
+    stagnation_to: handoff_human
+    directive:
+      goal: "Responder à dúvida usando apenas a base de conhecimento."
+      constraints:
+        - "Cite apenas dados verificados."
+    rules:
+      - id: hybrid_support_to_followup
+        priority: 20
+        on_event: user_message
+        intent: greeting_or_followup
+        to: verificar_mais_ajuda
+        reason: "Dúvida respondida"
+
+  verificar_mais_ajuda:
+    description: "[Suporte] Verificar se precisa de mais ajuda"
+    stagnation_threshold: 2
+    stagnation_to: encerrado
+    directive:
+      goal: "Confirmar se precisa de mais alguma ajuda."
+      must_ask:
+        - "Posso te ajudar com mais alguma dúvida?"
+      constraints:
+        - "Seja objetivo."
+    rules:
+      - id: hybrid_more_help_support
+        priority: 20
+        on_event: user_message
+        intent: ask_info
+        to: responder_pergunta
+        reason: "Nova dúvida de suporte"
+      - id: hybrid_more_help_close
+        priority: 10
+        on_event: user_message
+        intent: greeting_or_followup
+        to: encerrado
+        reason: "Suporte concluído"
+
+  encerrado:
+    description: "Atendimento concluído"
+    terminal: true
+    directive:
+      goal: "Agradecer o contato."
+      constraints:
+        - "Mensagem curta."
+
+  handoff_human:
+    description: "Encaminhado para atendimento humano"
+    terminal: true
+    directive:
+      goal: "Informar que um atendente humano assumirá o atendimento."
+      constraints:
+        - "Sem novas perguntas."

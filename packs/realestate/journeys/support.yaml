@@ -1,0 +1,125 @@
+version: "1"
+initial_state: entender_pergunta
+
+defaults:
+  stagnation_threshold: 3
+  stagnation_to: perguntar_humano
+  fallback_directive:
+    goal: "Ajudar o cliente respondendo com base na documentação e conhecimento do negócio."
+    constraints:
+      - "Use apenas informações verificadas da base de conhecimento."
+      - "Se não tiver certeza ou faltar informação, encaminhe para atendimento humano."
+
+global_rules:
+  - id: support_global_human
+    priority: 100
+    on_event: user_message
+    guard: 'dimensions["sentiment"] == "frustrated" || signals["wants_human"] == true'
+    to: perguntar_humano
+    reason: "Cliente solicitou atendimento humano ou demonstrou frustração"
+    actions:
+      - type: notify_admin
+        params:
+          reason: "Atendimento humano solicitado no fluxo de suporte"
+      - type: handoff
+    directive:
+      goal: "Reconhecer a solicitação com empatia e avisar que um atendente humano vai assumir."
+      constraints:
+        - "Seja breve e respeitoso."
+
+states:
+  entender_pergunta:
+    description: "Entender a dúvida ou solicitação do cliente"
+    stagnation_threshold: 3
+    stagnation_to: perguntar_humano
+    directive:
+      goal: "Entender claramente a pergunta ou necessidade do cliente."
+      must_ask:
+        - "Como posso te ajudar hoje?"
+      constraints:
+        - "Faça no máximo 1 pergunta objetiva se a dúvida estiver ambígua."
+    rules:
+      - id: support_to_human_docs
+        priority: 30
+        on_event: user_message
+        intent: request_human
+        to: perguntar_humano
+        reason: "Cliente pediu atendimento humano"
+        actions:
+          - type: notify_admin
+            params:
+              reason: "Escalonamento solicitado pelo cliente"
+          - type: handoff
+      - id: support_to_answer
+        priority: 20
+        on_event: user_message
+        intent: ask_info
+        to: responder_pergunta
+        reason: "Dúvida identificada para resposta com base de conhecimento"
+
+  responder_pergunta:
+    description: "Responder a dúvida com a base de conhecimento"
+    stagnation_threshold: 3
+    stagnation_to: perguntar_humano
+    directive:
+      goal: "Responder à dúvida de forma clara e verificar se o cliente precisa de mais ajuda."
+      constraints:
+        - "Cite apenas dados confirmados na base de conhecimento."
+    rules:
+      - id: answer_to_followup
+        priority: 20
+        on_event: user_message
+        intent: greeting_or_followup
+        to: verificar_mais_ajuda
+        reason: "Cliente respondeu após explicação"
+      - id: answer_to_human
+        priority: 15
+        on_event: user_message
+        intent: negotiation_or_exception
+        to: perguntar_humano
+        reason: "Caso exige análise humana"
+        actions:
+          - type: notify_admin
+            params:
+              reason: "Exceção ou negociação encaminhada ao operador"
+          - type: handoff
+
+  verificar_mais_ajuda:
+    description: "Confirmar se o cliente precisa de mais alguma ajuda"
+    stagnation_threshold: 2
+    stagnation_to: encerrado
+    directive:
+      goal: "Perguntar se restou alguma dúvida ou encerrar cordialmente."
+      must_ask:
+        - "Posso te ajudar com mais alguma coisa?"
+      constraints:
+        - "Seja cordial e objetivo."
+    rules:
+      - id: more_help_new_question
+        priority: 20
+        on_event: user_message
+        intent: ask_info
+        to: responder_pergunta
+        reason: "Cliente trouxe nova dúvida"
+      - id: more_help_close
+        priority: 10
+        on_event: user_message
+        intent: greeting_or_followup
+        to: encerrado
+        reason: "Atendimento concluído"
+
+  perguntar_humano:
+    description: "Encaminhado para atendente humano"
+    terminal: true
+    directive:
+      goal: "Informar que a equipe humana já recebeu a solicitação e responderá em breve."
+      constraints:
+        - "Não faça novas perguntas de qualificação."
+
+  encerrado:
+    description: "Atendimento de suporte encerrado"
+    terminal: true
+    directive:
+      goal: "Agradecer o contato e se colocar à disposição."
+      constraints:
+        - "Mensagem curta de encerramento."

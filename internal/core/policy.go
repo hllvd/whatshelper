@@ -75,6 +75,7 @@ type TenantPolicy struct {
 	ID               string                    `yaml:"id" json:"id"`
 	Name             string                    `yaml:"name" json:"name"`
 	Pack             string                    `yaml:"pack" json:"pack"`
+	Workflow         string                    `yaml:"workflow,omitempty" json:"workflow,omitempty"`
 	Mode             OperationMode             `yaml:"mode" json:"mode"`
 	Timezone         string                    `yaml:"timezone" json:"timezone"`
 	BusinessHours    BusinessHours             `yaml:"business_hours" json:"business_hours"`
@@ -94,6 +95,9 @@ var (
 // WithDefaults preenche campos omitidos com valores padrão seguros sem mutar o original.
 func (p TenantPolicy) WithDefaults() TenantPolicy {
 	out := p
+	if strings.TrimSpace(out.Workflow) == "" {
+		out.Workflow = "support"
+	}
 	if out.Mode == "" {
 		out.Mode = ModeAuto
 	}

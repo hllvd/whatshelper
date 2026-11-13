@@ -178,6 +178,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/tenants/{id}/policy", s.handlePutTenantPolicy)
 
 	// Jornada (FSM), Outbox, What-If, Origem no Simulador & Métricas de Funil (UIX-09..13, OBS-06)
+	mux.HandleFunc("GET /api/workflows", s.handleGetWorkflows)
 	mux.HandleFunc("GET /api/sources/{channel}/{key}/journey", s.handleGetSourceJourney)
 	mux.HandleFunc("POST /api/journey/what-if", s.handleJourneyWhatIf)
 	mux.HandleFunc("GET /api/outbox", s.handleListOutbox)

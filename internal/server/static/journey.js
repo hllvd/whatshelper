@@ -4,6 +4,9 @@
   const mermaidContainer = document.getElementById('mermaid-container');
   const mermaidRaw = document.getElementById('mermaid-raw');
   const validationBadge = document.getElementById('journey-validation-badge');
+  const workflowSelect = document.getElementById('workflow-select');
+  const applyWorkflowBtn = document.getElementById('btn-apply-workflow');
+  const workflowFeedback = document.getElementById('workflow-feedback');
   const funnelSummary = document.getElementById('funnel-summary');
   const funnelStages = document.getElementById('funnel-stages');
   const funnelConversions = document.getElementById('funnel-conversions');
@@ -56,7 +59,7 @@
 
     const v = data.validation || {};
     validationBadge.textContent = v.valid
-      ? `Válido (${v.pack || ''} v${v.version || '1'} · ${v.states_count || 0} estados)`
+      ? `Válido (${v.pack || ''}/${v.workflow || 'support'} v${v.version || '1'} · ${v.states_count || 0} estados)`
       : `Inválido/Ausente: ${v.message || ''}`;
 
     const code = data.mermaid || '';
@@ -160,17 +163,72 @@
     }
   });
 
+  async function loadWorkflows() {
+    if (!workflowSelect) return;
+    try {
+      const res = await fetch(`/api/workflows?tenant=${encodeURIComponent(activeTenant)}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const workflows = data.workflows || [];
+      workflowSelect.textContent = '';
+      for (const wf of workflows) {
+        const opt = document.createElement('option');
+        opt.value = wf.id;
+        opt.textContent = `${wf.id} (${wf.states_count} estados · início: ${wf.initial_state})`;
+        workflowSelect.appendChild(opt);
+      }
+      if (data.active_workflow) {
+        workflowSelect.value = data.active_workflow;
+      }
+    } catch (err) {
+      console.error('Erro ao carregar workflows:', err);
+    }
+  }
+
+  if (applyWorkflowBtn && workflowSelect) {
+    applyWorkflowBtn.addEventListener('click', async () => {
+      const selected = workflowSelect.value;
+      if (!selected) return;
+      applyWorkflowBtn.disabled = true;
+      if (workflowFeedback) workflowFeedback.textContent = 'Aplicando...';
+      try {
+        const getRes = await fetch(`/api/tenants/${encodeURIComponent(activeTenant)}/policy`);
+        if (!getRes.ok) throw new Error('Falha ao ler policy do tenant');
+        const policy = await getRes.json();
+        policy.workflow = selected;
+        const putRes = await fetch(`/api/tenants/${encodeURIComponent(activeTenant)}/policy`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(policy),
+        });
+        if (!putRes.ok) {
+          const errData = await putRes.json().catch(() => ({}));
+          throw new Error(errData.error || 'Erro ao salvar workflow');
+        }
+        if (workflowFeedback) workflowFeedback.textContent = `Workflow "${selected}" ativo!`;
+        await loadJourney();
+        await loadFunnelMetrics();
+      } catch (err) {
+        if (workflowFeedback) workflowFeedback.textContent = err.message;
+      } finally {
+        applyWorkflowBtn.disabled = false;
+      }
+    });
+  }
+
   document.getElementById('btn-refresh-outbox').addEventListener('click', loadOutbox);
   outboxFilter.addEventListener('change', loadOutbox);
   if (tenantInput) {
     tenantInput.addEventListener('change', () => {
       activeTenant = tenantInput.value.trim() || 'demo';
+      loadWorkflows();
       loadSources().then(loadJourney);
       loadFunnelMetrics();
       loadOutbox();
     });
   }
 
+  loadWorkflows();
   loadSources().then(loadJourney);
   loadFunnelMetrics();
   loadOutbox();

@@ -1,0 +1,119 @@
+version: "1"
+initial_state: triage
+
+defaults:
+  stagnation_threshold: 3
+  stagnation_to: escalate_human
+  fallback_directive:
+    goal: "Ajudar o usuário com base na documentação oficial."
+    constraints:
+      - "Use apenas informações verificadas da base de conhecimento."
+      - "Se não souber, encaminhe para o time técnico."
+
+global_rules:
+  - id: global_critical_bug_escalate
+    priority: 100
+    on_event: user_message
+    guard: 'dimensions["urgency"] == "critical" || dimensions["sentiment"] == "frustrated"'
+    to: escalate_human
+    reason: "Urgência crítica ou usuário frustrado"
+    actions:
+      - type: create_task
+        params:
+          type: incident
+          title: "Incidente crítico reportado pelo usuário"
+      - type: notify_admin
+        params:
+          reason: "Escalonamento prioritário de suporte"
+    directive:
+      goal: "Confirmar recebimento prioritário e informar que um especialista técnico já foi acionado."
+      constraints:
+        - "Não prometa prazo de resolução não documentado."
+
+states:
+  triage:
+    description: "Identificação do produto, plano e natureza da solicitação"
+    stagnation_threshold: 3
+    stagnation_to: escalate_human
+    directive:
+      goal: "Identificar produto, erro ou dúvida do usuário."
+      must_ask:
+        - "Qual módulo ou código de erro você está vendo?"
+      constraints:
+        - "Peça apenas os dados necessários para diagnóstico."
+    rules:
+      - id: triage_to_bug_investigation
+        priority: 30
+        on_event: user_message
+        intent: report_bug
+        guard: 'HasFact("Product") || HasFact("ErrorCode") || signals["has_pending_bug"] == true'
+        to: investigating_bug
+        reason: "Relato de bug identificado na triagem"
+        actions:
+          - type: create_task
+            params:
+              type: bug_triage
+              title: "Investigar erro reportado"
+      - id: triage_to_howto
+        priority: 20
+        on_event: user_message
+        intent: ask_howto
+        to: answering_howto
+        reason: "Dúvida de uso identificada"
+
+  answering_howto:
+    description: "Atendimento de dúvidas de configuração, limites e SLA"
+    stagnation_threshold: 3
+    stagnation_to: escalate_human
+    directive:
+      goal: "Responder objetivamente usando a documentação do produto."
+      constraints:
+        - "Cite apenas recursos e limites documentados."
+    rules:
+      - id: howto_to_bug
+        priority: 20
+        on_event: user_message
+        intent: report_bug
+        to: investigating_bug
+        reason: "Usuário relatou falha durante dúvida"
+      - id: howto_resolved
+        priority: 10
+        on_event: user_message
+        guard: 'signals["has_new_question"] == false && dimensions["sentiment"] == "positive"'
+        to: resolved
+        reason: "Dúvida aparentemente resolvida"
+
+  investigating_bug:
+    description: "Coleta de ambiente, código de erro e evidências"
+    timeout_minutes: 720
+    stagnation_threshold: 3
+    stagnation_to: escalate_human
+    directive:
+      goal: "Coletar ambiente e código de erro para encaminhamento técnico."
+      must_ask:
+        - "Em qual ambiente (produção/homologação) o erro ocorre?"
+      constraints:
+        - "Não invente causas raiz."
+    rules:
+      - id: bug_ready_for_escalation
+        priority: 20
+        on_event: user_message
+        guard: 'HasFact("Environment") && (HasFact("ErrorCode") || HasFact("HasScreenshot"))'
+        to: escalate_human
+        reason: "Dados suficientes para análise técnica"
+        actions:
+          - type: notify_admin
+            params:
+              reason: "Bug com evidências completas pronto para engenharia"
+
+  escalate_human:
+    description: "Encaminhado ao suporte humano / engenharia"
+    terminal: true
+    directive:
+      goal: "Informar que a equipe técnica assumiu o chamado."
+
+  resolved:
+    description: "Solicitação atendida"
+    terminal: true
+    directive:
+      goal: "Confirmar encerramento e manter canal disponível."

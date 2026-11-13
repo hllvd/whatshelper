@@ -913,8 +913,8 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 	})
 
 	var journeyDirective *pack.ResponseDirectiveDef
-	if pk.Journey != nil && p.cfg.Store != nil {
-		jOut := p.evaluateAndCommitJourney(ctx, pk, tenantID, channelID, sourceKey, runID, analysisOutcome.Result, updatedState, core.SystemEvent{
+	if jDef := pk.ResolveJourney(tenantCfg.Workflow); jDef != nil && p.cfg.Store != nil {
+		jOut := p.evaluateAndCommitJourney(ctx, pk, jDef, tenantID, channelID, sourceKey, runID, analysisOutcome.Result, updatedState, core.SystemEvent{
 			EventID:    runID,
 			Type:       core.SysEventUserMessage,
 			Origin:     latest.Origin,

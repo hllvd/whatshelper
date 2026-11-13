@@ -38,7 +38,8 @@ func (p *Pipeline) EmitSystemEvent(
 	if err != nil {
 		return nil, err
 	}
-	if pk.Journey == nil {
+	jDef := pk.ResolveJourney(tenantCfg.Workflow)
+	if jDef == nil {
 		return nil, nil
 	}
 	state, err := p.cfg.Store.GetSourceState(ctx, tenantID, channelID, sourceKey)
@@ -55,18 +56,22 @@ func (p *Pipeline) EmitSystemEvent(
 	sysEvt.Channel = channelID
 	sysEvt.SourceKey = sourceKey
 
-	out := p.evaluateAndCommitJourney(ctx, pk, tenantID, channelID, sourceKey, sysEvt.EventID, nil, state, sysEvt)
+	out := p.evaluateAndCommitJourney(ctx, pk, jDef, tenantID, channelID, sourceKey, sysEvt.EventID, nil, state, sysEvt)
 	return &out, nil
 }
 
 func (p *Pipeline) evaluateAndCommitJourney(
 	ctx context.Context,
 	pk *pack.Pack,
+	jDef *pack.JourneyDef,
 	tenantID, channelID, sourceKey, runID string,
 	analysis *pack.AnalysisResult,
 	state *core.SourceState,
 	sysEvt core.SystemEvent,
 ) NextJourneyOutput {
+	if jDef == nil {
+		jDef = pk.Journey
+	}
 	now := p.now()
 	curJourney, _ := p.cfg.Store.GetJourneyState(ctx, tenantID, channelID, sourceKey)
 
@@ -88,7 +93,7 @@ func (p *Pipeline) evaluateAndCommitJourney(
 	}
 
 	jOut := NextJourney(NextJourneyInput{
-		Journey:    pk.Journey,
+		Journey:    jDef,
 		Current:    curJourney,
 		Event:      sysEvt,
 		Analysis:   analysis,
@@ -136,7 +141,7 @@ func (p *Pipeline) evaluateAndCommitJourney(
 		TurnsInState:    turnsInState,
 		StagnationCount: jOut.StagnationCount,
 		Version:         expectedVer + 1,
-		JourneyVersion:  pk.Journey.Version,
+		JourneyVersion:  jDef.Version,
 		Dimensions:      dims,
 		UpdatedAt:       now,
 	}

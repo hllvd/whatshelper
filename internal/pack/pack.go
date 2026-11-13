@@ -196,9 +196,10 @@ type Pack struct {
 	OptOutKeywords []string            `yaml:"opt_out_keywords,omitempty" json:"opt_out_keywords,omitempty"`
 	Context        []ContextSectionDef `yaml:"context" json:"context"`
 	ContextModule  *ContextModuleDef   `yaml:"context_module,omitempty" json:"context_module,omitempty"`
-	FSM            *FSMDef             `yaml:"fsm,omitempty" json:"fsm,omitempty"`
-	Journey        *JourneyDef         `yaml:"-" json:"journey,omitempty"`
-	Prompts        PromptsDef          `yaml:"prompts" json:"prompts"`
+	FSM            *FSMDef                `yaml:"fsm,omitempty" json:"fsm,omitempty"`
+	Journey        *JourneyDef            `yaml:"-" json:"journey,omitempty"`
+	Journeys       map[string]*JourneyDef `yaml:"-" json:"journeys,omitempty"`
+	Prompts        PromptsDef             `yaml:"prompts" json:"prompts"`
 	Rules          []string            `yaml:"rules,omitempty" json:"rules,omitempty"`
 
 	// Templates compilados na carga
@@ -250,8 +251,36 @@ func LoadFromDir(dir string) (*Pack, error) {
 	if err != nil {
 		return nil, err
 	}
+	journeys, err := LoadJourneysFromDir(dir, p)
+	if err != nil {
+		return nil, err
+	}
+	p.Journeys = journeys
+	if journey == nil && len(journeys) > 0 {
+		journey = journeys["support"]
+	}
 	p.Journey = journey
 	return p, nil
+}
+
+// ResolveJourney retorna a jornada ativa para o workflow solicitado,
+// com fallback para "support" e para o journey.yaml legado do pack.
+func (p *Pack) ResolveJourney(workflow string) *JourneyDef {
+	if p == nil {
+		return nil
+	}
+	w := strings.TrimSpace(workflow)
+	if w != "" && p.Journeys != nil {
+		if j, ok := p.Journeys[w]; ok && j != nil {
+			return j
+		}
+	}
+	if p.Journeys != nil {
+		if j, ok := p.Journeys["support"]; ok && j != nil {
+			return j
+		}
+	}
+	return p.Journey
 }
 
 func (p *Pack) loadTemplates(baseDir string) error {

@@ -47,19 +47,24 @@ func (s *Server) handleGetSourceJourney(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var jDef *pack.JourneyDef
+	activeWorkflow := "support"
+	if pol, polErr := s.loadTenantPolicyForLLM(ctx, tenant); polErr == nil && strings.TrimSpace(pol.Workflow) != "" {
+		activeWorkflow = pol.Workflow
+	}
 	validation := map[string]any{"valid": false, "message": "pack não carregado"}
 	if s.deps.Pipeline != nil {
 		if pk, pkErr := s.deps.Pipeline.LoadTenantPack(ctx, tenant); pkErr != nil {
 			validation = map[string]any{"valid": false, "message": pkErr.Error()}
-		} else if pk.Journey != nil {
-			jDef = pk.Journey
+		} else if resolved := pk.ResolveJourney(activeWorkflow); resolved != nil {
+			jDef = resolved
 			validation = map[string]any{
 				"valid":         true,
 				"pack":          pk.Name,
-				"version":       pk.Journey.Version,
-				"initial_state": pk.Journey.InitialState,
-				"states_count":  len(pk.Journey.States),
-				"global_rules":  len(pk.Journey.GlobalRules),
+				"workflow":      activeWorkflow,
+				"version":       resolved.Version,
+				"initial_state": resolved.InitialState,
+				"states_count":  len(resolved.States),
+				"global_rules":  len(resolved.GlobalRules),
 			}
 		} else {
 			validation = map[string]any{"valid": false, "message": "pack não possui journey.yaml"}
@@ -76,6 +81,7 @@ func (s *Server) handleGetSourceJourney(w http.ResponseWriter, r *http.Request) 
 		"tenant":      tenant,
 		"channel":     channel,
 		"source_key":  key,
+		"workflow":    activeWorkflow,
 		"state":       js,
 		"transitions": transitions,
 		"outbox":      outbox,
@@ -115,13 +121,18 @@ func (s *Server) handleJourneyWhatIf(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if pk.Journey == nil {
+	activeWorkflow := "support"
+	if pol, polErr := s.loadTenantPolicyForLLM(r.Context(), tenant); polErr == nil && strings.TrimSpace(pol.Workflow) != "" {
+		activeWorkflow = pol.Workflow
+	}
+	jDef := pk.ResolveJourney(activeWorkflow)
+	if jDef == nil {
 		writeJSONError(w, http.StatusNotFound, "pack não possui journey.yaml")
 		return
 	}
 
 	res := brain.SimulateJourneyWhatIf(
-		pk.Journey,
+		jDef,
 		req.CurrentState,
 		req.StagnationCount,
 		core.SystemEventType(strings.TrimSpace(req.EventType)),
@@ -225,8 +236,12 @@ func (s *Server) handleGetFunnelMetrics(w http.ResponseWriter, r *http.Request) 
 
 	var jDef *pack.JourneyDef
 	if s.deps.Pipeline != nil {
+		activeWorkflow := "support"
+		if pol, polErr := s.loadTenantPolicyForLLM(ctx, tenant); polErr == nil && strings.TrimSpace(pol.Workflow) != "" {
+			activeWorkflow = pol.Workflow
+		}
 		if pk, err := s.deps.Pipeline.LoadTenantPack(ctx, tenant); err == nil && pk != nil {
-			jDef = pk.Journey
+			jDef = pk.ResolveJourney(activeWorkflow)
 		}
 	}
 
@@ -365,5 +380,61 @@ func (s *Server) handleListUnknownOriginMessages(w http.ResponseWriter, r *http.
 	writeJSON(w, http.StatusOK, map[string]any{
 		"tenant":   tenant,
 		"messages": out,
+	})
+}
+
+type workflowSummary struct {
+	ID           string `json:"id"`
+	InitialState string `json:"initial_state"`
+	StatesCount  int    `json:"states_count"`
+}
+
+func (s *Server) handleGetWorkflows(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Pipeline == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "pipeline não inicializado")
+		return
+	}
+	tenant := strings.TrimSpace(r.URL.Query().Get("tenant"))
+	if tenant == "" {
+		tenant = "demo"
+	}
+	ctx := r.Context()
+	activeWorkflow := "support"
+	if pol, err := s.loadTenantPolicyForLLM(ctx, tenant); err == nil && strings.TrimSpace(pol.Workflow) != "" {
+		activeWorkflow = pol.Workflow
+	}
+	pk, err := s.deps.Pipeline.LoadTenantPack(ctx, tenant)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	workflows := make([]workflowSummary, 0, len(pk.Journeys))
+	for id, j := range pk.Journeys {
+		if j == nil {
+			continue
+		}
+		workflows = append(workflows, workflowSummary{
+			ID:           id,
+			InitialState: j.InitialState,
+			StatesCount:  len(j.States),
+		})
+	}
+	sort.Slice(workflows, func(i, j int) bool {
+		return workflows[i].ID < workflows[j].ID
+	})
+	if len(workflows) == 0 && pk.Journey != nil {
+		workflows = append(workflows, workflowSummary{
+			ID:           "default",
+			InitialState: pk.Journey.InitialState,
+			StatesCount:  len(pk.Journey.States),
+		})
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"tenant_id":       tenant,
+		"pack":            pk.Name,
+		"active_workflow": activeWorkflow,
+		"workflows":       workflows,
 	})
 }
