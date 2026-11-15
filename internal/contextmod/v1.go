@@ -62,6 +62,8 @@ type GetContextRequest struct {
 	BudgetTokens      int      `json:"budget_tokens,omitempty"`
 	ExcludeMessageIDs []string `json:"exclude_message_ids,omitempty"`
 	RecentLimit       int      `json:"recent_limit,omitempty"`
+	KnowledgeQuery    string   `json:"knowledge_query,omitempty"`
+	KnowledgeTopK     int      `json:"knowledge_top_k,omitempty"`
 }
 
 // DroppedItem registra exatamente o que foi cortado pelo ContextBuilder por limite de orçamento.

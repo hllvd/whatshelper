@@ -8,8 +8,10 @@ import (
 	"time"
 
 	"whatshelper/internal/brain"
+	"whatshelper/internal/contextmod"
 	"whatshelper/internal/core"
 	"whatshelper/internal/core/fakes"
+	"whatshelper/internal/pack"
 	"whatshelper/internal/store"
 )
 
@@ -204,5 +206,70 @@ func TestSeedLocalKnowledge_And_InvalidateCache(t *testing.T) {
 	b2, _ := ks.Load(ctx, "demo")
 	if b2.Docs[0].Content != "Editado v3" {
 		t.Fatalf("expected immediate reload after Invalidate, got %q", b2.Docs[0].Content)
+	}
+}
+
+func TestBuildKnowledgeSearchQuery_AndSupporterTokenSavings(t *testing.T) {
+	ctx := context.Background()
+	ks := brain.NewLocalKnowledgeSource(filepath.Join("..", "..", "tenants"))
+	bundle, err := ks.Load(ctx, "supporter")
+	if err != nil {
+		t.Fatalf("failed to load supporter knowledge: %v", err)
+	}
+	if len(bundle.Docs) < 10 {
+		t.Fatalf("expected at least 10 docs in supporter tenant, got %d", len(bundle.Docs))
+	}
+
+	query := brain.BuildKnowledgeSearchQuery(
+		"Como faço para importar contratos do PowerBI?",
+		"Usuário quer importar contratos via PowerBI.",
+		"ask_question",
+		map[string]string{"Topic": "powerbi", "Confirmed": "true"},
+	)
+
+	docsView := make([]contextmod.KnowledgeDocView, len(bundle.Docs))
+	totalRawChars := 0
+	for i, d := range bundle.Docs {
+		docsView[i] = contextmod.KnowledgeDocView{Name: d.Name, Content: d.Content}
+		totalRawChars += len(d.Content)
+	}
+
+	relevant := contextmod.RetrieveRelevantKnowledge(docsView, query, 4)
+	if len(relevant) == 0 || len(relevant) >= len(bundle.Docs) {
+		t.Fatalf("expected selective subset of docs, got %d out of %d", len(relevant), len(bundle.Docs))
+	}
+	if relevant[0].Name != "como-importar-contratos-powerbi.md" {
+		t.Fatalf("expected top doc como-importar-contratos-powerbi.md, got %s", relevant[0].Name)
+	}
+
+	filteredChars := 0
+	for _, d := range relevant {
+		filteredChars += len(d.Content)
+	}
+	if filteredChars >= totalRawChars/3 {
+		t.Fatalf("expected >66%% reduction in knowledge payload size, got filtered=%d total=%d", filteredChars, totalRawChars)
+	}
+
+	// Verifica que o Grounding continua válido com os documentos filtrados por seção
+	filteredBundle := brain.KnowledgeBundle{
+		Docs:      make([]pack.KnowledgeDoc, len(relevant)),
+		QAContent: bundle.QAContent,
+	}
+	for i, d := range relevant {
+		filteredBundle.Docs[i] = pack.KnowledgeDoc{Name: d.Name, Content: d.Content}
+	}
+	gr := brain.CheckGrounding(
+		brain.StructuredReply{
+			Answerable: true,
+			Sources:    []string{"como-importar-contratos-powerbi.md"},
+			Reply:      "Você pode importar os contratos na tela de importação do PowerBI.",
+		},
+		filteredBundle,
+		nil,
+		pack.PromptMessage{Sender: "user", Text: "Como faço para importar contratos do PowerBI?"},
+		nil,
+	)
+	if !gr.Grounded {
+		t.Fatalf("expected CheckGrounding to succeed with section-filtered knowledge, got: %+v", gr)
 	}
 }

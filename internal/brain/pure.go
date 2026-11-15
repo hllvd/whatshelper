@@ -129,3 +129,34 @@ func SanitizePlainText(input string) string {
 	}
 	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
+
+// BuildKnowledgeSearchQuery constrói de forma pura e determinística a query de busca híbrida
+// combinando o lote atual de mensagens do cliente com resumo, intenção e fatos conhecidos da conversa.
+func BuildKnowledgeSearchQuery(batchText, summary, intent string, facts map[string]string) string {
+	var parts []string
+	if cleanBatch := strings.TrimSpace(batchText); cleanBatch != "" {
+		// Duplica a mensagem atual para dar maior peso (TF) aos termos do turno corrente
+		parts = append(parts, cleanBatch, cleanBatch)
+	}
+	if cleanIntent := strings.TrimSpace(intent); cleanIntent != "" {
+		parts = append(parts, strings.ReplaceAll(cleanIntent, "_", " "))
+	}
+	if len(facts) > 0 {
+		keys := make([]string, 0, len(facts))
+		for k := range facts {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			val := strings.TrimSpace(facts[k])
+			if val == "" || strings.EqualFold(val, "true") || strings.EqualFold(val, "false") {
+				continue
+			}
+			parts = append(parts, k+" "+val)
+		}
+	}
+	if cleanSummary := strings.TrimSpace(summary); cleanSummary != "" {
+		parts = append(parts, cleanSummary)
+	}
+	return strings.TrimSpace(strings.Join(parts, " "))
+}

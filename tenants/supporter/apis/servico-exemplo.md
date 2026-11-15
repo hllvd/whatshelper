@@ -1,6 +1,6 @@
 # API: [Nome do Serviço]
 
-Descrição geral do serviço externo ou interno, qual sistema ele representa e para que o agente/sistema utiliza esta integração.
+Descrição geral do serviço externo ou interno. *(Todos os campos abaixo são opcionais — mantenha apenas o que for necessário para o serviço).*
 
 ---
 

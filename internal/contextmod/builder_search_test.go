@@ -115,3 +115,111 @@ func TestBM25Searcher_AccentFoldingAndRanking(t *testing.T) {
 		t.Fatalf("expected FAQ.md ranked first, got %+v", res.Hits)
 	}
 }
+
+func TestRetrieveRelevantKnowledge_SectionChunkingAndTokenReduction(t *testing.T) {
+	docs := []contextmod.KnowledgeDocView{
+		{
+			Name:    "README.md",
+			Content: "# Base de Conhecimento\n\nColoque aqui os arquivos .md com regras comerciais.",
+		},
+		{
+			Name: "como-gerenciar-contratos-admin.md",
+			Content: strings.Join([]string{
+				"# Como Gerenciar Contratos (Visão Administrativa)",
+				"",
+				"A tela **Contratos** (`#/contracts`) é a central administrativa.",
+				"",
+				"## 1. Pré-requisitos",
+				"- Possuir perfil Admin (`system:admin`).",
+				"",
+				"## 2. Passo a Passo",
+				"### Passo 1: Acessar e Filtrar Contratos",
+				"No menu lateral, clique em Contratos (`#/contracts`) e filtre por Matrícula.",
+				"",
+				"### Passo 4: Importar ou Exportar Contratos",
+				"Clique em Exportar no topo para baixar a planilha consolidada.",
+				"",
+				"## 3. Dúvidas Comuns / Troubleshooting",
+				"- Sincronização com o Avapro pode demorar até 24h.",
+			}, "\n"),
+		},
+		{
+			Name: "como-atualizar-senha-powerbi-scrape.md",
+			Content: strings.Join([]string{
+				"# Como Atualizar Senha do PowerBI Scrape",
+				"",
+				"## Passo 1: Acessar Credenciais",
+				"Vá em Configurações > Integrações > PowerBI e atualize a senha do robô de scrape.",
+			}, "\n"),
+		},
+		{
+			Name: "como-gerenciar-equipes.md",
+			Content: strings.Join([]string{
+				"# Como Gerenciar Equipes",
+				"",
+				"## Criar Nova Equipe",
+				"Acesse o menu Equipes e adicione os líderes e consultores.",
+			}, "\n"),
+		},
+	}
+
+	fullTokens := 0
+	for _, d := range docs {
+		fullTokens += contextmod.EstimateTokens(d.Content)
+	}
+
+	// 1) Busca específica sobre Avapro e contratos -> deve trazer apenas seções relevantes, ignorando PowerBI, Equipes e README placeholder
+	rel := contextmod.RetrieveRelevantKnowledge(docs, "contrato nao aparece sincronizacao avapro 24h", 2)
+	if len(rel) != 1 {
+		t.Fatalf("expected only 1 relevant doc grouped, got %d (%+v)", len(rel), rel)
+	}
+	if rel[0].Name != "como-gerenciar-contratos-admin.md" {
+		t.Fatalf("expected como-gerenciar-contratos-admin.md, got %s", rel[0].Name)
+	}
+	if !strings.Contains(rel[0].Content, "Avapro") || !strings.Contains(rel[0].Content, "24h") {
+		t.Fatalf("expected troubleshooting section with Avapro and 24h, got:\n%s", rel[0].Content)
+	}
+	if strings.Contains(rel[0].Content, "Baixar a planilha consolidada") {
+		t.Fatalf("expected unrelated section (Passo 4) omitted from chunked doc, got:\n%s", rel[0].Content)
+	}
+	filteredTokens := contextmod.EstimateTokens(rel[0].Content)
+	if filteredTokens >= fullTokens/2 {
+		t.Fatalf("expected significant token reduction: filtered=%d full=%d", filteredTokens, fullTokens)
+	}
+
+	// 2) Saudação ou pergunta fora da base -> deve retornar lista vazia (0 tokens de conhecimento)
+	empty := contextmod.RetrieveRelevantKnowledge(docs, "oi bom dia tudo bem", 4)
+	if len(empty) != 0 {
+		t.Fatalf("expected empty knowledge slice for greeting without domain terms, got %+v", empty)
+	}
+	unrelated := contextmod.RetrieveRelevantKnowledge(docs, "previsao do tempo em curitiba amanha", 4)
+	if len(unrelated) != 0 {
+		t.Fatalf("expected empty knowledge slice for unrelated query, got %+v", unrelated)
+	}
+}
+
+func TestFilterRelevantQA_SmallPassthroughAndLargeFiltering(t *testing.T) {
+	smallQA := "# Perguntas e Respostas Aprendidas (QA)\n\n## Qual o prazo?\nO prazo é de 24h úteis.\n"
+	if got := contextmod.FilterRelevantQA(smallQA, "pergunta qualquer", 3, 250); got != strings.TrimSpace(smallQA) {
+		t.Fatalf("expected small QA kept intact, got %q", got)
+	}
+
+	var b strings.Builder
+	b.WriteString("# Perguntas e Respostas Aprendidas (QA)\n")
+	for i := 1; i <= 25; i++ {
+		b.WriteString("\n## Como configurar o módulo secundário número ")
+		b.WriteString(strings.Repeat("x", 30))
+		b.WriteString("?\nPara configurar o módulo secundário, acesse o painel lateral e salve a opção correspondente.\n")
+	}
+	b.WriteString("\n## Como corrigir erro 502 na exportação CSV?\nUse o endpoint assíncrono /v2/exports para arquivos acima de 50000 linhas.\n")
+	largeQA := b.String()
+
+	filtered := contextmod.FilterRelevantQA(largeQA, "erro 502 exportacao csv", 2, 100)
+	if !strings.Contains(filtered, "/v2/exports") {
+		t.Fatalf("expected matching QA entry preserved, got:\n%s", filtered)
+	}
+	if contextmod.EstimateTokens(filtered) >= contextmod.EstimateTokens(largeQA)/3 {
+		t.Fatalf("expected large QA filtered down significantly: filtered=%d full=%d",
+			contextmod.EstimateTokens(filtered), contextmod.EstimateTokens(largeQA))
+	}
+}

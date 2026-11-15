@@ -1116,11 +1116,18 @@ staleReprocessLoop:
 	}
 
 	// Estágio de resposta (BRAIN-03) via módulo de contexto (CTX-03 / CTX-04 / CTX-05)
+	knowledgeQuery := BuildKnowledgeSearchQuery(
+		joinBatchTexts(batch),
+		updatedState.Summary.Text,
+		decision.Intent,
+		updatedState.Facts,
+	)
 	replyBundle, err := p.cfg.ContextSvc.GetContext(ctx, contextmod.GetContextRequest{
 		Scope:             scope,
 		View:              contextmod.ViewResponse,
 		ExcludeMessageIDs: excludeIDs,
 		RecentLimit:       p.cfg.RecentMessagesLimit,
+		KnowledgeQuery:    knowledgeQuery,
 	})
 	if err != nil {
 		return p.failPipeline(ctx, latest, runID, traceRef, trace, err)

@@ -133,6 +133,11 @@ func (s *InProcessService) GetContext(ctx context.Context, req GetContextRequest
 	}, needed)
 	raw.GeneratedAt = s.clock.Now().UTC()
 
+	if strings.TrimSpace(req.KnowledgeQuery) != "" {
+		raw.Knowledge = RetrieveRelevantKnowledge(raw.Knowledge, req.KnowledgeQuery, req.KnowledgeTopK)
+		raw.QAContent = FilterRelevantQA(raw.QAContent, req.KnowledgeQuery, DefaultQAMaxEntries, DefaultQAPassthroughMaxTokens)
+	}
+
 	return BuildContextBundle(spec, raw), nil
 }
 
