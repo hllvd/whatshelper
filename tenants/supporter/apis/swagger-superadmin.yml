@@ -1,11 +1,12 @@
 openapi: 3.0.3
 info:
-  title: SalesApp API - Superadmin & LLM Integration Spec
+  title: SalesApp API - Superadmin Read-Only (GET) Inspection Spec
   description: >
-    Especificação OpenAPI 3.0 dos 20 endpoints estratégicos do SalesApp para consumo por
-    agentes autônomos, assistentes virtuais e ferramentas de chat com privilégios de Superadmin.
-    Permite auditar contratos, usuários, relações de matrículas (titular vs participante),
-    histórico de importações, execuções do robô de scraping e saúde do sistema.
+    Especificação OpenAPI 3.0 estritamente de LEITURA (métodos HTTP GET) da API do SalesApp.
+    Projetada para agentes de inteligência artificial e chats LLM que atuam como Superadmin
+    para inspecionar e auditar o estado do sistema com segurança total (sem risco de mutação ou escrita).
+    Permite verificar contratos (incluindo se foram deletados), usuários, titularidade de matrículas,
+    equipes, planos de carreira, saúde e histórico de sincronizações.
   version: 1.0.0
 servers:
   - url: http://localhost:5000
@@ -17,16 +18,18 @@ security:
   - BearerAuth: []
 
 tags:
-  - name: Auth
-    description: Autenticação OAuth2 Password Grant e emissão de tokens JWT
   - name: Contracts
-    description: Consulta, listagem e detalhamento de contratos e vendas
+    description: Consulta, auditoria e detalhamento de contratos e vendas
   - name: AdminTools
-    description: Ferramentas administrativas exclusivas de Superadmin para auditoria em lote
+    description: Ferramentas administrativas de leitura exclusiva de Superadmin (excluídos, inconsistências e busca rápida)
   - name: Users
-    description: Gestão, busca e detalhamento de usuários, consultores e hierarquia
+    description: Gestão, busca e estatísticas de consultores, gestores e hierarquia
   - name: Matriculas
     description: Gestão de matrículas e mapeamento de vínculos N:N com titularidade (isOwner)
+  - name: Teams
+    description: Estrutura organizacional de equipes, líderes e membros
+  - name: CareerPlan
+    description: Avaliação de metas, comissões, níveis e retenção (RT1 a RT6) de consultores
   - name: Imports
     description: Histórico de ingestão e processamento de planilhas e cargas de dados
   - name: Scraping
@@ -35,57 +38,14 @@ tags:
     description: Diagnóstico de saúde, integridade e volume por matrícula e equipe
   - name: Dashboard
     description: Métricas consolidadas de vendas, faturamento e atingimento por segmento
+  - name: ApprovalRequests
+    description: Solicitações e pendências de aprovação de consultores (tela #/requests)
+  - name: Classifications
+    description: Classificações de níveis e verificação de enquadramento no plano de carreira (tela #/classifications)
 
 paths:
   # ============================================================================
-  # 1. AUTH
-  # ============================================================================
-  /api/auth/token:
-    post:
-      tags:
-        - Auth
-      summary: Autenticação Superadmin (Obtenção do Token JWT)
-      description: >
-        Emite um token JWT Bearer com validade de 7 dias mediante credenciais de Superadmin.
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/x-www-form-urlencoded:
-            schema:
-              type: object
-              required:
-                - grant_type
-                - username
-                - password
-              properties:
-                grant_type:
-                  type: string
-                  example: password
-                  description: Deve ser exatamente 'password'.
-                username:
-                  type: string
-                  example: superadmin@salesapp.com
-                  description: E-mail de login do Superadmin.
-                password:
-                  type: string
-                  format: password
-                  example: string
-                  description: Senha do Superadmin (configurada via SUPERADMIN_PASSWORD).
-      responses:
-        '200':
-          description: Autenticação bem-sucedida.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AuthTokenResponse'
-        '400':
-          description: Parâmetro grant_type inválido.
-        '401':
-          description: Credenciais inválidas ou usuário inativo.
-
-  # ============================================================================
-  # 2. CONTRACTS
+  # 1. CONTRACTS & SALES (LEITURA)
   # ============================================================================
   /api/contracts/number/{contractNumber}:
     get:
@@ -93,8 +53,8 @@ paths:
         - Contracts
       summary: Consultar contrato pelo número
       description: >
-        Localiza um contrato pelo número comercial. Retorna o titular associado,
-        status, valor total, matrícula vinculada e a data de última atualização (updatedAt).
+        Localiza um contrato ativo pelo seu número comercial. Retorna o titular associado (userName, userId),
+        status, valor total, matrícula vinculada, cliente e a data da última atualização (updatedAt).
       parameters:
         - name: contractNumber
           in: path
@@ -110,7 +70,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ContractApiResponse'
         '404':
-          description: Contrato não encontrado ou já solicitado por outro consultor.
+          description: Contrato não encontrado ou pendente de reivindicação por outro consultor.
 
   /api/contracts/{id}:
     get:
@@ -180,6 +140,45 @@ paths:
               schema:
                 $ref: '#/components/schemas/PagedContractApiResponse'
 
+  /api/contracts/user/{userId}:
+    get:
+      tags:
+        - Contracts
+      summary: Listar todos os contratos de um consultor específico
+      description: >
+        Retorna a carteira de contratos atribuídos ao consultor identificado pelo UUID,
+        com suporte a paginação e filtro por matrícula ou data.
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: UUID do consultor titular.
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: matricula
+          in: query
+          schema:
+            type: string
+          description: Opcional - Filtrar por código de matrícula específico.
+      responses:
+        '200':
+          description: Carteira de contratos do consultor retornada com sucesso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedContractApiResponse'
+
   /api/contracts/aggregation/historic-production:
     get:
       tags:
@@ -216,41 +215,34 @@ paths:
                 $ref: '#/components/schemas/HistoricProductionApiResponse'
 
   # ============================================================================
-  # 3. ADMIN TOOLS
+  # 2. ADMIN TOOLS (AUDITORIA E EXCLUSÕES)
   # ============================================================================
-  /api/admintools/check-contracts:
-    post:
-      tags:
-        - AdminTools
-      summary: Conferência e auditoria de contratos em lote
-      description: >
-        Recebe uma lista de números de contratos e audita individualmente se cada um
-        existe no sistema, se está ativo ou soft-deleted, valor e a quem está atribuído.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AdminCheckContractsRequest'
-      responses:
-        '200':
-          description: Resultado detalhado da auditoria em lote.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AdminCheckContractsApiResponse'
-        '403':
-          description: Acesso restrito a Superadmin.
-
   /api/admintools/deleted-contracts:
     get:
       tags:
         - AdminTools
-      summary: Listar contratos excluídos (soft-deleted)
+      summary: Verificar se contratos foram excluídos (Soft-Deleted)
       description: >
-        Retorna listagem de contratos que foram desativados/excluídos logicamente,
-        permitindo identificar quem era o titular e quando foi cancelado.
+        Consulta contratos que foram excluídos/cancelados logicamente no sistema.
+        Permite verificar se um contrato específico foi deletado passando 'contractNumber'
+        ou listar contratos excluídos por equipe.
       parameters:
+        - name: contractNumber
+          in: query
+          schema:
+            type: string
+          description: Número específico do contrato para verificar se foi deletado.
+        - name: exactMatch
+          in: query
+          schema:
+            type: boolean
+            default: true
+          description: Se true, busca correspondência exata do número do contrato.
+        - name: teamId
+          in: query
+          schema:
+            type: integer
+          description: Opcional - Filtrar contratos excluídos de uma equipe específica.
         - name: page
           in: query
           schema:
@@ -260,15 +252,10 @@ paths:
           in: query
           schema:
             type: integer
-            default: 10
-        - name: search
-          in: query
-          schema:
-            type: string
-          description: Busca por número de contrato ou nome de consultor.
+            default: 50
       responses:
         '200':
-          description: Lista de contratos excluídos.
+          description: Lista de contratos excluídos encontrados.
           content:
             application/json:
               schema:
@@ -313,7 +300,7 @@ paths:
                 $ref: '#/components/schemas/AdminTeamInconsistenciesApiResponse'
 
   # ============================================================================
-  # 4. USERS
+  # 3. USERS (USUÁRIOS E GESTORES)
   # ============================================================================
   /api/users:
     get:
@@ -358,6 +345,28 @@ paths:
               schema:
                 $ref: '#/components/schemas/PagedUserApiResponse'
 
+  /api/users/check-email:
+    get:
+      tags:
+        - Users
+      summary: Verificar se um e-mail de usuário existe no sistema
+      description: >
+        Verificação instantânea que retorna se determinado endereço de e-mail já está cadastrado.
+      parameters:
+        - name: email
+          in: query
+          required: true
+          schema:
+            type: string
+          description: E-mail a ser verificado.
+      responses:
+        '200':
+          description: Resultado da verificação do e-mail.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailCheckApiResponse'
+
   /api/users/{id}:
     get:
       tags:
@@ -384,8 +393,32 @@ paths:
         '404':
           description: Usuário não encontrado.
 
+  /api/users/{id}/stats:
+    get:
+      tags:
+        - Users
+      summary: Estatísticas de produção e retenção do usuário
+      description: >
+        Retorna total de produção acumulada, percentual de retenção geral,
+        retenção estrita e quantidade de contratos pendentes de resolução.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: UUID do consultor.
+      responses:
+        '200':
+          description: Estatísticas do usuário retornadas com sucesso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserStatsApiResponse'
+
   # ============================================================================
-  # 5. MATRICULAS
+  # 4. MATRICULAS (VÍNCULOS E TITULARIDADE)
   # ============================================================================
   /api/usermatriculas:
     get:
@@ -443,7 +476,126 @@ paths:
                 $ref: '#/components/schemas/MatriculasMasterListApiResponse'
 
   # ============================================================================
-  # 6. IMPORTS & SCRAPING
+  # 5. TEAMS (EQUIPES COMERCIAIS)
+  # ============================================================================
+  /api/teams:
+    get:
+      tags:
+        - Teams
+      summary: Listar todas as equipes comerciais, líderes e membros
+      description: >
+        Retorna a relação de equipes de vendas cadastradas, indicando o consultor
+        líder/proprietário (Owner) e a lista completa de membros ativos.
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            default: active
+          description: Filtrar equipes ('active', 'inactive', 'all').
+      responses:
+        '200':
+          description: Lista de equipes retornada com sucesso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamsListApiResponse'
+
+  # ============================================================================
+  # 6. CAREER PLAN (PLANO DE CARREIRA & RTs)
+  # ============================================================================
+  /api/careerplan/consultants:
+    get:
+      tags:
+        - CareerPlan
+      summary: Listar consultores com status consolidado no Plano de Carreira
+      description: >
+        Retorna a lista de todos os consultores contendo nível atual, nível alvo,
+        metas de vendas, atingimento percentual da produção e taxa de retenção estrita.
+      responses:
+        '200':
+          description: Lista consolidada de consultores retornada com sucesso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CareerPlanConsultantsApiResponse'
+
+  /api/careerplan/users/{userId}:
+    get:
+      tags:
+        - CareerPlan
+      summary: Avaliação detalhada do Plano de Carreira de um consultor
+      description: >
+        Informa o nível atual, próximo nível desejado, todos os requisitos e métricas
+        brutas de elegibilidade (produção 12m/15m, retenção 6m/12m/15m estrita e membros de equipe).
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: UUID do consultor avaliado.
+      responses:
+        '200':
+          description: Avaliação do plano de carreira gerada com sucesso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CareerPlanEvaluationApiResponse'
+
+  /api/careerplan/users/{userId}/contracts-rt:
+    get:
+      tags:
+        - CareerPlan
+      summary: Acompanhamento de parcelas pagas e retenção (RT1 a RT6) de contratos
+      description: >
+        Retorna tabela paginada de contratos do consultor com o status de cada parcela
+        de retenção (RT1, RT2, RT3, RT4, RT5, RT6), meses de atraso e se a 1ª parcela foi paga.
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: UUID do consultor.
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Tabela de acompanhamento de RTs recuperada com sucesso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContractRtPageApiResponse'
+
+  /api/careerplan/config:
+    get:
+      tags:
+        - CareerPlan
+      summary: Configurações e regras vigentes do Plano de Carreira
+      description: >
+        Retorna as regras gerais do plano de carreira, dia de fechamento mensal e
+        os níveis atualmente configurados no sistema.
+      responses:
+        '200':
+          description: Configurações do plano de carreira recuperadas com sucesso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CareerPlanConfigApiResponse'
+
+  # ============================================================================
+  # 7. IMPORTS & SCRAPING (HISTÓRICO DE CARGAS)
   # ============================================================================
   /api/imports/history:
     get:
@@ -480,7 +632,7 @@ paths:
                   $ref: '#/components/schemas/ScrapeRunSummary'
 
   # ============================================================================
-  # 7. MONITORING & DASHBOARDS
+  # 8. MONITORING & DASHBOARDS
   # ============================================================================
   /api/monitoring/contracts:
     get:
@@ -560,6 +712,128 @@ paths:
               schema:
                 $ref: '#/components/schemas/DashboardSegmentsApiResponse'
 
+  # ============================================================================
+  # 9. APPROVAL REQUESTS (SOLICITAÇÕES - TELA #/requests)
+  # ============================================================================
+  /api/approval-requests/pending:
+    get:
+      tags:
+        - ApprovalRequests
+      summary: Listar solicitações de aprovação pendentes
+      description: >
+        Retorna todas as solicitações pendentes de análise (reivindicações de contratos,
+        solicitações de matrícula, etc.) acessíveis ao usuário/superadmin atual.
+      responses:
+        '200':
+          description: Solicitações pendentes retornadas com sucesso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalRequestsListApiResponse'
+
+  /api/approval-requests/mine:
+    get:
+      tags:
+        - ApprovalRequests
+      summary: Listar solicitações criadas pelo usuário autenticado
+      description: Retorna o histórico de solicitações abertas pelo usuário logado e seus status.
+      responses:
+        '200':
+          description: Solicitações do usuário retornadas com sucesso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalRequestsListApiResponse'
+
+  # ============================================================================
+  # 10. CLASSIFICATIONS (PLANO DE CARREIRA - TELA #/classifications)
+  # ============================================================================
+  /api/classifications/users/{userId}/active:
+    get:
+      tags:
+        - Classifications
+      summary: Verificar se um usuário está ou não em um Plano de Carreira
+      description: >
+        Retorna a classificação e nível ativo do consultor no plano de carreira.
+        Se o usuário estiver enquadrado, 'data' conterá os detalhes do nível (levelId, levelName, salesGoal, etc.).
+        Se NÃO estiver no plano de carreira, 'data' retornará 'null'.
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: UUID do consultor a ser verificado.
+      responses:
+        '200':
+          description: Consulta realizada com sucesso (data é null se não estiver enquadrado).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserClassificationApiResponse'
+
+  /api/classifications/users/{userId}/history:
+    get:
+      tags:
+        - Classifications
+      summary: Histórico de níveis e classificações do usuário
+      description: >
+        Retorna todos os enquadramentos, promoções e períodos em que o consultor
+        esteve classificado nos diferentes níveis do plano de carreira.
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: UUID do consultor.
+      responses:
+        '200':
+          description: Histórico de classificações retornado com sucesso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserClassificationListApiResponse'
+
+  /api/classifications/levels:
+    get:
+      tags:
+        - Classifications
+      summary: Listar níveis de classificação e contagem de usuários ativos
+      description: >
+        Retorna todos os níveis cadastrados no plano de carreira (ex. Bronze, Prata, Ouro, Sênior),
+        suas metas de venda, retenção e a quantidade atual de consultores ativos em cada nível.
+      responses:
+        '200':
+          description: Lista de níveis de classificação retornada com sucesso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClassificationLevelsListApiResponse'
+
+  /api/classifications/levels/{levelId}/members:
+    get:
+      tags:
+        - Classifications
+      summary: Listar consultores atualmente classificados em um nível
+      description: Retorna a relação de usuários ativos que pertencem a determinado nível do plano de carreira.
+      parameters:
+        - name: levelId
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID do nível de classificação.
+      responses:
+        '200':
+          description: Membros do nível retornados com sucesso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserClassificationListApiResponse'
+
 # ==============================================================================
 # COMPONENTS & SCHEMAS
 # ==============================================================================
@@ -569,27 +843,9 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: Insira o token JWT gerado pelo endpoint POST /api/auth/token
+      description: Token JWT de Superadmin passado no header Authorization (Bearer <token>)
 
   schemas:
-    # --------------------------------------------------------------------------
-    # Auth
-    # --------------------------------------------------------------------------
-    AuthTokenResponse:
-      type: object
-      properties:
-        access_token:
-          type: string
-          description: Token de autenticação JWT assinado.
-        token_type:
-          type: string
-          example: Bearer
-          description: Tipo de autorização HTTP.
-        expires_in:
-          type: integer
-          example: 604800
-          description: Validade do token em segundos (7 dias).
-
     # --------------------------------------------------------------------------
     # Generic API Wrapper
     # --------------------------------------------------------------------------
@@ -648,7 +904,7 @@ components:
           description: Data de vigência ou início do contrato.
         isActive:
           type: boolean
-          description: Indica se o contrato está ativo (não excluído).
+          description: Indica se o contrato está ativo (false indica soft-deleted).
         createdAt:
           type: string
           format: date-time
@@ -763,72 +1019,6 @@ components:
     # --------------------------------------------------------------------------
     # Admin Tools
     # --------------------------------------------------------------------------
-    AdminCheckContractsRequest:
-      type: object
-      required:
-        - contractNumbers
-      properties:
-        contractNumbers:
-          type: array
-          items:
-            type: string
-          description: Lista de códigos ou números de contrato para conferência.
-          example:
-            - CTR-987654
-            - CTR-111222
-
-    AdminContractCheckItemDto:
-      type: object
-      properties:
-        contractNumber:
-          type: string
-          description: Número do contrato analisado.
-        existsInSystem:
-          type: boolean
-          description: true se o contrato existe no banco de dados.
-        isDeleted:
-          type: boolean
-          description: true se foi excluído logicamente (soft-delete).
-        assignedTo:
-          type: string
-          nullable: true
-          description: Nome do consultor que é o titular atual do contrato.
-        totalAmount:
-          type: number
-          format: decimal
-          nullable: true
-          description: Valor monetário da venda.
-        saleStartDate:
-          type: string
-          format: date-time
-          nullable: true
-          description: Data da venda informada no contrato.
-
-    AdminCheckContractsApiResponse:
-      allOf:
-        - $ref: '#/components/schemas/ApiResponseBase'
-        - type: object
-          properties:
-            data:
-              type: object
-              properties:
-                results:
-                  type: array
-                  items:
-                    $ref: '#/components/schemas/AdminContractCheckItemDto'
-                totalInput:
-                  type: integer
-                  description: Total de itens enviados na requisição.
-                foundCount:
-                  type: integer
-                  description: Quantidade de contratos encontrados.
-                notFoundCount:
-                  type: integer
-                  description: Quantidade de contratos não existentes.
-                deletedCount:
-                  type: integer
-                  description: Contratos encontrados que estão excluídos.
-
     AdminUserSearchItem:
       type: object
       properties:
@@ -901,6 +1091,25 @@ components:
     # --------------------------------------------------------------------------
     # Users
     # --------------------------------------------------------------------------
+    EmailCheckResponse:
+      type: object
+      properties:
+        exists:
+          type: boolean
+          description: true se o e-mail existe no sistema.
+        contactPhone:
+          type: string
+          nullable: true
+          description: Telefone de contato se disponível.
+
+    EmailCheckApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/EmailCheckResponse'
+
     UserResponse:
       type: object
       properties:
@@ -981,6 +1190,33 @@ components:
                   type: integer
                 pageSize:
                   type: integer
+
+    UserStatsResponse:
+      type: object
+      properties:
+        pendingContractsCount:
+          type: integer
+          description: Quantidade de contratos pendentes de resolução.
+        totalProduction:
+          type: number
+          format: decimal
+          description: Produção total faturada pelo usuário.
+        totalRetention:
+          type: number
+          format: decimal
+          description: Taxa de retenção global percentual.
+        strictRetention:
+          type: number
+          format: decimal
+          description: Taxa de retenção estrita percentual.
+
+    UserStatsApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/UserStatsResponse'
 
     # --------------------------------------------------------------------------
     # Matriculas
@@ -1063,6 +1299,319 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/MatriculaMasterDto'
+
+    # --------------------------------------------------------------------------
+    # Teams
+    # --------------------------------------------------------------------------
+    TeamMemberResponse:
+      type: object
+      properties:
+        userId:
+          type: string
+          format: uuid
+        userName:
+          type: string
+        userEmail:
+          type: string
+        startDate:
+          type: string
+          format: date-time
+        endDate:
+          type: string
+          format: date-time
+          nullable: true
+        isActive:
+          type: boolean
+        isOwner:
+          type: boolean
+          description: true se o membro for o líder/proprietário da equipe.
+
+    TeamResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+          description: Nome da equipe comercial.
+        storeName:
+          type: string
+          nullable: true
+        owner:
+          $ref: '#/components/schemas/TeamMemberResponse'
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeamMemberResponse'
+        isActive:
+          type: boolean
+
+    TeamsListApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/TeamResponse'
+
+    # --------------------------------------------------------------------------
+    # Career Plan
+    # --------------------------------------------------------------------------
+    CareerPlanConsultantSnapshotDto:
+      type: object
+      properties:
+        userId:
+          type: string
+          format: uuid
+        userName:
+          type: string
+        userEmail:
+          type: string
+        currentLevelName:
+          type: string
+          description: Nível atual do consultor no plano de carreira.
+        targetLevelName:
+          type: string
+          description: Próximo nível almejado.
+        salesGoal:
+          type: number
+          format: decimal
+          nullable: true
+          description: Meta de faturamento para promoção.
+        retentionTarget:
+          type: integer
+          nullable: true
+          description: Meta de retenção percentual.
+        activeProduction12m:
+          type: number
+          format: decimal
+          description: Volume de produção ativa nos últimos 12 meses.
+        productionProgressPct:
+          type: number
+          format: decimal
+          description: Progresso percentual rumo à meta de vendas.
+        strictRetention15m:
+          type: number
+          format: decimal
+          description: Retenção estrita nos últimos 15 meses.
+        calculatedAt:
+          type: string
+          format: date-time
+
+    CareerPlanConsultantsListResponse:
+      type: object
+      properties:
+        consultants:
+          type: array
+          items:
+            $ref: '#/components/schemas/CareerPlanConsultantSnapshotDto'
+        totalCount:
+          type: integer
+        lastCalculatedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    CareerPlanConsultantsApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/CareerPlanConsultantsListResponse'
+
+    CareerPlanLevelSummaryDto:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        prize:
+          type: string
+          nullable: true
+        salesGoal:
+          type: number
+          format: decimal
+          nullable: true
+        retention:
+          type: integer
+          nullable: true
+
+    CareerPlanRequirementDto:
+      type: object
+      properties:
+        label:
+          type: string
+        metric:
+          type: string
+        currentValue:
+          type: number
+          format: decimal
+        targetValue:
+          type: number
+          format: decimal
+          nullable: true
+        formattedCurrent:
+          type: string
+        formattedTarget:
+          type: string
+        op:
+          type: string
+        passed:
+          type: boolean
+          description: Indica se o consultor atingiu este requisito específico.
+        progress:
+          type: number
+          format: decimal
+          description: Percentual de progresso do requisito.
+
+    CareerRawMetricsDto:
+      type: object
+      properties:
+        retention6m:
+          type: number
+          format: decimal
+        retention12m:
+          type: number
+          format: decimal
+        retention15m:
+          type: number
+          format: decimal
+        strictRetention15m:
+          type: number
+          format: decimal
+        production12m:
+          type: number
+          format: decimal
+        production15m:
+          type: number
+          format: decimal
+        activeTeamMembers:
+          type: integer
+        isTeamOwner:
+          type: boolean
+
+    CareerPlanEvaluationResponse:
+      type: object
+      properties:
+        userId:
+          type: string
+          format: uuid
+        userName:
+          type: string
+        userEmail:
+          type: string
+        referenceDate:
+          type: string
+          format: date-time
+        closingDay:
+          type: integer
+        currentLevel:
+          $ref: '#/components/schemas/CareerPlanLevelSummaryDto'
+        targetLevel:
+          $ref: '#/components/schemas/CareerPlanLevelSummaryDto'
+        hasTargetLevel:
+          type: boolean
+        hasRulesConfigured:
+          type: boolean
+        requirements:
+          type: array
+          items:
+            $ref: '#/components/schemas/CareerPlanRequirementDto'
+        rawMetrics:
+          $ref: '#/components/schemas/CareerRawMetricsDto'
+
+    CareerPlanEvaluationApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/CareerPlanEvaluationResponse'
+
+    ContractRtRowDto:
+      type: object
+      properties:
+        contractNumber:
+          type: string
+        customerName:
+          type: string
+          nullable: true
+        totalAmount:
+          type: number
+          format: decimal
+        saleStartDate:
+          type: string
+          format: date-time
+        status:
+          type: string
+        rts:
+          type: array
+          items:
+            type: string
+          description: Situação das 6 parcelas de retenção (ex. RT1..RT6).
+        current:
+          type: string
+          description: Classificação RT atual (UpToDate, Overdue, Cancelled).
+        ageMonths:
+          type: integer
+        overdueMonths:
+          type: integer
+        paidMonths:
+          type: integer
+
+    ContractRtPageDto:
+      type: object
+      properties:
+        isApplicable:
+          type: boolean
+        currentLevelName:
+          type: string
+          nullable: true
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        totalCount:
+          type: integer
+        totalPages:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ContractRtRowDto'
+
+    ContractRtPageApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/ContractRtPageDto'
+
+    CareerPlanConfigResponse:
+      type: object
+      properties:
+        closingDay:
+          type: integer
+        configuredLevels:
+          type: array
+          items:
+            type: string
+
+    CareerPlanConfigApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/CareerPlanConfigResponse'
 
     # --------------------------------------------------------------------------
     # Imports & Scraping
@@ -1263,3 +1812,171 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/DashboardSegmentsResponse'
+
+    # --------------------------------------------------------------------------
+    # Approval Requests
+    # --------------------------------------------------------------------------
+    ApprovalRequestResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: ID da solicitação.
+        requestType:
+          type: string
+          description: Tipo da solicitação (ex. ContractClaim, MatriculaRequest).
+        requesterId:
+          type: string
+          format: uuid
+          description: UUID do usuário que abriu a solicitação.
+        requesterName:
+          type: string
+          description: Nome do solicitante.
+        requesterEmail:
+          type: string
+          description: E-mail do solicitante.
+        approverId:
+          type: string
+          format: uuid
+          nullable: true
+          description: UUID do responsável pela resolução.
+        approverName:
+          type: string
+          nullable: true
+          description: Nome do aprovador.
+        status:
+          type: string
+          description: Status da solicitação ('Pending', 'Approved', 'Rejected').
+        payloadJson:
+          type: string
+          description: Dados em formato JSON com detalhes do item solicitado.
+
+    ApprovalRequestsListApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/ApprovalRequestResponse'
+
+    # --------------------------------------------------------------------------
+    # Classifications
+    # --------------------------------------------------------------------------
+    ClassificationLevelResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: ID do nível de classificação.
+        name:
+          type: string
+          description: Nome do nível (ex. Bronze, Prata, Ouro).
+        description:
+          type: string
+          nullable: true
+        prize:
+          type: string
+          nullable: true
+          description: Descrição da premiação/comissão correspondente.
+        salesGoal:
+          type: number
+          format: decimal
+          nullable: true
+          description: Meta de vendas associada ao nível.
+        retention:
+          type: integer
+          nullable: true
+          description: Meta de retenção percentual.
+        nextLevelId:
+          type: integer
+          nullable: true
+        nextLevelName:
+          type: string
+          nullable: true
+        activeUsersCount:
+          type: integer
+          description: Quantidade total de consultores ativos classificados neste nível.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ClassificationLevelsListApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/ClassificationLevelResponse'
+
+    UserClassificationResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: ID do registro de enquadramento.
+        userId:
+          type: string
+          format: uuid
+          description: UUID do consultor.
+        userName:
+          type: string
+          description: Nome do consultor.
+        userEmail:
+          type: string
+          description: E-mail do consultor.
+        levelId:
+          type: integer
+          description: ID do nível em que está classificado.
+        levelName:
+          type: string
+          description: Nome do nível do plano de carreira (ex. Bronze, Prata, Sênior).
+        levelDescription:
+          type: string
+          nullable: true
+        levelPrize:
+          type: string
+          nullable: true
+        levelSalesGoal:
+          type: number
+          format: decimal
+          nullable: true
+          description: Meta de vendas correspondente ao nível ativo.
+        startDate:
+          type: string
+          format: date-time
+          description: Data em que o consultor ingressou neste nível.
+        endDate:
+          type: string
+          format: date-time
+          nullable: true
+          description: Data de término do enquadramento (nulo se ainda vigente).
+        isActive:
+          type: boolean
+          description: true se o enquadramento estiver em vigor.
+
+    UserClassificationApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/UserClassificationResponse'
+              nullable: true
+              description: Detalhes do nível do usuário no plano de carreira, ou null caso não esteja enquadrado.
+
+    UserClassificationListApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/UserClassificationResponse'

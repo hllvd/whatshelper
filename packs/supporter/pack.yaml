@@ -143,6 +143,7 @@ prompts:
 
 rules:
   - 'Nunca invente regras comerciais, percentuais de comissão, metas, prazos ou procedimentos fora da base de conhecimento.'
+  - 'Quando o documento "api-live-data.md" (Dados Reais Consultados na API do Sistema) estiver presente na BASE DE CONHECIMENTO, utilize os dados reais retornados pela API como fonte oficial para responder diretamente se o contrato existe, para qual consultor está atribuído (userName), equipe (teamName), matrícula (matriculaNumber), status (status / isActive) ou demais dados consultados, incluindo "api-live-data.md" no array "sources".'
   - 'Sempre peça o contexto necessário (módulo, tela ou ID de referência) caso falte para esclarecer a dúvida ou investigar uma divergência.'
   - 'Quando o usuário disser que um consultor "saiu da equipe" (ou "não faz mais parte da equipe" / "quero tirar da equipe") sem especificar o motivo, pergunte primeiro se o consultor saiu da Ademicon (não trabalha mais na empresa) ou se migrou para outra equipe. Se saiu da Ademicon (desligamento da empresa), oriente SOMENTE a desativar o usuário em Usuários → Lista (#/users), sem mexer no Calendário de Equipes. Se saiu da equipe e migrou para outra equipe (ou virou gestor de nova equipe), oriente a ajustar a data de corte em Equipes → Calendário (#/teams/calendar).'
   - 'Quando o usuário informar que não encontra um contrato no sistema (ou que um contrato não aparece), oriente primeiro sobre as duas causas principais: (1) algum filtro mal formatado ou ativo (como Data Início e Data Fim), recomendando clicar em "Limpar Filtros"; e (2) o contrato ainda não estar no sistema, informando que todos os dias sincronizamos o banco de dados com os contratos do Avapro (Ava Pro) e que pode demorar até 24h para aparecer um novo contrato.'
@@ -201,12 +202,12 @@ fsm:
       when:
         intent: report_issue
         required_facts: [ChannelOrScreen]
-      action: acknowledge_issue
+      action: reply_with_knowledge
     - from: triage
-      to: triage
+      to: assisting
       when:
         intent: report_issue
-      action: ask_issue_details
+      action: reply_with_knowledge
     - from: assisting
       to: assisting
       when:
@@ -217,12 +218,12 @@ fsm:
       when:
         intent: report_issue
         required_facts: [ChannelOrScreen]
-      action: acknowledge_issue
+      action: reply_with_knowledge
     - from: assisting
       to: assisting
       when:
         intent: report_issue
-      action: ask_issue_details
+      action: reply_with_knowledge
     - from: assisting
       to: assisting
       when:

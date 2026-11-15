@@ -175,11 +175,9 @@ curl -X PUT "http://127.0.0.1:8080/api/llm/config?tenant=demo" \
 
 ### Itens Implementados
 - **Estrutura de Especificação de APIs por Tenant (`tenants/supporter/apis/`)**:
-  - Criada pasta dedicada `tenants/supporter/apis/` (separada de `knowledge/` para evitar injeção de credenciais/rotas técnicas no prompt de FAQ dos usuários finais).
-  - [`tenants/supporter/apis/README.md`](file:///Users/hudson/development/whatshelper/tenants/supporter/apis/README.md): instruções de uso e organização de arquivos `.md` e `.yml`/`.yaml` por serviço externo, sem campos obrigatórios.
-  - [`tenants/supporter/apis/swagger-exemplo.yml`](file:///Users/hudson/development/whatshelper/tenants/supporter/apis/swagger-exemplo.yml): exemplo de especificação direta em arquivo `.yml` (Swagger / OpenAPI 3.0 flexível, sem campos obrigatórios, com bloco opcional `x-auth` para login/senha e descrição de endpoints).
-  - [`tenants/supporter/apis/servico-exemplo.md`](file:///Users/hudson/development/whatshelper/tenants/supporter/apis/servico-exemplo.md): template descritivo livre em `.md` para informar autenticação (`Sim`/`Não`), `Login`, `Senha` e descrição de cada endpoint.
-  - [`tenants/supporter/apis/swagger-exemplo.md`](file:///Users/hudson/development/whatshelper/tenants/supporter/apis/swagger-exemplo.md): template para documentação **Swagger / OpenAPI em `.md`**.
+  - Criada pasta dedicada `tenants/supporter/apis/` (separada de `knowledge/` para evitar injeção de rotas técnicas no prompt de FAQ dos usuários finais).
+  - [`tenants/supporter/apis/swagger-superadmin.yml`](file:///Users/hudson/development/whatshelper/tenants/supporter/apis/swagger-superadmin.yml): especificação OpenAPI 3.0 (`swagger-superadmin.yml`) com autenticação Superadmin (`POST /api/auth/token`) e endpoints de auditoria/consulta de contratos, usuários, matrículas, importações, scraping e monitoramento.
+  - [`tenants/supporter/apis/README.md`](file:///Users/hudson/development/whatshelper/tenants/supporter/apis/README.md): documentação da pasta `apis/`.
 - **Melhoria de Respostas sobre Contratos e Sincronização com o Avapro (`supporter`)**:
   - **Contrato não encontrado no sistema**: orienta a verificar filtros ativos/mal formatados (`Limpar Filtros`) e explica a sincronização diária com o **Avapro (Ava Pro)** (prazo de até 24h para novos contratos).
   - **Contrato consta como cancelado mas já está pago/ativo**: orienta sobre as duas causas possíveis — ainda constar como cancelado no Avapro (acionar a **Ademicon**) ou mudança no Avapro há menos de 24h (aguardar a sincronização matinal).
@@ -203,3 +201,38 @@ curl -X PUT "http://127.0.0.1:8080/api/llm/config?tenant=demo" \
   - Adicionados `KnowledgeQuery` e `KnowledgeTopK` em [`GetContextRequest`](file:///Users/hudson/development/whatshelper/internal/contextmod/v1.go) e aplicados em [`InProcessService.GetContext`](file:///Users/hudson/development/whatshelper/internal/contextmod/inprocess.go).
   - Criada função pura [`BuildKnowledgeSearchQuery`](file:///Users/hudson/development/whatshelper/internal/brain/pure.go) e conectada ao estágio `ViewResponse` em [`Pipeline.ProcessBatch`](file:///Users/hudson/development/whatshelper/internal/brain/pipeline.go), combinando mensagem atual do cliente (com maior peso), intenção, fatos extraídos e resumo da conversa.
   - Testes unitários adicionados em [`internal/contextmod/builder_search_test.go`](file:///Users/hudson/development/whatshelper/internal/contextmod/builder_search_test.go) e [`internal/brain/knowledge_test.go`](file:///Users/hudson/development/whatshelper/internal/brain/knowledge_test.go).
+
+---
+
+## 2026-11-15 — Integração Read-Only em Tempo Real com APIs OpenAPI por Tenant (`internal/apiclient` + `tenants/<tenant>/apis/`) e Grounding de Regras
+
+### Itens Implementados
+- **Cliente e Planejador Agnóstico de Inspeção Read-Only (`internal/apiclient`)**:
+  - [`internal/apiclient/inspector.go`](file:///Users/hudson/development/whatshelper/internal/apiclient/inspector.go): lê `tenants/<tenant>/apis/.env` e as especificações OpenAPI 3.0 (`tenants/<tenant>/apis/*.yml`, como [`swagger-superadmin.yml`](file:///Users/hudson/development/whatshelper/tenants/supporter/apis/swagger-superadmin.yml)).
+  - **Segurança Somente-Leitura (`IsSafeGetPath`)**: extrai e permite exclusivamente operações `GET` declaradas no OpenAPI do tenant.
+  - **Autenticação Superadmin com Cache de Token JWT**: autentica via `POST /api/auth/token` (`grant_type=password`) e mantém o token em cache até a expiração (com renovação automática em caso de `401`).
+  - **Fast-Path Determinístico + Planejador LLM + Fallback Encadeado**:
+    - Identifica números de contrato (`1101053001`, etc.) na mensagem atual, histórico recente ou fato `ReferenceId`, consultando `GET /api/contracts/number/{contractNumber}` e encadeando automaticamente `GET /api/admintools/deleted-contracts?contractNumber=...` quando `404` ou `data: null`.
+    - Identifica buscas de matrículas (`GET /api/matriculas?search=...`), encadeia consultas por `userId` (`careerplan`, `classifications`, `usermatriculas`) e utiliza planejador leve via LLM para os demais endpoints `GET` do catálogo OpenAPI.
+- **Injeção no Pipeline (`api-live-data.md`) e Validação no `CheckGrounding`**:
+  - [`Pipeline.enrichKnowledgeWithLiveAPI`](file:///Users/hudson/development/whatshelper/internal/brain/pipeline.go#L1912-L1955) injeta o documento `api-live-data.md` no topo do `KnowledgeBundle` do estágio de resposta.
+  - [`CheckGrounding`](file:///Users/hudson/development/whatshelper/internal/brain/grounding.go#L116-L214) autoriza `api-live-data.md` e inclui `pk.Rules` no corpus de números permitidos (evitando falsos positivos de grounding em números das regras do pack, como `24h`).
+  - Atualizado [`packs/supporter/pack.yaml`](file:///Users/hudson/development/whatshelper/packs/supporter/pack.yaml) para usar `api-live-data.md` como fonte oficial de contratos/consultores/matrículas e responder com conhecimento também em `report_issue`.
+- **Testes**:
+  - [`internal/apiclient/inspector_test.go`](file:///Users/hudson/development/whatshelper/internal/apiclient/inspector_test.go) cobrindo `.env`, parser OpenAPI, validação `IsSafeGetPath`, busca de contrato ativo (`1101053001` → `Emanuelly Barbosa`), fallback para contratos excluídos e cache de JWT.
+
+---
+
+## 2026-11-15 — Otimização e Redução de Tokens nas Respostas e Planejamento de API (`internal/apiclient/compact.go`)
+
+### Itens Implementados
+- **Poda de Ruído e Formatação Key-Value Enxuta (`CompactJSONBody`)**:
+  - Implementado em [`internal/apiclient/compact.go`](file:///Users/hudson/development/whatshelper/internal/apiclient/compact.go): remove recursivamente valores `null`, `""`, `[]`, `{}` e chaves técnicas/sensíveis irrelevantes para o suporte (`passwordHash`, `securityStamp`, `concurrencyStamp`, `normalizedUserName`, `normalizedEmail`, `avatarBase64`, `stackTrace`), desembrulha envelopes redundantes (`{"success": true, "data": ...}`) e formata os registros em linhas compactas `chave: valor | chave2: valor2` (preservando 100% dos números e identificadores exigidos pelo [`CheckGrounding`](file:///Users/hudson/development/whatshelper/internal/brain/grounding.go)).
+- **Filtragem Grep/BM25 de Listas Longas (`capAndRankSlice`)**:
+  - Quando a resposta da API contém arrays com muitos itens, pontua cada elemento contra os termos da conversa (`MessageText` + `Summary` + `Facts`) e mantém apenas os **Top 5 itens mais relevantes** (`DefaultMaxArrayItems = 5`), anexando o resumo `[total_items: N | showing_top: 5]`.
+- **Injeção Automática de `pageSize=5` (`EnsureCompactQueryParams`)**:
+  - Antes de cada requisição `GET`, verifica se o endpoint no OpenAPI suporta parâmetros de paginação (`pageSize`, `limit`, `perPage`) e injeta/limita automaticamente para `pageSize=5`.
+- **Filtragem do Catálogo OpenAPI no Planejador LLM (`SelectRelevantEndpoints`)**:
+  - Em [`Inspector.planWithLLM`](file:///Users/hudson/development/whatshelper/internal/apiclient/inspector.go), descarta rotas com parâmetros de path obrigatórios ausentes na conversa (ex.: `{userId}`, `{teamId}`) e ranqueia o catálogo `swagger-superadmin.yml` via Grep/BM25 para enviar apenas os **Top 10 endpoints mais relevantes** ao planejador LLM.
+- **Testes**:
+  - Adicionados [`TestCompactJSONBody_PrunesNoiseCapsArraysAndPreservesNumbers`](file:///Users/hudson/development/whatshelper/internal/apiclient/inspector_test.go) e [`TestEnsureCompactQueryParams_And_SelectRelevantEndpoints`](file:///Users/hudson/development/whatshelper/internal/apiclient/inspector_test.go) e incluído `./internal/apiclient/...` na suíte `./scripts/tests.sh unit`.

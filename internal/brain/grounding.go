@@ -119,6 +119,7 @@ func CheckGrounding(
 	recentMessages []pack.PromptMessage,
 	newMsg pack.PromptMessage,
 	facts map[string]string,
+	extraCorpus ...string,
 ) GroundingResult {
 	if !reply.Answerable || strings.TrimSpace(reply.Reply) == "" {
 		return GroundingResult{
@@ -133,7 +134,11 @@ func CheckGrounding(
 		}
 	}
 
-	allowedSources := make(map[string]bool, len(knowledge.Docs)+1)
+	allowedSources := make(map[string]bool, len(knowledge.Docs)+5)
+	allowedSources["api-live-data.md"] = true
+	allowedSources["swagger-superadmin.yml"] = true
+	allowedSources["pack.yaml"] = true
+	allowedSources["regras"] = true
 	for _, doc := range knowledge.Docs {
 		allowedSources[strings.ToLower(strings.TrimSpace(doc.Name))] = true
 	}
@@ -159,7 +164,7 @@ func CheckGrounding(
 		}
 	}
 
-	// Coleta todos os tokens numéricos autorizados (conhecimento, QA.md, mensagens e fatos).
+	// Coleta todos os tokens numéricos autorizados (conhecimento, QA.md, mensagens, fatos e regras do pack).
 	var allowedCorpus strings.Builder
 	for _, doc := range knowledge.Docs {
 		allowedCorpus.WriteString(doc.Content)
@@ -175,6 +180,10 @@ func CheckGrounding(
 	allowedCorpus.WriteByte('\n')
 	for _, v := range facts {
 		allowedCorpus.WriteString(v)
+		allowedCorpus.WriteByte('\n')
+	}
+	for _, extra := range extraCorpus {
+		allowedCorpus.WriteString(extra)
 		allowedCorpus.WriteByte('\n')
 	}
 

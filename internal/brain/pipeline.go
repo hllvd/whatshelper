@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"whatshelper/internal/apiclient"
 	"whatshelper/internal/contextmod"
 	"whatshelper/internal/core"
 	"whatshelper/internal/pack"
@@ -89,6 +90,8 @@ type PipelineConfig struct {
 	Transcriber         core.AudioTranscriber
 	ContextSvc          contextmod.Service
 	SessionCache        *sessioncache.Cache
+	TenantsDir          string
+	APIInspector        *apiclient.Inspector
 	Logger              *slog.Logger
 }
 
@@ -100,6 +103,7 @@ type Pipeline struct {
 	notifier     core.AdminNotifier
 	outboxWorker *OutboxWorker
 	sessionCache *sessioncache.Cache
+	apiInspector *apiclient.Inspector
 	channelsMu   sync.RWMutex
 	channels     map[string]core.Channel
 	logger       *slog.Logger
@@ -127,8 +131,12 @@ func NewPipeline(ctx context.Context, cfg PipelineConfig) *Pipeline {
 		limiter:      NewTokenBucketLimiter(cfg.Clock),
 		notifier:     notifier,
 		sessionCache: cfg.SessionCache,
+		apiInspector: cfg.APIInspector,
 		channels:     make(map[string]core.Channel),
 		logger:       logger,
+	}
+	if p.apiInspector == nil {
+		p.apiInspector = apiclient.NewInspector(cfg.TenantsDir, cfg.Clock, logger)
 	}
 	if p.notifier == nil {
 		p.notifier = NewDefaultAdminNotifier(cfg.Store, cfg.Bus, logger).WithAdminDelivery(cfg.Blobs, p.getChannel)
@@ -1138,6 +1146,7 @@ staleReprocessLoop:
 	replyWin, recentForReply, newReplyPromptMsg := buildWindowForBundle(replyBundle, batch, pk, p.cfg.RecentMessagesLimit)
 	trace.Window = &replyWin
 	knowledge := bundleKnowledge(replyBundle)
+	p.enrichKnowledgeWithLiveAPI(ctx, tenantID, &tenantCfg, newReplyPromptMsg.Text, recentForReply, updatedState, decision.Intent, &knowledge)
 
 	replyInput := pack.PromptInput{
 		Pack:           pk,
@@ -1198,7 +1207,7 @@ staleReprocessLoop:
 	}
 
 	parsedReply, _ := ParseReplyOutput(replyResp.Content)
-	grounding := CheckGrounding(parsedReply, knowledge, recentForReply, replyInput.NewMessage, updatedState.Facts)
+	grounding := CheckGrounding(parsedReply, knowledge, recentForReply, replyInput.NewMessage, updatedState.Facts, pk.Rules...)
 	trace.Grounding = &grounding
 
 	finalReply := parsedReply.Reply
@@ -1898,4 +1907,49 @@ func (p *Pipeline) cancelPendingOutboxForRun(ctx context.Context, tenantID, chan
 			_ = p.cfg.Store.UpdateOutboxItem(ctx, it)
 		}
 	}
+}
+
+func (p *Pipeline) enrichKnowledgeWithLiveAPI(
+	ctx context.Context,
+	tenantID string,
+	tenantCfg *core.TenantPolicy,
+	messageText string,
+	recentMsgs []pack.PromptMessage,
+	state *core.SourceState,
+	intent string,
+	knowledge *KnowledgeBundle,
+) {
+	if p.apiInspector == nil || knowledge == nil {
+		return
+	}
+	recentTexts := make([]string, 0, len(recentMsgs))
+	for _, m := range recentMsgs {
+		recentTexts = append(recentTexts, m.Text)
+	}
+	var summary string
+	var facts map[string]string
+	if state != nil {
+		summary = state.Summary.Text
+		facts = state.Facts
+	}
+	analysisCfg := p.resolveStageLLMConfig("analysis", tenantCfg, p.cfg.AnalysisModel)
+	res, err := p.apiInspector.Inspect(ctx, apiclient.InspectInput{
+		TenantID:       tenantID,
+		MessageText:    messageText,
+		RecentMessages: recentTexts,
+		Summary:        summary,
+		Intent:         intent,
+		Facts:          facts,
+		LLM:            p.cfg.LLM,
+		Provider:       analysisCfg.Provider,
+		Model:          analysisCfg.Model,
+	})
+	if err != nil || res == nil || strings.TrimSpace(res.Content) == "" {
+		return
+	}
+	liveDoc := pack.KnowledgeDoc{
+		Name:    res.DocName,
+		Content: res.Content,
+	}
+	knowledge.Docs = append([]pack.KnowledgeDoc{liveDoc}, knowledge.Docs...)
 }

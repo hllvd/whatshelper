@@ -202,11 +202,12 @@ cmd_lint() {
 }
 
 cmd_unit() {
-  run_go_category "UNIT TESTS (core, config, security, media, pack, llm, channels, store)" "unit" \
+  run_go_category "UNIT TESTS (core, config, security, apiclient, contextmod, media, pack, llm, channels, store)" "unit" \
     go test -v -race \
       ./internal/core/... \
       ./internal/config \
       ./internal/security/... \
+      ./internal/apiclient/... \
       ./internal/contextmod/... \
       ./internal/media/... \
       ./internal/pack \

@@ -158,6 +158,7 @@ func main() {
 		PIICipher:           piiCipher,
 		Transcriber:         transcriber,
 		SessionCache:        sessionCache,
+		TenantsDir:          cfg.TenantsDir,
 		Logger:              logger,
 	})
 	pipeline.RegisterChannel(simCh)
