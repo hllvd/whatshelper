@@ -1928,9 +1928,11 @@ func (p *Pipeline) enrichKnowledgeWithLiveAPI(
 	}
 	var summary string
 	var facts map[string]string
+	var signals map[string]bool
 	if state != nil {
 		summary = state.Summary.Text
 		facts = state.Facts
+		signals = state.Signals
 	}
 	analysisCfg := p.resolveStageLLMConfig("analysis", tenantCfg, p.cfg.AnalysisModel)
 	res, err := p.apiInspector.Inspect(ctx, apiclient.InspectInput{
@@ -1940,6 +1942,7 @@ func (p *Pipeline) enrichKnowledgeWithLiveAPI(
 		Summary:        summary,
 		Intent:         intent,
 		Facts:          facts,
+		Signals:        signals,
 		LLM:            p.cfg.LLM,
 		Provider:       analysisCfg.Provider,
 		Model:          analysisCfg.Model,

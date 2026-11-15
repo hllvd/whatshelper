@@ -236,3 +236,18 @@ curl -X PUT "http://127.0.0.1:8080/api/llm/config?tenant=demo" \
   - Em [`Inspector.planWithLLM`](file:///Users/hudson/development/whatshelper/internal/apiclient/inspector.go), descarta rotas com parâmetros de path obrigatórios ausentes na conversa (ex.: `{userId}`, `{teamId}`) e ranqueia o catálogo `swagger-superadmin.yml` via Grep/BM25 para enviar apenas os **Top 10 endpoints mais relevantes** ao planejador LLM.
 - **Testes**:
   - Adicionados [`TestCompactJSONBody_PrunesNoiseCapsArraysAndPreservesNumbers`](file:///Users/hudson/development/whatshelper/internal/apiclient/inspector_test.go) e [`TestEnsureCompactQueryParams_And_SelectRelevantEndpoints`](file:///Users/hudson/development/whatshelper/internal/apiclient/inspector_test.go) e incluído `./internal/apiclient/...` na suíte `./scripts/tests.sh unit`.
+
+---
+
+## 2026-11-15 — Mecanismo Inteligente de Gatilho de API (`needs_api_lookup` e `TargetUser`)
+
+### Itens Implementados
+- **Sinal e Fato Especializados em [`packs/supporter/pack.yaml`](file:///Users/hudson/development/whatshelper/packs/supporter/pack.yaml)**:
+  - Adicionado o sinal `needs_api_lookup`: classificado como `true` no estágio `analysis` exclusivamente quando o usuário solicita verificar, consultar ou auditar um registro/dado real no sistema (ex.: contrato específico, consultor por nome/e-mail, matrícula, equipe ou scraping), e `false` quando for dúvida procedimental de manual (*How-To*) ou saudação.
+  - Adicionado o fato `TargetUser`: extrai o nome ou e-mail de consultores citados na conversa (ex.: `"Emanuelly"`).
+- **Gatilho Estrito e Busca por `TargetUser` em [`internal/apiclient/inspector.go`](file:///Users/hudson/development/whatshelper/internal/apiclient/inspector.go)**:
+  - Busca determinística automática por usuário em `GET /api/admintools/users/search?q={TargetUser}` quando `TargetUser` está presente.
+  - O planejador via LLM (`planWithLLM`) agora só é acionado se `needs_api_lookup == true` e o fast-path determinístico não resolveu a consulta, garantindo **zero chamadas HTTP e zero chamadas LLM extras** para dúvidas de How-To.
+  - Propagado `Signals` de `SourceState` para [`InspectInput`](file:///Users/hudson/development/whatshelper/internal/apiclient/inspector.go) em [`Pipeline.enrichKnowledgeWithLiveAPI`](file:///Users/hudson/development/whatshelper/internal/brain/pipeline.go).
+- **Testes**:
+  - Testes unitários atualizados em [`internal/apiclient/inspector_test.go`](file:///Users/hudson/development/whatshelper/internal/apiclient/inspector_test.go) cobrindo desativação de consultas para How-To (`needs_api_lookup: false`) e busca determinística por `TargetUser`.

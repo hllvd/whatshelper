@@ -178,6 +178,38 @@ func TestInspector_Inspect_ContractFoundAndFallbackDeleted(t *testing.T) {
 	if atomic.LoadInt32(&tokenCalls) != 1 {
 		t.Fatalf("expected cached JWT token to be reused (1 auth call), got %d", atomic.LoadInt32(&tokenCalls))
 	}
+
+	// 3. Pergunta How-To com needs_api_lookup = false -> NÃO chama API nem LLM planner
+	res3, err := ins.Inspect(context.Background(), apiclient.InspectInput{
+		TenantID:    "supporter",
+		MessageText: "como faço para adicionar um consultor?",
+		Signals:     map[string]bool{"needs_api_lookup": false},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res3 != nil {
+		t.Fatalf("expected nil Inspect result for how-to query with needs_api_lookup=false, got: %+v", res3)
+	}
+
+	// 4. Pergunta com TargetUser nos fatos -> dispara busca determinística por usuário
+	res4, err := ins.Inspect(context.Background(), apiclient.InspectInput{
+		TenantID:    "supporter",
+		MessageText: "a consultora Emanuelly pertence a qual equipe?",
+		Facts:       map[string]string{"TargetUser": "Emanuelly"},
+		Signals:     map[string]bool{"needs_api_lookup": true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// No mock srv, /api/admintools/users/search não está no sampleSwaggerYAML, mas verificamos a geração em PlanDeterministicRequests
+	plansUser := apiclient.PlanDeterministicRequests([]apiclient.EndpointDef{
+		{Path: "/api/admintools/users/search"},
+	}, "a consultora Emanuelly pertence a qual equipe?", nil, map[string]string{"TargetUser": "Emanuelly"})
+	if len(plansUser) != 1 || !strings.Contains(plansUser[0].Path, "search?q=Emanuelly") {
+		t.Fatalf("expected user search plan, got %+v", plansUser)
+	}
+	_ = res4
 }
 
 func TestCompactJSONBody_PrunesNoiseCapsArraysAndPreservesNumbers(t *testing.T) {

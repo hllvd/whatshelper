@@ -87,6 +87,7 @@ type InspectInput struct {
 	Summary        string
 	Intent         string
 	Facts          map[string]string
+	Signals        map[string]bool
 	LLM            core.LLM
 	Provider       string
 	Model          string
@@ -316,6 +317,15 @@ func PlanDeterministicRequests(endpoints []EndpointDef, messageText string, rece
 		}
 	}
 
+	// 3. Se houver TargetUser nos fatos ou se um consultor específico for citado, consulta /api/admintools/users/search?q=...
+	if targetUser := strings.TrimSpace(facts["TargetUser"]); targetUser != "" && available["/api/admintools/users/search"] {
+		addPlan(
+			"/api/admintools/users/search?q="+url.QueryEscape(targetUser),
+			fmt.Sprintf("Buscar consultor/usuário %s no sistema", targetUser),
+			"",
+		)
+	}
+
 	return planned
 }
 
@@ -508,9 +518,18 @@ func (ins *Inspector) Inspect(ctx context.Context, in InspectInput) (*InspectRes
 
 	planned := PlanDeterministicRequests(cfg.Endpoints, in.MessageText, in.RecentMessages, in.Facts)
 
-	// Se o fast-path determinístico não encontrou número de contrato/matrícula,
-	// mas a mensagem pede verificação/consulta operacional, usa o planejador leve via LLM.
-	if len(planned) == 0 && shouldRunLLMPlanner(in.MessageText, in.Summary) && in.LLM != nil {
+	// O planejador leve via LLM só roda se:
+	// 1. O fast-path determinístico não resolveu a consulta;
+	// 2. O sinal do estágio de análise confirmou needs_api_lookup == true (ou fallback heurístico para compatibilidade quando signals for omitido);
+	// 3. Um LLM estiver disponível.
+	needsLookup := false
+	if in.Signals != nil {
+		needsLookup = in.Signals["needs_api_lookup"]
+	} else {
+		needsLookup = shouldRunLLMPlanner(in.MessageText, in.Summary)
+	}
+
+	if len(planned) == 0 && needsLookup && in.LLM != nil {
 		llmPlans := ins.planWithLLM(ctx, cfg, in)
 		planned = append(planned, llmPlans...)
 	}

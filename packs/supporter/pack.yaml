@@ -27,6 +27,9 @@ facts:
   - key: ChannelOrScreen
     type: string
     description: Tela, funcionalidade ou ambiente onde a dúvida ou problema ocorreu (ex. painel de metas, app, web)
+  - key: TargetUser
+    type: string
+    description: Nome ou e-mail de um consultor, gestor ou usuário específico que o interlocutor pediu para consultar, auditar ou verificar no sistema (ex. Emanuelly, Carlos, joao@empresa.com)
   - key: HasAttachment
     type: boolean
     description: Se o usuário enviou captura de tela, documento ou evidência
@@ -42,6 +45,8 @@ signals:
     description: true se um retorno de especialista ou liderança foi solicitado mas não agendado
   - key: user_engaged
     description: true se o consultor ou gestor está interagindo ativamente
+  - key: needs_api_lookup
+    description: true se o usuário pediu para consultar, conferir, verificar ou auditar um registro/dado específico no sistema (ex. se um contrato específico existe ou pertence a alguém, dados de um consultor específico, matrícula, status de importação ou scraping); false se for dúvida genérica, saudação ou procedimento de manual (como fazer algo)
 
 dimensions:
   - key: sentiment
@@ -155,8 +160,8 @@ rules:
 context_module:
   providers: [summary, facts, signals, recent_messages, knowledge]
   exposed_fields:
-    facts: [UserRole, Topic, Severity, ReferenceId, ChannelOrScreen, HasAttachment]
-    signals: [has_new_question, has_pending_question, has_pending_issue, has_pending_callback, user_engaged]
+    facts: [UserRole, Topic, Severity, ReferenceId, TargetUser, ChannelOrScreen, HasAttachment]
+    signals: [has_new_question, has_pending_question, has_pending_issue, has_pending_callback, user_engaged, needs_api_lookup]
     context_sections: [last_action, ticket, callback]
   views:
     external_agent:
