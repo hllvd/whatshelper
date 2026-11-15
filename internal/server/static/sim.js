@@ -313,10 +313,62 @@
     }
   });
 
+  let simTypingState = false;
+  let simTypingIdleTimer = null;
+
+  async function notifySimTyping(isTyping) {
+    if (simTypingState === isTyping) return;
+    simTypingState = isTyping;
+    const tenant = (tenantInput && tenantInput.value.trim()) || activeTenant || 'demo';
+    const source = (sessionInput && sessionInput.value.trim()) || activeSource || 'sim-user-1';
+    try {
+      await fetch('/api/sim/typing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenant_id: tenant,
+          source_key: source,
+          typing: isTyping,
+        }),
+      });
+    } catch (_) {
+      // best-effort typing indicator
+    }
+  }
+
+  chatInput.addEventListener('input', () => {
+    if (simTypingIdleTimer) {
+      clearTimeout(simTypingIdleTimer);
+      simTypingIdleTimer = null;
+    }
+    if (chatInput.value.trim().length > 0) {
+      notifySimTyping(true);
+      simTypingIdleTimer = setTimeout(() => {
+        notifySimTyping(false);
+      }, 3000);
+    } else {
+      notifySimTyping(false);
+    }
+  });
+
+  chatInput.addEventListener('blur', () => {
+    if (simTypingIdleTimer) {
+      clearTimeout(simTypingIdleTimer);
+      simTypingIdleTimer = null;
+    }
+    notifySimTyping(false);
+  });
+
   chatForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     const text = chatInput.value.trim();
     if (!text) return;
+
+    if (simTypingIdleTimer) {
+      clearTimeout(simTypingIdleTimer);
+      simTypingIdleTimer = null;
+    }
+    notifySimTyping(false);
 
     activeTenant = (tenantInput && tenantInput.value.trim()) || 'demo';
     activeSource = sessionInput.value.trim() || 'sim-user-1';

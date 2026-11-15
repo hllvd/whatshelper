@@ -77,6 +77,7 @@ type PipelineConfig struct {
 	VisionModel         string
 	AudioModel          string
 	Debounce            time.Duration
+	TypingMaxWait       time.Duration
 	AfterFunc           AfterFunc
 	RecentMessagesLimit int
 	RunRetentionDays    int
@@ -106,7 +107,7 @@ func NewPipeline(ctx context.Context, cfg PipelineConfig) *Pipeline {
 		cfg.Clock = core.SystemClock{}
 	}
 	if cfg.RecentMessagesLimit <= 0 {
-		cfg.RecentMessagesLimit = 20
+		cfg.RecentMessagesLimit = 10
 	}
 	if cfg.RunRetentionDays <= 0 {
 		cfg.RunRetentionDays = 90
@@ -132,17 +133,53 @@ func NewPipeline(ctx context.Context, cfg PipelineConfig) *Pipeline {
 	if p.cfg.ContextSvc == nil && p.cfg.Store != nil {
 		p.cfg.ContextSvc = buildDefaultContextService(p)
 	}
-	p.dispatcher = NewSourceDispatcher(ctx, cfg.Debounce, cfg.AfterFunc, func(batchCtx context.Context, batch []core.NormalizedMessage) {
-		if err := p.ProcessBatch(batchCtx, batch); err != nil {
-			p.logger.Error("falha no processamento do lote",
-				slog.String("tenant", batch[0].TenantID),
-				slog.String("channel", batch[0].Channel),
-				slog.String("source_key", batch[0].SourceKey),
-				slog.Any("error", err),
-			)
-		}
+	p.dispatcher = NewSourceDispatcherWithConfig(ctx, DispatcherConfig{
+		Debounce:       cfg.Debounce,
+		TypingMaxWait:  cfg.TypingMaxWait,
+		AfterFunc:      cfg.AfterFunc,
+		TimingResolver: p.resolveTiming,
+		Handler: func(batchCtx context.Context, batch []core.NormalizedMessage) {
+			if err := p.ProcessBatch(batchCtx, batch); err != nil {
+				p.logger.Error("falha no processamento do lote",
+					slog.String("tenant", batch[0].TenantID),
+					slog.String("channel", batch[0].Channel),
+					slog.String("source_key", batch[0].SourceKey),
+					slog.Any("error", err),
+				)
+			}
+		},
 	})
 	return p
+}
+
+// NotifyTyping atualiza o estado de digitação do cliente para a conversa informada.
+func (p *Pipeline) NotifyTyping(tenantID, channel, sourceKey string, typing bool) {
+	if p == nil || p.dispatcher == nil {
+		return
+	}
+	p.dispatcher.SetTyping(tenantID, channel, sourceKey, typing)
+}
+
+func (p *Pipeline) resolveTiming(tenantID string) (debounce, typingMaxWait time.Duration) {
+	debounce = p.cfg.Debounce
+	typingMaxWait = p.cfg.TypingMaxWait
+	if typingMaxWait <= 0 && debounce > 0 {
+		typingMaxWait = time.Duration(pack.DefaultTypingMaxWaitMs) * time.Millisecond
+	}
+	if p.cfg.Tenants != nil && p.cfg.PackLoader != nil {
+		if tCfg, err := p.cfg.Tenants.LoadTenant(context.Background(), tenantID); err == nil {
+			if pk, err := p.cfg.PackLoader(tCfg.Pack); err == nil && pk != nil && pk.Timing != nil {
+				pkDeb, pkWait := pk.EffectiveTiming()
+				if pk.Timing.DebounceMs != nil {
+					debounce = pkDeb
+				}
+				if pk.Timing.TypingMaxWaitMs != nil {
+					typingMaxWait = pkWait
+				}
+			}
+		}
+	}
+	return debounce, typingMaxWait
 }
 
 // RegisterChannel associa um canal pelo seu ID para despacho de respostas.

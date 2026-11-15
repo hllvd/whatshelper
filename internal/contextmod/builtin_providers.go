@@ -97,15 +97,21 @@ func (p *recentMessagesProvider) Name() string { return "recent_messages" }
 func (p *recentMessagesProvider) Schema() ProviderSchema {
 	return ProviderSchema{Name: "recent_messages", Description: "Janela cronológica de mensagens recentes", BlockKind: "recent_messages"}
 }
+const minInboundMessagesInContext = 5
+
 func (p *recentMessagesProvider) Fetch(ctx context.Context, req ProviderRequest) (*ProviderResult, error) {
 	limit := req.RecentLimit
 	if limit <= 0 {
 		limit = p.defaultLimit
 	}
 	if limit <= 0 {
-		limit = 20
+		limit = 10
 	}
-	metas, err := p.store.ListRecentMessages(ctx, req.Scope.TenantID, req.Scope.Channel, req.Scope.SourceKey, limit)
+	fetchLimit := limit * 3
+	if fetchLimit < 30 {
+		fetchLimit = 30
+	}
+	metas, err := p.store.ListRecentMessages(ctx, req.Scope.TenantID, req.Scope.Channel, req.Scope.SourceKey, fetchLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +127,7 @@ func (p *recentMessagesProvider) Fetch(ctx context.Context, req ProviderRequest)
 		}
 	}
 
-	out := make([]MessageView, 0, len(metas))
+	all := make([]MessageView, 0, len(metas))
 	for i := len(metas) - 1; i >= 0; i-- {
 		meta := metas[i]
 		if req.ExcludeMessageIDs[meta.MessageID] {
@@ -143,7 +149,7 @@ func (p *recentMessagesProvider) Fetch(ctx context.Context, req ProviderRequest)
 		if meta.Direction == core.DirectionOutbound {
 			sender = businessActor
 		}
-		out = append(out, MessageView{
+		all = append(all, MessageView{
 			MessageID: meta.MessageID,
 			Timestamp: meta.Timestamp,
 			Direction: string(meta.Direction),
@@ -154,7 +160,43 @@ func (p *recentMessagesProvider) Fetch(ctx context.Context, req ProviderRequest)
 			RawRef:    meta.RawRef,
 		})
 	}
-	return &ProviderResult{RecentMessages: out}, nil
+	return &ProviderResult{RecentMessages: selectRecentMessages(all, limit, minInboundMessagesInContext)}, nil
+}
+
+// selectRecentMessages seleciona até totalLimit mensagens em ordem cronológica,
+// garantindo a inclusão de até minInbound mensagens mais recentes do cliente.
+func selectRecentMessages(all []MessageView, totalLimit, minInbound int) []MessageView {
+	if totalLimit <= 0 || len(all) <= totalLimit {
+		return all
+	}
+	keep := make([]bool, len(all))
+	kept := 0
+
+	// 1) Marca até minInbound mensagens mais recentes do cliente.
+	inboundKept := 0
+	for i := len(all) - 1; i >= 0 && inboundKept < minInbound && kept < totalLimit; i-- {
+		if all[i].Direction == string(core.DirectionInbound) {
+			keep[i] = true
+			inboundKept++
+			kept++
+		}
+	}
+
+	// 2) Preenche os slots restantes com as mensagens mais recentes (cliente ou robô).
+	for i := len(all) - 1; i >= 0 && kept < totalLimit; i-- {
+		if !keep[i] {
+			keep[i] = true
+			kept++
+		}
+	}
+
+	out := make([]MessageView, 0, kept)
+	for i, m := range all {
+		if keep[i] {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 type knowledgeProvider struct {

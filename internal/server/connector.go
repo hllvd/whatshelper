@@ -60,6 +60,31 @@ func (s *Server) handleConnectorInbound(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+func (s *Server) handleConnectorTyping(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Pipeline == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "pipeline não inicializado")
+		return
+	}
+	if err := bridge.ValidateProtocolHeader(r.Header.Get(bridge.HeaderProtocolVersion)); err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	var req bridge.TypingRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64*1024)).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "JSON inválido no typing do connector")
+		return
+	}
+	tenant := strings.TrimSpace(req.TenantID)
+	channel := strings.TrimSpace(req.Channel)
+	sourceKey := strings.TrimSpace(req.SourceKey)
+	if tenant == "" || channel == "" || sourceKey == "" {
+		writeJSONError(w, http.StatusBadRequest, "tenant_id, channel e source_key são obrigatórios")
+		return
+	}
+	s.deps.Pipeline.NotifyTyping(tenant, channel, sourceKey, req.Typing)
+	writeJSON(w, http.StatusAccepted, map[string]any{"status": "accepted"})
+}
+
 func (s *Server) handleConnectorMedia(w http.ResponseWriter, r *http.Request) {
 	if s.deps.Blobs == nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "blob store não inicializado")

@@ -55,6 +55,14 @@ type InboundResponse struct {
 	MessageID string `json:"message_id"`
 }
 
+// TypingRequest define o contrato JSON de notificação de digitação em POST /api/connectors/v1/typing.
+type TypingRequest struct {
+	TenantID  string `json:"tenant_id"`
+	Channel   string `json:"channel"`
+	SourceKey string `json:"source_key"`
+	Typing    bool   `json:"typing"`
+}
+
 // MediaUploadResponse retorna a referência de blob gravada no BlobStore.
 type MediaUploadResponse struct {
 	MediaRef string `json:"media_ref"`

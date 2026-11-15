@@ -326,6 +326,32 @@ func (a *Adapter) handleEvent(rawEvt any) {
 		a.setStatus(true, false, "", "pair_success", "pareamento concluído, conectando")
 	case *events.Message:
 		a.handleInboundMessage(v)
+	case *events.ChatPresence:
+		a.handleChatPresence(v)
+	}
+}
+
+func (a *Adapter) handleChatPresence(evt *events.ChatPresence) {
+	if evt == nil || a.cfg.BridgeClient == nil {
+		return
+	}
+	if !ShouldProcessInbound(evt.IsFromMe, evt.IsGroup, false, a.cfg.AllowGroups) {
+		return
+	}
+	sourceKey, err := ResolveSenderPhone(evt.MessageSource)
+	if err != nil || sourceKey == "" {
+		return
+	}
+	typing := evt.State == types.ChatPresenceComposing
+	ctx, cancel := context.WithTimeout(a.stopCtx, 5*time.Second)
+	defer cancel()
+	if err := a.cfg.BridgeClient.SendTypingEvent(ctx, bridge.TypingRequest{
+		TenantID:  a.cfg.TenantID,
+		Channel:   "whatsapp",
+		SourceKey: sourceKey,
+		Typing:    typing,
+	}); err != nil {
+		a.logger.Debug("falha ao encaminhar typing do WhatsApp", slog.Any("error", err))
 	}
 }
 

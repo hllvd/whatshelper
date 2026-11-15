@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"whatshelper/internal/pack"
 )
@@ -506,5 +507,31 @@ fsm:
 	}
 	if res.Facts["Budget"] != "500000" {
 		t.Errorf("expected Budget 500000, got %s", res.Facts["Budget"])
+	}
+}
+
+func TestPackTimingDefaultsAndOverrides(t *testing.T) {
+	pDefault, err := pack.ParsePackYAML([]byte(samplePackYAML))
+	if err != nil {
+		t.Fatalf("ParsePackYAML default failed: %v", err)
+	}
+	deb, wait := pDefault.EffectiveTiming()
+	if deb != 8*time.Second || wait != 16*time.Second {
+		t.Fatalf("expected default timing (8s, 16s), got (%v, %v)", deb, wait)
+	}
+
+	customYAML := samplePackYAML + "\ntiming:\n  debounce_ms: 12000\n  typing_max_wait_ms: 25000\n"
+	pCustom, err := pack.ParsePackYAML([]byte(customYAML))
+	if err != nil {
+		t.Fatalf("ParsePackYAML custom timing failed: %v", err)
+	}
+	deb, wait = pCustom.EffectiveTiming()
+	if deb != 12*time.Second || wait != 25*time.Second {
+		t.Fatalf("expected custom timing (12s, 25s), got (%v, %v)", deb, wait)
+	}
+
+	badYAML := samplePackYAML + "\ntiming:\n  debounce_ms: -100\n"
+	if _, err := pack.ParsePackYAML([]byte(badYAML)); err == nil {
+		t.Fatal("expected error for negative timing.debounce_ms")
 	}
 }

@@ -149,6 +149,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 
 	// API HTTP (SRV-01, SAF-01, SAF-02)
 	mux.HandleFunc("POST /api/sim/messages", s.handlePostSimMessage)
+	mux.HandleFunc("POST /api/sim/typing", s.handlePostSimTyping)
 	mux.HandleFunc("GET /api/admin/messages", s.handleGetAdminMessages)
 	mux.HandleFunc("POST /api/admin/messages", s.handlePostAdminMessage)
 	mux.HandleFunc("GET /api/sources", s.handleListSources)
@@ -190,6 +191,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 
 	// Protocolo Connector <-> Brain v1 (CH-02)
 	mux.HandleFunc("POST /api/connectors/v1/inbound", s.handleConnectorInbound)
+	mux.HandleFunc("POST /api/connectors/v1/typing", s.handleConnectorTyping)
 	mux.HandleFunc("POST /api/connectors/v1/media", s.handleConnectorMedia)
 	mux.HandleFunc("GET /api/connectors/v1/ws", s.handleConnectorWS)
 

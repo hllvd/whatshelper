@@ -166,6 +166,31 @@ func (c *Client) SendInboundWithRetry(ctx context.Context, req InboundRequest) (
 	return InboundResponse{}, lastErr
 }
 
+// SendTypingEvent envia o estado de digitação de um contato ao Brain (best-effort).
+func (c *Client) SendTypingEvent(ctx context.Context, req TypingRequest) error {
+	bodyBytes, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/connectors/v1/typing", bytes.NewReader(bodyBytes))
+	if err != nil {
+		return err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	c.applyAuthHeaders(httpReq.Header)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return err
+	}
+	_, _ = io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	_ = resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("HTTP %d ao enviar typing", resp.StatusCode)
+	}
+	return nil
+}
+
 // UploadMediaWithRetry envia mídia ao BlobStore via Brain com retries em falhas transitórias.
 func (c *Client) UploadMediaWithRetry(ctx context.Context, params MediaUploadParams, data []byte) (string, error) {
 	var lastErr error

@@ -99,3 +99,26 @@ curl -X PUT "http://127.0.0.1:8080/api/llm/config?tenant=demo" \
   - [`internal/pack/journey_multi_test.go`](file:///Users/hudson/development/whatshelper/internal/pack/journey_multi_test.go)
   - [`internal/brain/journey_workflow_test.go`](file:///Users/hudson/development/whatshelper/internal/brain/journey_workflow_test.go)
   - [`internal/server/workflows_api_test.go`](file:///Users/hudson/development/whatshelper/internal/server/workflows_api_test.go)
+
+---
+
+## 2026-11-13 — Debounce Configurável por Pack, Espera por Digitação (`typing`) e Janela de Contexto (5 Cliente / 10 Total)
+
+### Itens Implementados
+- **Configuração por Pack (`timing`)**:
+  - [`TimingDef`](file:///Users/hudson/development/whatshelper/internal/pack/pack.go) e [`Pack.EffectiveTiming`](file:///Users/hudson/development/whatshelper/internal/pack/pack.go) adicionados em `pack.yaml` com padrões `debounce_ms: 8000` (8s) e `typing_max_wait_ms: 16000` (16s).
+  - Fallback global em [`config.go`](file:///Users/hudson/development/whatshelper/internal/config/config.go) atualizado para `DEBOUNCE_MS=8000` e `RECENT_MESSAGES_LIMIT=10`.
+- **Debounce + Standby por Digitação no [`SourceDispatcher`](file:///Users/hudson/development/whatshelper/internal/brain/scheduler.go)**:
+  - Aguarda 8s de inatividade por padrão; se o cliente estiver digitando (`SetTyping(..., true)`), segura o processamento até parar de digitar ou atingir o teto máximo de 16s.
+  - Liberação imediata quando `typing=false` chega após o vencimento do debounce; novas mensagens reiniciam a janela de 8s (e mensagens após resposta disparam um novo ciclo completo).
+  - [`Pipeline.NotifyTyping`](file:///Users/hudson/development/whatshelper/internal/brain/pipeline.go) resolve os tempos a partir do pack do tenant.
+- **Detecção de `typing` no WhatsApp e Simulador**:
+  - WhatsApp ([`adapter.go`](file:///Users/hudson/development/whatshelper/internal/channels/whatsapp/adapter.go)): escuta `*events.ChatPresence` (`Composing` / `Paused`) e encaminha ao Brain via `POST /api/connectors/v1/typing` ([`protocol.go`](file:///Users/hudson/development/whatshelper/internal/channels/bridge/protocol.go), [`client.go`](file:///Users/hudson/development/whatshelper/internal/channels/bridge/client.go), [`connector.go`](file:///Users/hudson/development/whatshelper/internal/server/connector.go)).
+  - Simulador ([`api.go`](file:///Users/hudson/development/whatshelper/internal/server/api.go), [`sim.js`](file:///Users/hudson/development/whatshelper/internal/server/static/sim.js)): novo endpoint `POST /api/sim/typing` integrado ao campo de texto da UI com envio de `typing=true/false`.
+- **Janela de Contexto para o LLM (5 cliente / 10 total)**:
+  - [`selectRecentMessages`](file:///Users/hudson/development/whatshelper/internal/contextmod/builtin_providers.go) e padrão `RecentMessagesLimit=10` garantem até 10 mensagens recentes (robô + cliente) preservando sempre até as últimas 5 mensagens do cliente em ordem cronológica.
+- **Testes**:
+  - [`internal/brain/scheduler_test.go`](file:///Users/hudson/development/whatshelper/internal/brain/scheduler_test.go)
+  - [`internal/pack/pack_test.go`](file:///Users/hudson/development/whatshelper/internal/pack/pack_test.go)
+  - [`internal/contextmod/builtin_providers_test.go`](file:///Users/hudson/development/whatshelper/internal/contextmod/builtin_providers_test.go)
+  - [`internal/server/connector_test.go`](file:///Users/hudson/development/whatshelper/internal/server/connector_test.go)

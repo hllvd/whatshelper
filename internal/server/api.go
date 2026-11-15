@@ -61,6 +61,35 @@ func (s *Server) handlePostSimMessage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, msg)
 }
 
+type simTypingRequest struct {
+	TenantID  string `json:"tenant_id"`
+	SourceKey string `json:"source_key"`
+	Typing    bool   `json:"typing"`
+}
+
+func (s *Server) handlePostSimTyping(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Pipeline == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "pipeline não inicializado")
+		return
+	}
+	var req simTypingRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64*1024)).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "JSON inválido")
+		return
+	}
+	tenant := strings.TrimSpace(req.TenantID)
+	if tenant == "" {
+		tenant = "demo"
+	}
+	sourceKey := strings.TrimSpace(req.SourceKey)
+	if sourceKey == "" {
+		writeJSONError(w, http.StatusBadRequest, "source_key é obrigatório")
+		return
+	}
+	s.deps.Pipeline.NotifyTyping(tenant, "simulator", sourceKey, req.Typing)
+	writeJSON(w, http.StatusAccepted, map[string]any{"status": "accepted"})
+}
+
 func (s *Server) handleListSources(w http.ResponseWriter, r *http.Request) {
 	if s.deps.Store == nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "store não configurado")

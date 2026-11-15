@@ -151,4 +151,26 @@ func TestConnectorEndpoints_AuthDedupeMediaAndAdminRoute(t *testing.T) {
 	if !foundAdminInbound {
 		t.Fatalf("expected wamid-admin-1 routed to admin channel, got %+v", adminMsgs)
 	}
+
+	// 5. Typing endpoint do connector e do simulador devem aceitar e validar campos.
+	if err := client.SendTypingEvent(ctx, bridge.TypingRequest{
+		TenantID:  "demo",
+		Channel:   "whatsapp",
+		SourceKey: "5511999990001",
+		Typing:    true,
+	}); err != nil {
+		t.Fatalf("expected SendTypingEvent to succeed, got %v", err)
+	}
+
+	simTypingReq, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/sim/typing", bytes.NewBufferString(`{"tenant_id":"demo","source_key":"sim-u1","typing":true}`))
+	simTypingReq.Header.Set("Authorization", "Bearer user-api-token")
+	simTypingReq.Header.Set("Content-Type", "application/json")
+	simTypingResp, err := http.DefaultClient.Do(simTypingReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = simTypingResp.Body.Close()
+	if simTypingResp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202 for /api/sim/typing, got %d", simTypingResp.StatusCode)
+	}
 }

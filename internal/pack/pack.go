@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"text/template"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -109,6 +110,17 @@ type PromptsDef struct {
 	Nudge    string `yaml:"nudge" json:"nudge"`
 }
 
+const (
+	DefaultDebounceMs      = 8000
+	DefaultTypingMaxWaitMs = 16000
+)
+
+// TimingDef configura janelas de debounce e espera máxima de digitação por pack.
+type TimingDef struct {
+	DebounceMs      *int `yaml:"debounce_ms,omitempty" json:"debounce_ms,omitempty"`
+	TypingMaxWaitMs *int `yaml:"typing_max_wait_ms,omitempty" json:"typing_max_wait_ms,omitempty"`
+}
+
 // Pack representa um vertical pack carregado e validado.
 // TransitionCondition define os critérios de guarda para acionar uma transição de estado.
 type TransitionCondition struct {
@@ -200,7 +212,8 @@ type Pack struct {
 	Journey        *JourneyDef            `yaml:"-" json:"journey,omitempty"`
 	Journeys       map[string]*JourneyDef `yaml:"-" json:"journeys,omitempty"`
 	Prompts        PromptsDef             `yaml:"prompts" json:"prompts"`
-	Rules          []string            `yaml:"rules,omitempty" json:"rules,omitempty"`
+	Timing         *TimingDef             `yaml:"timing,omitempty" json:"timing,omitempty"`
+	Rules          []string               `yaml:"rules,omitempty" json:"rules,omitempty"`
 
 	// Templates compilados na carga
 	AnalysisTmpl *template.Template `yaml:"-" json:"-"`
@@ -338,6 +351,14 @@ func (p *Pack) Validate() error {
 	}
 	if strings.TrimSpace(p.Prompts.Analysis) == "" || strings.TrimSpace(p.Prompts.Reply) == "" {
 		return fmt.Errorf("%w: prompts.analysis e prompts.reply são obrigatórios", ErrInvalidPack)
+	}
+	if p.Timing != nil {
+		if p.Timing.DebounceMs != nil && *p.Timing.DebounceMs < 0 {
+			return fmt.Errorf("%w: timing.debounce_ms não pode ser negativo", ErrInvalidPack)
+		}
+		if p.Timing.TypingMaxWaitMs != nil && *p.Timing.TypingMaxWaitMs < 0 {
+			return fmt.Errorf("%w: timing.typing_max_wait_ms não pode ser negativo", ErrInvalidPack)
+		}
 	}
 
 	seenFacts := make(map[string]bool)
@@ -627,4 +648,19 @@ func (p *Pack) ensureIndexes() {
 	if p.factByKey == nil {
 		p.buildIndexes()
 	}
+}
+
+// EffectiveTiming retorna os tempos efetivos de debounce e espera máxima por digitação.
+func (p *Pack) EffectiveTiming() (debounce, typingMaxWait time.Duration) {
+	debounceMs := DefaultDebounceMs
+	typingWaitMs := DefaultTypingMaxWaitMs
+	if p != nil && p.Timing != nil {
+		if p.Timing.DebounceMs != nil {
+			debounceMs = *p.Timing.DebounceMs
+		}
+		if p.Timing.TypingMaxWaitMs != nil {
+			typingWaitMs = *p.Timing.TypingMaxWaitMs
+		}
+	}
+	return time.Duration(debounceMs) * time.Millisecond, time.Duration(typingWaitMs) * time.Millisecond
 }

@@ -168,3 +168,90 @@ func TestSourceDispatcher_ParallelAcrossSourcesAndSequentialPerSource(t *testing
 		t.Fatalf("expected 0 active queues after idle cleanup, got %d", d.ActiveQueues())
 	}
 }
+
+func TestSourceDispatcher_TypingStandbyAndMaxWait(t *testing.T) {
+	fs := &fakeScheduler{}
+	currentTime := time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC)
+	var mu sync.Mutex
+	var batches [][]core.NormalizedMessage
+
+	d := brain.NewSourceDispatcherWithConfig(context.Background(), brain.DispatcherConfig{
+		Debounce:      8 * time.Second,
+		TypingMaxWait: 16 * time.Second,
+		AfterFunc:     fs.AfterFunc,
+		NowFunc:       func() time.Time { return currentTime },
+		Handler: func(ctx context.Context, batch []core.NormalizedMessage) {
+			mu.Lock()
+			batches = append(batches, batch)
+			mu.Unlock()
+		},
+	})
+	defer d.Stop()
+
+	d.Enqueue(core.NormalizedMessage{TenantID: "demo", Channel: "whatsapp", SourceKey: "5511999", MessageID: "m1", Timestamp: currentTime})
+	d.SetTyping("demo", "whatsapp", "5511999", true)
+
+	// 8s debounce vence, mas cliente ainda está digitando -> não processa ainda
+	currentTime = currentTime.Add(8 * time.Second)
+	fs.FireAllActive()
+
+	mu.Lock()
+	if len(batches) != 0 {
+		mu.Unlock()
+		t.Fatalf("expected 0 batches while typing, got %d", len(batches))
+	}
+	mu.Unlock()
+
+	// Aos 16s (cap máximo), dispara mesmo com typing=true
+	currentTime = currentTime.Add(8 * time.Second)
+	fs.FireAllActive()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(batches) != 1 || len(batches[0]) != 1 {
+		t.Fatalf("expected 1 batch after 16s max wait, got %+v", batches)
+	}
+}
+
+func TestSourceDispatcher_TypingStopFlushesImmediately(t *testing.T) {
+	fs := &fakeScheduler{}
+	currentTime := time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC)
+	flushed := make(chan int, 1)
+
+	d := brain.NewSourceDispatcherWithConfig(context.Background(), brain.DispatcherConfig{
+		Debounce:      8 * time.Second,
+		TypingMaxWait: 16 * time.Second,
+		AfterFunc:     fs.AfterFunc,
+		NowFunc:       func() time.Time { return currentTime },
+		Handler: func(ctx context.Context, batch []core.NormalizedMessage) {
+			flushed <- len(batch)
+		},
+	})
+	defer d.Stop()
+
+	d.Enqueue(core.NormalizedMessage{TenantID: "demo", Channel: "simulator", SourceKey: "u1", MessageID: "m1", Timestamp: currentTime})
+	d.SetTyping("demo", "simulator", "u1", true)
+
+	// 8s debounce vence em standby
+	currentTime = currentTime.Add(8 * time.Second)
+	fs.FireAllActive()
+
+	select {
+	case <-flushed:
+		t.Fatal("should not flush while typing is true")
+	default:
+	}
+
+	// Cliente para de digitar aos 10s -> libera imediatamente
+	currentTime = currentTime.Add(2 * time.Second)
+	d.SetTyping("demo", "simulator", "u1", false)
+
+	select {
+	case n := <-flushed:
+		if n != 1 {
+			t.Fatalf("expected batch size 1, got %d", n)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected immediate flush when typing stopped after debounce")
+	}
+}
