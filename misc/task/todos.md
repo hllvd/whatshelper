@@ -223,6 +223,21 @@ A ordem de execução está nos milestones M0 → M5, no final do arquivo.
 
 > **Ideias futuras (fora dos milestones):** lead scoring declarativo (regras sobre facts), exportação para CRM, SLA por estágio, atribuição a atendentes, mais de uma jornada por conversa.
 
+## WIN — Janela de contexto e lote
+
+- [x] **WIN-01 — ADR (Passo 1).** `docs/adr/0021-janela-de-contexto-e-lote.md` definindo lote vs histórico, rotulagem e delta de tempo, orçamento de tokens, debounce adaptativo, guarda de resposta defasada, coleções de fatos, múltiplos intents por lote, edição/exclusão (`whatsmeow`) e assinaturas das funções puras.
+- [x] **WIN-02 — Função pura `BuildWindow(WindowInput) WindowOutput`:** separa lote e histórico (padrão 10 mensagens totais garantindo as últimas 5 do cliente), rotula papel (`customer`, `bot`, `human`) e delta de tempo, preserva ordem cronológica, aplica orçamento de tokens sem nunca cortar o lote, e retorna relatório do que foi cortado e por quê.
+- [x] **WIN-03 — Debounce adaptativo (`NextDebounceDecision`):** função pura retornando `{WaitUntil, Flush, Reason}`. Suporta janela base do pack (8s), extensão quando a mensagem parece incompleta (léxico por idioma no pack) e standby por `typing` (até 16s / teto máximo configurável). Invariante: nunca excede o teto.
+- [x] **WIN-04 — Guarda contra resposta defasada (`ShouldDiscardReply`):** descarta a resposta e reprocessa o lote unificado quando novas mensagens chegam durante a chamada ao LLM (antes do envio), cancelando itens `pending` no outbox, emitindo `reply_discarded_stale` e respeitando limite de reprocessamentos.
+- [x] **WIN-05 — Coleções de fatos (`MergeAndDiffCollections`):** schema do pack declara `collections` com `id` e campos tipados; merge puro por `id` ou chave natural, remoções explícitas e idempotência, mantendo compatibilidade com `Facts` (`map[string]string`).
+- [x] **WIN-06 — Múltiplos intents por lote (`AggregateBatchIntents`):** análise devolve intents por segmento/mensagem e agregado do lote; roteamento e resposta cobrem todos os pontos do lote com uma única pergunta de qualificação.
+- [x] **WIN-07 — Edição e exclusão de mensagens (`ApplyMessageEdit`):** eventos `message_edited` e `message_deleted` via connector/`whatsmeow` (`ProtocolMessage`); edição antes do processamento substitui no lote; exclusão marca como `deleted` e omite do LLM.
+- [x] **WIN-08 — Observabilidade e UI:** `batch_size`, `debounce_wait_ms`, motivo de extensão/flush, tokens da janela, itens cortados, respostas descartadas e reprocessamentos no `RunTrace` + cartão **"Janela e Lote"** no `/thinking`.
+- [x] **WIN-09 — Testes (todas as camadas):**
+  - (a) Unitários de tabela e de propriedade das funções puras (`BuildWindow`, `NextDebounceDecision`, `ShouldDiscardReply`, `MergeAndDiffCollections`, `AggregateBatchIntents`, `ApplyMessageEdit`).
+  - (b) Integração/pipeline com `FakeClock` + canal fake + LLM fake cobrindo os 9 cenários obrigatórios (rajada de 4 msgs, acima do teto em 2 turnos, mensagem durante chamada ao LLM, rajada batendo no teto, lote > N não cortado, orçamento estourado, mensagem incompleta, edição/exclusão, concorrência com `-race`).
+  - (c) Replay/golden com a fixture em PT-BR e atrasos injetados, sem regressão.
+
 ---
 
 ## Milestones
@@ -238,4 +253,6 @@ Do M0 ao M4 tudo roda 100% local. AWS e Fargate só aparecem no M5.
 - **M4b — Exposição por API e MCP:** CTX-07, CTX-09 a CTX-12, CTX-14, CTX-15, CTX-13 (restante).
 - **M4e — Jornada e ações (backend):** EVT-01 a EVT-05, DIM-01, DIM-02, JRN-01 a JRN-08, OUT-01 a OUT-03, QA-06.
 - **M4f — UI e funil:** UIX-09 a UIX-13, OBS-06, OUT-04.
+- **M4g — Núcleo puro e debounce:** WIN-01 a WIN-04, WIN-09 (partes a/b/c correspondentes).
+- **M4h — Coleções, multi-intent, edição e UI:** WIN-05 a WIN-08, WIN-09 (restante).
 - **M5 — Produção (Fargate):** DEC-04, OPS-01 a OPS-05, SEC-03, LLM-03, LLM-04, CH-07, CH-09, DOC-03.

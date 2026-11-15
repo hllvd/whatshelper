@@ -51,7 +51,7 @@ Clique no tipo de solicitação desejado para ir direto ao passo a passo:
 - **Quando usar:** Ao ser promovido ao nível **Guimel** no plano de carreira e estiver pronto para liderar seu próprio time comercial no sistema.
 - **Campos a preencher:**
   - **Nome da Equipe:** Escolha o nome oficial da sua nova equipe (exemplo: *Equipe Força Alfa*, *Equipe Sul Comercial*).
-- **Como funciona a aprovação:** A solicitação é analisada pelo SuperAdmin. Após a aprovação:
+- **Como funciona a aprovação:** A solicitação será encaminhada ao gestor e ao SuperAdmin. Após a aprovação:
   1. A nova equipe é criada automaticamente no sistema.
   2. Você se torna o **proprietário (Owner)** da equipe.
   3. Seu perfil de usuário é atualizado automaticamente para **Administrador**.

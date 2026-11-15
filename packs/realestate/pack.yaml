@@ -1,6 +1,10 @@
 name: realestate
 language: pt-BR
 
+timing:
+  debounce_ms: 8000
+  typing_max_wait_ms: 16000
+
 actors:
   business: broker
   customer: customer

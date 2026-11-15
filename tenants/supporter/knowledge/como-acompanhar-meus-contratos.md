@@ -49,5 +49,11 @@ A tela **Meus Contratos** (`#/my-contracts`) é a área onde consultores e admin
 ---
 
 ## 3. Dúvidas Comuns / Troubleshooting
-- **Meu contrato apareceu em "Contratos Solicitados" e não na tabela principal**: Isso significa que o arquivo do Power BI contendo esse contrato ainda não foi importado no sistema. Assim que for importado, o vínculo é feito automaticamente.
+- **Não encontro o contrato no sistema (ou não aparece na listagem)**:
+  1. **Filtros ativos ou mal formatados**: Verifique se há filtros preenchidos restringindo a busca (especialmente **Data Início** e **Data Fim**, matrícula ou equipe). É sempre recomendável clicar em **`Limpar Filtros`** para visualizar todos os registros.
+  2. **Contrato ainda não está no sistema (sincronização com o Avapro)**: Todos os dias sincronizamos o banco de dados com os contratos do **Avapro (Ava Pro)**. Por isso, um novo contrato pode demorar **até 24h** para aparecer no sistema.
+- **Um contrato aparece como cancelado (ou desatualizado), mas o cliente já pagou e está ativo**:
+  1. **O Avapro ainda exibe como cancelado**: Nesse caso, é necessário entrar em contato com a **Ademicon** para regularizar a situação no Avapro.
+  2. **O Avapro mudou o status há menos de 24h**: Como a sincronização ocorre todos os dias pela manhã, basta aguardar a próxima sincronização matinal para que o novo status seja refletido no sistema.
+- **Meu contrato apareceu em "Contratos Solicitados" e não na tabela principal**: Isso significa que o contrato ainda não entrou na sincronização diária com o Avapro / Power BI (que pode levar até 24h). Assim que for importado/sincronizado, o vínculo é feito automaticamente.
 - **Preciso editar dados de um contrato já cadastrado**: A tela **Meus Contratos** é voltada para acompanhamento e atribuição. Alterações cadastrais em contratos são feitas na tela administrativa **Contratos** (`#/contracts`).

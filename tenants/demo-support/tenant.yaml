@@ -7,10 +7,10 @@ bot_enabled: true
 proactive_enabled: false
 business_hours:
   enabled: true
-  days: [mon, tue, wed, thu, fri]
-  start: "08:00"
-  end: "20:00"
-out_of_hours_reply: "Nosso suporte técnico funciona de segunda a sexta, das 8h às 20h. Registramos seu chamado e retornaremos no próximo horário útil."
+  days: [mon, tue, wed, thu, fri, sat, sun]
+  start: "05:00"
+  end: "22:00"
+out_of_hours_reply: "Nosso suporte técnico funciona todos os dias, das 5h às 22h. Registramos seu chamado e retornaremos no próximo horário útil."
 rate_limit:
   global_per_minute: 60
   per_source_per_minute: 10

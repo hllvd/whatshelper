@@ -52,5 +52,11 @@ Logo abaixo da tabela, o painel de **Resumo** consolida os totais dos contratos 
 ---
 
 ## 3. Dúvidas Comuns / Troubleshooting
+- **Não encontro o contrato no sistema**:
+  1. **Filtros ativos ou mal formatados**: Confira se há filtros preenchidos ocultando o registro (como **Data Início** e **Data Fim**, status, matrícula ou atribuição). Clique sempre em **`Limpar Filtros`** para resetar a busca antes de pesquisar novamente.
+  2. **Contrato ainda não está no sistema (sincronização com o Avapro)**: Todos os dias sincronizamos o banco de dados com os contratos do **Avapro (Ava Pro)**, portanto pode demorar **até 24h** para que um novo contrato apareça no sistema.
+- **Um contrato está como cancelado, mas o cliente já pagou e já está ativo**:
+  1. **O Avapro ainda consta como cancelado**: É necessário entrar em contato com a **Ademicon** (para verificar no Avapro).
+  2. **O Avapro atualizou o status há menos de 24h**: Basta aguardar a sincronização diária que acontece toda manhã.
 - **Não encontro um usuário inativo no filtro**: Abra **`Configurações`** e marque a opção *Incluir usuários desativados no filtro Usuário*.
 - **Preciso apenas acompanhar as minhas próprias vendas**: Acesse **Meus Contratos** (`#/my-contracts`).

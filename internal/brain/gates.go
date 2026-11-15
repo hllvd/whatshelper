@@ -3,9 +3,7 @@ package brain
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
-	"unicode"
 
 	"whatshelper/internal/core"
 	"whatshelper/internal/pack"
@@ -61,19 +59,6 @@ func EvaluatePreLLMGates(in PreGateInput) PreGateResult {
 		}
 	}
 
-	if in.Pack != nil && len(in.Pack.OptOutKeywords) > 0 {
-		for _, text := range in.BatchTexts {
-			if MatchesOptOutKeyword(text, in.Pack.OptOutKeywords) {
-				return PreGateResult{
-					Allowed:      false,
-					Action:       DecisionOptOut,
-					Reason:       "opt-out detectado por palavra-chave",
-					UpdateStatus: core.SourceStatusOptedOut,
-				}
-			}
-		}
-	}
-
 	if autoResumed {
 		return PreGateResult{
 			Allowed:      true,
@@ -85,50 +70,10 @@ func EvaluatePreLLMGates(in PreGateInput) PreGateResult {
 	return PreGateResult{Allowed: true}
 }
 
-// MatchesOptOutKeyword verifica se o texto contém alguma frase/palavra de opt-out respeitando fronteiras de palavra.
-func MatchesOptOutKeyword(text string, keywords []string) bool {
-	normText := normalizeSpacesLower(text)
-	if normText == "" {
-		return false
-	}
-	for _, kw := range keywords {
-		normKW := normalizeSpacesLower(kw)
-		if normKW == "" {
-			continue
-		}
-		if containsWordPhrase(normText, normKW) {
-			return true
-		}
-	}
+// MatchesOptOutKeyword está desativado (retorna sempre false) para evitar falsos positivos
+// em frases de domínio (ex.: "vai sair da empresa"); o opt-out é tratado contextualmente pelo LLM.
+func MatchesOptOutKeyword(_ string, _ []string) bool {
 	return false
-}
-
-func normalizeSpacesLower(s string) string {
-	fields := strings.Fields(strings.ToLower(strings.TrimSpace(s)))
-	return strings.Join(fields, " ")
-}
-
-func containsWordPhrase(haystack, needle string) bool {
-	offset := 0
-	for {
-		idx := strings.Index(haystack[offset:], needle)
-		if idx < 0 {
-			return false
-		}
-		start := offset + idx
-		end := start + len(needle)
-
-		leftOK := start == 0 || !isWordChar(rune(haystack[start-1]))
-		rightOK := end == len(haystack) || !isWordChar(rune(haystack[end]))
-		if leftOK && rightOK {
-			return true
-		}
-		offset = start + 1
-	}
-}
-
-func isWordChar(r rune) bool {
-	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
 }
 
 // UpdateSourceStatus atualiza o status no META da fonte preservando ContactID/Version/CreatedAt.

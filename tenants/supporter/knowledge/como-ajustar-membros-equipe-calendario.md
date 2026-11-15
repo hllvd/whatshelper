@@ -6,10 +6,15 @@ Este guia explica como gerenciar a linha do tempo e o histórico de equipes de u
 
 ## 📌 Quando e Por Que Usar Esta Funcionalidade?
 
-O uso do **Calendário de Equipes** é **muito importante** especialmente em dois cenários críticos da operação:
+> ⚠️ **Regra Fundamental — Consultor "saiu da equipe"**:
+> Quando alguém informar que um consultor **saiu da equipe** (ou "não faz mais parte da equipe"), **sempre confirme primeiro** se ele **saiu da Ademicon (empresa)** ou se **migrou para outra equipe**:
+> 1. **Saiu da Ademicon (não trabalha mais na empresa)**: **NÃO** utilize o Calendário de Equipes. O procedimento correto é **somente desativar o usuário** em **Usuários → Lista** (`#/users`), clicando no ícone de lixeira (**Excluir / Desativar**) e confirmando em **`Desativar`**.
+> 2. **Saiu da equipe e migrou para outra equipe (ou virou gestor de nova equipe na Ademicon)**: utilize o **Calendário de Equipes** (`#/teams/calendar`) para ajustar a data de corte entre a equipe antiga e a nova equipe.
+
+O uso do **Calendário de Equipes** é **muito importante** especialmente nos cenários em que o consultor **continua na Ademicon**, mas mudou de time:
 
 - **Consultor que se tornou gestor**: Quando um consultor é promovido e passa a liderar sua própria equipe, é essencial registrar a transição no calendário para encerrar sua participação na equipe antiga e iniciar o vínculo na nova equipe.
-- **Consultor que mudou de equipe**: Quando um consultor atuou em uma equipe durante um período e foi remanejado para outra.
+- **Consultor que mudou/migrou de equipe**: Quando um consultor atuou em uma equipe durante um período e foi remanejado para outra equipe dentro da Ademicon.
 - **Correção de datas de vigência**: Elimina sobreposições ou lacunas no histórico do consultor.
 
 ### ✂️ Como Funciona a Data de Corte

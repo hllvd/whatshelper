@@ -46,4 +46,4 @@ Quer saber o que aconteceria com seu plano de carreira se determinados contratos
 
 ## 3. Dúvidas Comuns / Troubleshooting
 - **Meu cálculo parece desatualizado após uma importação**: Clique em **`Atualizar`** no canto superior direito para forçar um novo cálculo fora do cache.
-- **Um contrato recente ainda não aparece na tabela de RTs**: Verifique em **Meus Contratos** (`#/my-contracts`) se o contrato já foi importado e atribuído à sua matrícula.
+- **Um contrato recente ainda não aparece na tabela de RTs**: Verifique em **Meus Contratos** (`#/my-contracts`) se o contrato já foi sincronizado e atribuído à sua matrícula (lembrando que sincronizamos o banco de dados diariamente com os contratos do **Avapro**, podendo levar **até 24h** para um novo contrato aparecer).

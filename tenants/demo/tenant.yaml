@@ -7,10 +7,10 @@ bot_enabled: true
 proactive_enabled: false
 business_hours:
   enabled: true
-  days: [mon, tue, wed, thu, fri, sat]
-  start: "09:00"
-  end: "18:00"
-out_of_hours_reply: "Olá! Nosso atendimento humano funciona de segunda a sábado, das 9h às 18h. Recebemos sua mensagem e responderemos assim que possível."
+  days: [mon, tue, wed, thu, fri, sat, sun]
+  start: "05:00"
+  end: "22:00"
+out_of_hours_reply: "Olá! Nosso atendimento funciona todos os dias, das 5h às 22h. Recebemos sua mensagem e responderemos assim que possível."
 rate_limit:
   global_per_minute: 60
   per_source_per_minute: 10

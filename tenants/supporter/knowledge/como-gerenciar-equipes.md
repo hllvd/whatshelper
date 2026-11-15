@@ -6,7 +6,7 @@ A tela **Equipes → Lista** (`#/teams`) permite que administradores visualizem 
 
 ## 1. Pré-requisitos
 - Possuir perfil **Admin** (ou permissão `teams:manage`).
-- **Criação de nova equipe**: Um perfil Admin não cria equipes diretamente pelo botão nesta tela. Caso você tenha sido promovido a **Guimel** e precise criar sua própria equipe, utilize o módulo **Solicitações** (`#/requests`) selecionando a opção *Eu sou Guimel agora, quero criar minha equipe*.
+- **Criação de nova equipe**: Um perfil Admin não cria equipes diretamente pelo botão nesta tela. Caso você tenha sido promovido a **Guimel** e precise criar sua própria equipe, utilize o módulo **Solicitações** (`#/requests`) selecionando a opção *Eu sou Guimel agora, quero criar minha equipe*. A solicitação será encaminhada ao gestor e ao SuperAdmin para aprovação.
 
 ---
 
@@ -36,5 +36,9 @@ A tela **Equipes → Lista** (`#/teams`) permite que administradores visualizem 
 ---
 
 ## 3. Dúvidas Comuns / Troubleshooting
+- **Um consultor saiu da minha equipe ("não faz mais parte da equipe"), como faço para tirá-lo?**:
+  Depende do motivo da saída — **sempre verifique primeiro** se o consultor **saiu da Ademicon (empresa)** ou se **migrou para outra equipe**:
+  1. **Se o consultor saiu da Ademicon (não trabalha mais na empresa)**: você deve **somente desativar o usuário** em **Usuários → Lista** (`#/users`), clicando no ícone de lixeira (**Excluir / Desativar**) e confirmando em **`Desativar`**.
+  2. **Se o consultor saiu e migrou para outra equipe (ou virou gestor de nova equipe)**: utilize a tela **Equipes → Calendário** (`#/teams/calendar`) para definir a **Data Final** (data de corte) na equipe antiga e a **Data de Início** na nova equipe.
 - **Preciso separar contratos antigos e novos de um consultor que mudou de equipe ou virou gestor**: Utilize a tela **Equipes → Calendário** (`#/teams/calendar`) para definir a data de corte exata entre a equipe anterior e a equipe atual.
 - **Não aparece o botão "Nova Equipe" para mim**: Para perfis Admin, a criação de novas equipes é feita mediante aprovação em **Solicitações** (`#/requests`).

@@ -1,6 +1,10 @@
 name: supporter
 language: pt-BR
 
+timing:
+  debounce_ms: 8000
+  typing_max_wait_ms: 16000
+
 actors:
   business: agent
   customer: user
@@ -51,11 +55,11 @@ dimensions:
 
 intents:
   - name: ask_howto
-    description: Dúvida sobre uso da plataforma, regras comerciais, metas, comissões, relatórios ou processos internos
+    description: Dúvida sobre uso da plataforma, localização ou status/sincronização de contratos, matrículas, equipes, usuários, plano de carreira ou processos internos
     examples:
-      - "Como funciona o cálculo da comissão deste mês?"
-      - "Onde consulto o funil de vendas da minha equipe?"
-      - "Qual a regra para registro de venda recorrente?"
+      - "Eu não encontro o contrato no sistema"
+      - "Tem um contrato que está como cancelado e já está ativo, o cliente pagou mas o sistema ainda não reflete"
+      - "Um consultor saiu da minha equipe, o que devo fazer?"
     action: reply
   - name: report_issue
     description: Relato de erro, divergência de valores, falha ou indisponibilidade no sistema
@@ -140,6 +144,9 @@ prompts:
 rules:
   - Nunca invente regras comerciais, percentuais de comissão, metas, prazos ou procedimentos fora da base de conhecimento.
   - Sempre peça o contexto necessário (módulo, tela ou ID de referência) caso falte para esclarecer a dúvida ou investigar uma divergência.
+  - Quando o usuário disser que um consultor "saiu da equipe" (ou "não faz mais parte da equipe" / "quero tirar da equipe") sem especificar o motivo, pergunte primeiro se o consultor saiu da Ademicon (não trabalha mais na empresa) ou se migrou para outra equipe. Se saiu da Ademicon (desligamento da empresa), oriente SOMENTE a desativar o usuário em Usuários → Lista (#/users), sem mexer no Calendário de Equipes. Se saiu da equipe e migrou para outra equipe (ou virou gestor de nova equipe), oriente a ajustar a data de corte em Equipes → Calendário (#/teams/calendar).
+  - Quando o usuário informar que não encontra um contrato no sistema (ou que um contrato não aparece), oriente primeiro sobre as duas causas principais: (1) algum filtro mal formatado ou ativo (como Data Início e Data Fim), recomendando clicar em "Limpar Filtros"; e (2) o contrato ainda não estar no sistema, informando que todos os dias sincronizamos o banco de dados com os contratos do Avapro (Ava Pro) e que pode demorar até 24h para aparecer um novo contrato.
+  - Quando o usuário informar que um contrato aparece como cancelado (ou desatualizado) mesmo após o cliente ter pago / já estar ativo, explique as duas possibilidades: (1) no Avapro (Ava Pro) o contrato ainda aparece como cancelado — nesse caso, deve entrar em contato com a Ademicon para verificar junto ao Avapro; ou (2) o estado mudou no Avapro há menos de 24h e ainda não refletiu no sistema — nesse caso, basta aguardar a sincronização diária que acontece toda manhã.
   - Responda sempre em Português (PT-BR), com clareza, objetividade e tom adequado a consultores e gestores.
   - Quando não tiver certeza na base de conhecimento, informe que vai encaminhar ao time responsável sem chutar.
 

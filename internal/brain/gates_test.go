@@ -87,14 +87,16 @@ func setupGatesPipeline(t *testing.T, policy core.TenantPolicy, clock *fakes.Fak
 
 func TestMatchesOptOutKeyword(t *testing.T) {
 	kws := []string{"sair", "parar", "não quero mais"}
-	if !brain.MatchesOptOutKeyword("Por favor, quero SAIR agora", kws) {
-		t.Fatalf("expected SAIR to match")
-	}
-	if !brain.MatchesOptOutKeyword("não   quero mais receber isso", kws) {
-		t.Fatalf("expected normalized phrase to match")
-	}
-	if brain.MatchesOptOutKeyword("Preciso reparar meu computador", kws) {
-		t.Fatalf("did not expect 'reparar' to match 'parar'")
+	for _, sample := range []string{
+		"Hao trabalha mais, vai sair da empresa",
+		"Um consultor está de saída da equipe e vai sair",
+		"Por favor, quero SAIR agora",
+		"não   quero mais receber isso",
+		"Preciso reparar meu computador",
+	} {
+		if brain.MatchesOptOutKeyword(sample, kws) {
+			t.Fatalf("expected MatchesOptOutKeyword to be disabled (false) for %q", sample)
+		}
 	}
 }
 
@@ -170,24 +172,24 @@ func TestPipeline_PreLLMGates_ZeroLLMCalls(t *testing.T) {
 		}
 	})
 
-	t.Run("opt_out keyword marks source opted_out without LLM", func(t *testing.T) {
+	t.Run("opt_out keyword check is disabled so sentences with sair reach LLM", func(t *testing.T) {
 		clock := fakes.NewFakeClock(now)
 		llm := fakes.NewOfflineDemoLLM()
-		p, st, ch := setupGatesPipeline(t, core.TenantPolicy{Mode: core.ModeAuto, BotEnabled: true}.WithDefaults(), clock, llm)
+		p, st, _ := setupGatesPipeline(t, core.TenantPolicy{Mode: core.ModeAuto, BotEnabled: true}.WithDefaults(), clock, llm)
 
 		msg := core.NormalizedMessage{
 			TenantID: "t1", Channel: "simulator", SourceKey: "u-opt",
-			MessageID: "m1", Timestamp: now, Direction: core.DirectionInbound, Type: core.MessageTypeText, Text: "SAIR",
+			MessageID: "m1", Timestamp: now, Direction: core.DirectionInbound, Type: core.MessageTypeText, Text: "Hao trabalha mais, vai sair da empresa",
 		}
 		if err := p.ProcessBatch(ctx, []core.NormalizedMessage{msg}); err != nil {
 			t.Fatal(err)
 		}
-		if len(llm.Calls()) != 0 || len(ch.SentMessages()) != 0 {
-			t.Fatalf("expected 0 LLM calls on keyword opt-out, got llm=%d sent=%d", len(llm.Calls()), len(ch.SentMessages()))
+		if len(llm.Calls()) == 0 {
+			t.Fatalf("expected message containing 'sair' to reach LLM instead of pre-gate opt-out")
 		}
 		state, _ := st.GetSourceState(ctx, "t1", "simulator", "u-opt")
-		if state.Meta.Status != core.SourceStatusOptedOut {
-			t.Fatalf("expected opted_out status, got %s", state.Meta.Status)
+		if state.Meta.Status == core.SourceStatusOptedOut {
+			t.Fatalf("did not expect opted_out status from pre-LLM keyword gate, got %s", state.Meta.Status)
 		}
 	})
 }

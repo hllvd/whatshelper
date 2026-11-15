@@ -386,8 +386,19 @@ func (d *SourceDispatcher) flush(q *sourceQueue, expectedGen uint64) {
 	d.mu.Unlock()
 
 	q.mu.Lock()
-	if q.gen != expectedGen || len(q.pending) == 0 {
+	q.running++
+	q.mu.Unlock()
+
+	// Serializa por conversa ANTES de drenar q.pending: assim qualquer mensagem que chegue
+	// enquanto o lote atual está no LLM permanece em q.pending e é capturada por TakePending (WIN-04).
+	q.execMu.Lock()
+
+	q.mu.Lock()
+	if len(q.pending) == 0 || (q.timer != nil && q.gen != expectedGen) {
+		q.running--
 		q.mu.Unlock()
+		q.execMu.Unlock()
+		d.cleanupIfIdle(q)
 		return
 	}
 	batch := q.pending
@@ -395,11 +406,8 @@ func (d *SourceDispatcher) flush(q *sourceQueue, expectedGen uint64) {
 	q.timer = nil
 	q.waitingTyping = false
 	q.cycleStart = time.Time{}
-	q.running++
 	q.mu.Unlock()
 
-	// Serializa apenas dentro da mesma fonte; fontes diferentes executam em paralelo.
-	q.execMu.Lock()
 	if d.handler != nil {
 		d.handler(d.baseCtx, batch)
 	}

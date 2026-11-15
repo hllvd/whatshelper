@@ -46,14 +46,20 @@ A tela **Usuários → Lista** (`#/users`) é o local oficial onde administrador
 
 ---
 
-### Passo 4: Desativar ou Reativar um Consultor
-1. **Para desativar**: Na coluna **Ações** de um consultor ativo, clique no ícone de lixeira (**Excluir / Desativar**) e confirme clicando em **`Desativar`** no modal **Confirmar Desativação**.
+### Passo 4: Desativar ou Reativar um Consultor (Quando o Consultor Saiu da Ademicon)
+1. **Quando desativar**: Utilize a desativação sempre que um consultor **saiu da Ademicon (não trabalha mais na empresa)**.
+   - **Importante**: Se o consultor saiu da Ademicon, você deve **somente desativar o usuário** aqui em **Usuários → Lista** (`#/users`). Não é necessário mexer no Calendário de Equipes.
+   - *(Atenção: Se o consultor apenas saiu da sua equipe porque **migrou para outra equipe** dentro da Ademicon, **não** desative o usuário; nesse caso, ajuste o período em **Equipes → Calendário** `#/teams/calendar`).*
+2. **Para desativar**: Na coluna **Ações** de um consultor ativo, clique no ícone de lixeira (**Excluir / Desativar**) e confirme clicando em **`Desativar`** no modal **Confirmar Desativação**.
    - O consultor perde o acesso ao sistema e deixa de constar como membro ativo de equipe, mas seus contratos permanecem preservados nos relatórios.
    - Caso o consultor seja **Titular de Matrícula**, o sistema exibirá um alerta lembrando de transferir a titularidade caso a matrícula continue em uso.
-2. **Para reativar**: Altere o filtro de status para **Inativos** (ou **Todos**), localize o consultor e clique no ícone de atualização (**Reativar**) na coluna **Ações**.
+3. **Para reativar**: Altere o filtro de status para **Inativos** (ou **Todos**), localize o consultor e clique no ícone de atualização (**Reativar**) na coluna **Ações**.
 
 ---
 
 ## 3. Dúvidas Comuns / Troubleshooting
+- **Um consultor "saiu da equipe", o que fazer?**: Primeiro identifique se ele **saiu da Ademicon (empresa)** ou se **migrou para outra equipe**:
+  - Se **saiu da Ademicon (não trabalha mais na empresa)**: **somente desative o usuário** em **Usuários → Lista** (`#/users`) clicando no ícone de lixeira → **`Desativar`**.
+  - Se **migrou para outra equipe** (continua na Ademicon): ajuste a data de corte em **Equipes → Calendário** (`#/teams/calendar`).
 - **Aparece "Apenas leitura" na coluna Ações**: Isso significa que o consultor não está abaixo de você na árvore hierárquica. Apenas o gestor superior correspondente (ou um SuperAdmin) pode editá-lo ou desativá-lo.
 - **Um consultor precisa alterar o próprio superior ou solicitar mudança de equipe**: Ele deve utilizar o módulo **Solicitações** (`#/requests`) para pedidos que dependam de aprovação.

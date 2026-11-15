@@ -316,6 +316,77 @@ drainLoop:
 	}
 }
 
+func TestM4g_Regression_TimerExpiresDuringLLMCall_StillSingleReply(t *testing.T) {
+	ctx := context.Background()
+	st := fakes.NewMemoryStore()
+	scripted := fakes.NewScriptedLLM(nil)
+
+	// 1ª análise (m1) -> deve ser descartada mesmo que o timer de debounce de m2 já tenha disparado durante a chamada ao LLM!
+	scripted.EnqueueStage("analysis", core.LLMResponse{
+		Content: `{"summary":"Parcial m1","last_sender":"customer","facts":{"Goal":"comprar"},"signals":{"has_new_question":true},"context":{"last_action":{"type":"question"}}}`,
+	})
+	// 2ª análise (reprocessamento unificado [m1, m2])
+	scripted.EnqueueStage("analysis", core.LLMResponse{
+		Content: `{"summary":"Unificado m1 e m2","last_sender":"customer","facts":{"Goal":"comprar_e_vender","Budget":2000},"signals":{"has_new_question":true},"context":{"last_action":{"type":"question"}}}`,
+	})
+	scripted.EnqueueStage("response", core.LLMResponse{
+		Content: `{"reply":"Resposta única consolidada para compra e aluguel no plano de 2000.","confidence":"high","used_facts":["Goal","Budget"]}`,
+	})
+
+	var p *brain.Pipeline
+	fs := &fakeScheduler{}
+	hLLM := &hookLLM{
+		inner: scripted,
+		onCall: func(callIdx int, req core.LLMRequest) {
+			if callIdx == 1 && req.Stage == "analysis" {
+				// m2 chega E seu timer de debounce vence enquanto m1 ainda está dentro da chamada ao LLM!
+				_, _ = p.IngestWithStatus(ctx, core.NormalizedMessage{
+					TenantID:  "demo",
+					Channel:   "simulator",
+					SourceKey: "race-user",
+					MessageID: "m2-race",
+					Timestamp: time.Now().UTC(),
+					Direction: core.DirectionInbound,
+					Origin:    core.OriginCustomer,
+					Type:      core.MessageTypeText,
+					Text:      "eu queria saber o que fazer nesse caso",
+				})
+				go fs.FireAllActive()
+				// Pequena janela para qualquer goroutine de flush tentar rodar
+				time.Sleep(20 * time.Millisecond)
+			}
+		},
+	}
+
+	p, _, _, ch := setupPipelineTestEnvWithAfterFunc(t, st, hLLM, 1500*time.Millisecond, fs.AfterFunc)
+	defer p.Stop()
+
+	_, err := p.IngestWithStatus(ctx, core.NormalizedMessage{
+		TenantID:  "demo",
+		Channel:   "simulator",
+		SourceKey: "race-user",
+		MessageID: "m1-race",
+		Timestamp: time.Now().UTC(),
+		Direction: core.DirectionInbound,
+		Origin:    core.OriginCustomer,
+		Type:      core.MessageTypeText,
+		Text:      "um consultor saiu da nossa equipe",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs.FireAllActive()
+
+	sent := waitForSentCount(t, ch, 1)
+	time.Sleep(50 * time.Millisecond)
+	if len(ch.SentMessages()) != 1 {
+		t.Fatalf("expected strictly 1 reply, got %d (%+v)", len(ch.SentMessages()), ch.SentMessages())
+	}
+	if !strings.Contains(sent[0].Text, "Resposta única consolidada") {
+		t.Fatalf("expected consolidated reply, got %q", sent[0].Text)
+	}
+}
+
 func setupPipelineTestEnvWithAfterFunc(t *testing.T, st core.Store, llm core.LLM, debounce time.Duration, afterFn brain.AfterFunc) (*brain.Pipeline, *fakes.MemoryBlobStore, *core.InMemoryEventBus, *fakes.MemoryChannel) {
 	t.Helper()
 	tmp := t.TempDir()

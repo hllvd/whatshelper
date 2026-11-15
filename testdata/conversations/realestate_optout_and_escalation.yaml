@@ -13,6 +13,9 @@ turns:
       reply_contains: "equipe"
   - message_id: fq-opt-2
     text: "SAIR"
+    mock_analysis: '{"summary":"Cliente solicitou sair e parar de receber mensagens.","last_sender":"customer","intent":"opt_out","facts":{},"signals":{"customer_engaged":false},"context":{"last_action":{"type":"other","actor":"customer","description":"Pediu para sair"}}}'
     expect:
+      intent: opt_out
+      decision_action: opt_out
       source_status: opted_out
-      llm_calls_delta: 0
+      llm_calls_delta: 1
