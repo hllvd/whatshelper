@@ -37,28 +37,32 @@ type BatchHandler func(ctx context.Context, batch []core.NormalizedMessage)
 type TimingResolver func(tenantID string) (debounce, typingMaxWait time.Duration)
 
 type sourceQueue struct {
-	key           string
-	mu            sync.Mutex
-	execMu        sync.Mutex // garante processamento sequencial por conversa
-	pending       []core.NormalizedMessage
-	timer         TimerHandle
-	gen           uint64
-	running       int
-	typing        bool
-	waitingTyping bool
-	cycleStart    time.Time
-	typingMaxWait time.Duration
+	key             string
+	mu              sync.Mutex
+	execMu          sync.Mutex // garante processamento sequencial por conversa
+	pending         []core.NormalizedMessage
+	timer           TimerHandle
+	gen             uint64
+	inboundSeq      uint64
+	running         int
+	typing          bool
+	waitingTyping   bool
+	cycleStart      time.Time
+	typingMaxWait   time.Duration
+	incompleteGrace time.Duration
+	lastFlushReason string
 }
 
 // SourceDispatcher implementa debounce de rajadas, espera por digitação e execução sequencial por fonte.
 type SourceDispatcher struct {
-	debounce       time.Duration
-	typingMaxWait  time.Duration
-	afterFunc      AfterFunc
-	nowFunc        func() time.Time
-	timingResolver TimingResolver
-	handler        BatchHandler
-	baseCtx        context.Context
+	debounce        time.Duration
+	typingMaxWait   time.Duration
+	incompleteGrace time.Duration
+	afterFunc       AfterFunc
+	nowFunc         func() time.Time
+	timingResolver  TimingResolver
+	handler         BatchHandler
+	baseCtx         context.Context
 
 	mu     sync.Mutex
 	queues map[string]*sourceQueue
@@ -68,12 +72,13 @@ type SourceDispatcher struct {
 
 // DispatcherConfig configura o SourceDispatcher com suporte a espera de digitação e tempos por pack.
 type DispatcherConfig struct {
-	Debounce       time.Duration
-	TypingMaxWait  time.Duration
-	AfterFunc      AfterFunc
-	NowFunc        func() time.Time
-	TimingResolver TimingResolver
-	Handler        BatchHandler
+	Debounce        time.Duration
+	TypingMaxWait   time.Duration
+	IncompleteGrace time.Duration
+	AfterFunc       AfterFunc
+	NowFunc         func() time.Time
+	TimingResolver  TimingResolver
+	Handler         BatchHandler
 }
 
 // NewSourceDispatcher cria um despachante com janela de debounce configurável.
@@ -97,14 +102,15 @@ func NewSourceDispatcherWithConfig(ctx context.Context, cfg DispatcherConfig) *S
 		cfg.NowFunc = time.Now
 	}
 	return &SourceDispatcher{
-		debounce:       cfg.Debounce,
-		typingMaxWait:  cfg.TypingMaxWait,
-		afterFunc:      cfg.AfterFunc,
-		nowFunc:        cfg.NowFunc,
-		timingResolver: cfg.TimingResolver,
-		handler:        cfg.Handler,
-		baseCtx:        ctx,
-		queues:         make(map[string]*sourceQueue),
+		debounce:        cfg.Debounce,
+		typingMaxWait:   cfg.TypingMaxWait,
+		incompleteGrace: cfg.IncompleteGrace,
+		afterFunc:       cfg.AfterFunc,
+		nowFunc:         cfg.NowFunc,
+		timingResolver:  cfg.TimingResolver,
+		handler:         cfg.Handler,
+		baseCtx:         ctx,
+		queues:          make(map[string]*sourceQueue),
 	}
 }
 
@@ -115,7 +121,7 @@ func (d *SourceDispatcher) resolveTiming(tenantID string) (debounce, typingMaxWa
 	return d.debounce, d.typingMaxWait
 }
 
-// Enqueue agenda a mensagem na fila da sua fonte, aplicando janela de debounce configurável.
+// Enqueue agenda a mensagem na fila da sua fonte, aplicando a decisão pura NextDebounceDecision (WIN-03).
 func (d *SourceDispatcher) Enqueue(msg core.NormalizedMessage) bool {
 	debounce, typingMaxWait := d.resolveTiming(msg.TenantID)
 
@@ -137,14 +143,39 @@ func (d *SourceDispatcher) Enqueue(msg core.NormalizedMessage) bool {
 		q.timer.Stop()
 		q.timer = nil
 	}
+
+	now := d.nowFunc()
+	dec := NextDebounceDecision(
+		DebounceState{
+			PendingCount:  len(q.pending),
+			CycleStart:    q.cycleStart,
+			Typing:        q.typing,
+			WaitingTyping: q.waitingTyping,
+		},
+		DebounceEvent{
+			Type: DebounceEventMessage,
+			Text: msg.Text,
+		},
+		AdaptiveDebounceConfig{
+			BaseDebounce:    debounce,
+			IncompleteGrace: d.incompleteGrace,
+			MaxWait:         typingMaxWait,
+			Lexicon:         DefaultPTBRLexicon(),
+		},
+		now,
+	)
+
 	q.pending = append(q.pending, msg)
+	q.inboundSeq++
 	q.gen++
-	q.waitingTyping = false
-	q.cycleStart = d.nowFunc()
+	q.waitingTyping = dec.NextState.WaitingTyping
+	q.cycleStart = dec.NextState.CycleStart
 	q.typingMaxWait = typingMaxWait
+	q.incompleteGrace = d.incompleteGrace
+	q.lastFlushReason = dec.Reason
 	myGen := q.gen
 
-	if debounce <= 0 {
+	if dec.Flush {
 		q.mu.Unlock()
 		d.wg.Add(1)
 		go func() {
@@ -154,15 +185,54 @@ func (d *SourceDispatcher) Enqueue(msg core.NormalizedMessage) bool {
 		return true
 	}
 
-	q.timer = d.afterFunc(debounce, func() {
+	q.timer = d.afterFunc(dec.WaitDuration, func() {
 		d.onDebounceExpired(q, myGen)
 	})
 	q.mu.Unlock()
 	return true
 }
 
-// SetTyping atualiza o estado de digitação do cliente para uma conversa.
-// Quando o debounce já venceu e o cliente para de digitar, o lote pendente é liberado imediatamente.
+// CurrentSeq retorna a sequência monotônica de entrada para detecção de resposta defasada (WIN-04).
+func (d *SourceDispatcher) CurrentSeq(tenantID, channel, sourceKey string) uint64 {
+	d.mu.Lock()
+	q, ok := d.queues[store.SourcePK(tenantID, channel, sourceKey)]
+	if !ok {
+		d.mu.Unlock()
+		return 0
+	}
+	q.mu.Lock()
+	d.mu.Unlock()
+	seq := q.inboundSeq
+	q.mu.Unlock()
+	return seq
+}
+
+// TakePending drena atomicamente mensagens novas que chegaram durante o processamento de um lote em andamento (WIN-04).
+func (d *SourceDispatcher) TakePending(tenantID, channel, sourceKey string) ([]core.NormalizedMessage, uint64) {
+	d.mu.Lock()
+	q, ok := d.queues[store.SourcePK(tenantID, channel, sourceKey)]
+	if !ok {
+		d.mu.Unlock()
+		return nil, 0
+	}
+	q.mu.Lock()
+	d.mu.Unlock()
+
+	if q.timer != nil {
+		q.timer.Stop()
+		q.timer = nil
+	}
+	extra := q.pending
+	q.pending = nil
+	q.waitingTyping = false
+	q.cycleStart = time.Time{}
+	q.gen++
+	seq := q.inboundSeq
+	q.mu.Unlock()
+	return extra, seq
+}
+
+// SetTyping atualiza o estado de digitação do cliente para uma conversa usando NextDebounceDecision.
 func (d *SourceDispatcher) SetTyping(tenantID, channel, sourceKey string, typing bool) {
 	d.mu.Lock()
 	if d.closed {
@@ -182,13 +252,31 @@ func (d *SourceDispatcher) SetTyping(tenantID, channel, sourceKey string, typing
 	q.mu.Lock()
 	d.mu.Unlock()
 
-	q.typing = typing
-	if !typing && q.waitingTyping && len(q.pending) > 0 {
+	dec := NextDebounceDecision(
+		DebounceState{
+			PendingCount:  len(q.pending),
+			CycleStart:    q.cycleStart,
+			Typing:        q.typing,
+			WaitingTyping: q.waitingTyping,
+		},
+		DebounceEvent{
+			Type:   DebounceEventTypingChanged,
+			Typing: typing,
+		},
+		AdaptiveDebounceConfig{
+			MaxWait: q.typingMaxWait,
+		},
+		d.nowFunc(),
+	)
+
+	q.typing = dec.NextState.Typing
+	q.waitingTyping = dec.NextState.WaitingTyping
+	if dec.Flush && len(q.pending) > 0 {
 		if q.timer != nil {
 			q.timer.Stop()
 			q.timer = nil
 		}
-		q.waitingTyping = false
+		q.lastFlushReason = dec.Reason
 		myGen := q.gen
 		q.mu.Unlock()
 		d.wg.Add(1)
@@ -219,18 +307,31 @@ func (d *SourceDispatcher) onDebounceExpired(q *sourceQueue, expectedGen uint64)
 		q.mu.Unlock()
 		return
 	}
-	if q.typing && q.typingMaxWait > 0 {
-		remaining := q.typingMaxWait - d.nowFunc().Sub(q.cycleStart)
-		if remaining > 0 {
-			q.waitingTyping = true
-			q.timer = d.afterFunc(remaining, func() {
-				d.wg.Add(1)
-				defer d.wg.Done()
-				d.flush(q, expectedGen)
-			})
-			q.mu.Unlock()
-			return
-		}
+	dec := NextDebounceDecision(
+		DebounceState{
+			PendingCount:  len(q.pending),
+			CycleStart:    q.cycleStart,
+			Typing:        q.typing,
+			WaitingTyping: q.waitingTyping,
+		},
+		DebounceEvent{
+			Type: DebounceEventTimerExpired,
+		},
+		AdaptiveDebounceConfig{
+			MaxWait: q.typingMaxWait,
+		},
+		d.nowFunc(),
+	)
+	q.waitingTyping = dec.NextState.WaitingTyping
+	q.lastFlushReason = dec.Reason
+	if !dec.Flush {
+		q.timer = d.afterFunc(dec.WaitDuration, func() {
+			d.wg.Add(1)
+			defer d.wg.Done()
+			d.flush(q, expectedGen)
+		})
+		q.mu.Unlock()
+		return
 	}
 	q.mu.Unlock()
 
@@ -263,6 +364,7 @@ func (d *SourceDispatcher) flush(q *sourceQueue, expectedGen uint64) {
 	q.pending = nil
 	q.timer = nil
 	q.waitingTyping = false
+	q.cycleStart = time.Time{}
 	q.running++
 	q.mu.Unlock()
 

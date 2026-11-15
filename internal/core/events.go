@@ -38,6 +38,9 @@ const (
 	EventJourneyTransition EventType = "journey.transition"
 	EventGuardError        EventType = "journey.guard_error"
 	EventOutboxQueued      EventType = "outbox.queued"
+
+	// M4g (WIN):
+	EventReplyDiscardedStale EventType = "reply_discarded_stale"
 	EventOutboxDispatched  EventType = "outbox.dispatched"
 	EventOutboxFailed      EventType = "outbox.failed"
 )

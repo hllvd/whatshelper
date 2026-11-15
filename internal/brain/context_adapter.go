@@ -127,6 +127,64 @@ func bundlePromptMessages(b *contextmod.ContextBundle) []pack.PromptMessage {
 	return out
 }
 
+func buildWindowForBundle(b *contextmod.ContextBundle, batch []core.NormalizedMessage, pk *pack.Pack, maxHist int) (contextmod.WindowOutput, []pack.PromptMessage, pack.PromptMessage) {
+	var histIn []contextmod.WindowMessage
+	if b != nil {
+		histIn = make([]contextmod.WindowMessage, len(b.RecentMessages))
+		for i, m := range b.RecentMessages {
+			histIn[i] = contextmod.WindowMessage{
+				MessageID: m.MessageID,
+				Timestamp: m.Timestamp,
+				Direction: m.Direction,
+				Sender:    m.Sender,
+				Text:      m.Text,
+			}
+		}
+	}
+	custActor := "customer"
+	if pk != nil && pk.Actors.Customer != "" {
+		custActor = pk.Actors.Customer
+	}
+	batchIn := make([]contextmod.WindowMessage, len(batch))
+	for i, m := range batch {
+		batchIn[i] = contextmod.WindowMessage{
+			MessageID: m.MessageID,
+			Timestamp: m.Timestamp,
+			Direction: string(core.DirectionInbound),
+			Origin:    string(m.Origin),
+			Sender:    custActor,
+			Text:      m.Text,
+		}
+	}
+
+	win := contextmod.BuildWindow(contextmod.WindowInput{
+		History:            histIn,
+		Batch:              batchIn,
+		HistoryMaxMessages: maxHist,
+		HistoryMinCustomer: contextmod.DefaultWindowHistoryCustomer,
+	})
+
+	histMsgs := make([]pack.PromptMessage, len(win.History))
+	for i, m := range win.History {
+		histMsgs[i] = pack.PromptMessage{
+			Sender:    m.Sender,
+			Text:      m.Text,
+			Timestamp: m.Timestamp.UTC().Format(time.RFC3339),
+		}
+	}
+
+	var latestTS string
+	if len(batch) > 0 {
+		latestTS = batch[len(batch)-1].Timestamp.UTC().Format(time.RFC3339)
+	}
+	newMsg := pack.PromptMessage{
+		Sender:    custActor,
+		Text:      win.CombinedBatchText,
+		Timestamp: latestTS,
+	}
+	return win, histMsgs, newMsg
+}
+
 func bundleStructuredSections(b *contextmod.ContextBundle) map[string]map[string]string {
 	if b == nil || b.StructuredContext == nil {
 		return nil

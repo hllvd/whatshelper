@@ -122,3 +122,14 @@ curl -X PUT "http://127.0.0.1:8080/api/llm/config?tenant=demo" \
   - [`internal/pack/pack_test.go`](file:///Users/hudson/development/whatshelper/internal/pack/pack_test.go)
   - [`internal/contextmod/builtin_providers_test.go`](file:///Users/hudson/development/whatshelper/internal/contextmod/builtin_providers_test.go)
   - [`internal/server/connector_test.go`](file:///Users/hudson/development/whatshelper/internal/server/connector_test.go)
+
+---
+
+## 2026-11-15 — M4g: Núcleo Puro de Janela/Lote (`WIN-01..WIN-04`)
+
+### Itens Implementados
+- **`WIN-01` — ADR 0021**: [`docs/adr/0021-janela-de-contexto-e-lote.md`](file:///Users/hudson/development/whatshelper/docs/adr/0021-janela-de-contexto-e-lote.md) especificando janela lote vs. histórico, rotulagem e delta de tempo, debounce adaptativo, guarda contra resposta defasada, coleções de fatos, múltiplos intents, edição/exclusão (`whatsmeow`) e assinaturas das funções puras.
+- **`WIN-02` — `BuildWindow` puro**: [`internal/contextmod/window.go`](file:///Users/hudson/development/whatshelper/internal/contextmod/window.go) e integração em [`internal/brain/context_adapter.go`](file:///Users/hudson/development/whatshelper/internal/brain/context_adapter.go) (separa `History` [10 totais / 5 cliente] e `Batch` [nunca cortado], rotula `Role` e `DeltaFromPrev`, aplica orçamento de tokens e persiste `Window` no `RunTrace`).
+- **`WIN-03` — Debounce adaptativo puro (`NextDebounceDecision` & `IsIncompleteFragment`)**: [`internal/brain/debounce_adaptive.go`](file:///Users/hudson/development/whatshelper/internal/brain/debounce_adaptive.go) acoplado ao [`SourceDispatcher`](file:///Users/hudson/development/whatshelper/internal/brain/scheduler.go).
+- **`WIN-04` — Guarda contra resposta defasada (`ShouldDiscardReply`)**: [`internal/brain/stale_guard.go`](file:///Users/hudson/development/whatshelper/internal/brain/stale_guard.go) integrado ao `ProcessBatch` ([`internal/brain/pipeline.go`](file:///Users/hudson/development/whatshelper/internal/brain/pipeline.go)) com drenagem atômica (`TakePending`), cancelamento de outbox pendente e evento `reply_discarded_stale`.
+- **Testes (`WIN-09` M4g)**: [`internal/contextmod/window_test.go`](file:///Users/hudson/development/whatshelper/internal/contextmod/window_test.go), [`internal/brain/debounce_adaptive_test.go`](file:///Users/hudson/development/whatshelper/internal/brain/debounce_adaptive_test.go), [`internal/brain/stale_guard_test.go`](file:///Users/hudson/development/whatshelper/internal/brain/stale_guard_test.go) e [`internal/brain/m4g_window_debounce_test.go`](file:///Users/hudson/development/whatshelper/internal/brain/m4g_window_debounce_test.go).

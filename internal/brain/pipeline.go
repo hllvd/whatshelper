@@ -41,6 +41,10 @@ type RunTrace struct {
 	FinalReply         string                       `json:"final_reply,omitempty"`
 	TotalTokens        int                          `json:"total_tokens"`
 	TotalDurationMs    int64                        `json:"total_duration_ms"`
+	BatchSize          int                          `json:"batch_size,omitempty"`
+	ReprocessCount     int                          `json:"reprocess_count,omitempty"`
+	DiscardedReplies   int                          `json:"discarded_replies,omitempty"`
+	Window             *contextmod.WindowOutput     `json:"window,omitempty"`
 }
 
 // StageTrace detalha a execução de um estágio (análise ou resposta).
@@ -689,6 +693,12 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 	for _, m := range batch {
 		excludeIDs = append(excludeIDs, m.MessageID)
 	}
+	initialSeq := p.dispatcher.CurrentSeq(tenantID, channelID, sourceKey)
+	reprocessCount := 0
+
+staleReprocessLoop:
+	trace.BatchSize = len(batch)
+	trace.MessageID = latest.MessageID
 
 	activeStage := initialState.Meta.JourneyStage
 	if p.sessionCache != nil {
@@ -720,13 +730,8 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 		truncCopy := analysisBundle.Truncation
 		trace.AnalysisTruncation = &truncCopy
 
-		recentMsgs := bundlePromptMessages(analysisBundle)
-		combinedNewText := joinBatchTexts(batch)
-		newPromptMsg := pack.PromptMessage{
-			Sender:    pk.Actors.Customer,
-			Text:      combinedNewText,
-			Timestamp: latest.Timestamp.UTC().Format(time.RFC3339),
-		}
+		winOut, recentMsgs, newPromptMsg := buildWindowForBundle(analysisBundle, batch, pk, p.cfg.RecentMessagesLimit)
+		trace.Window = &winOut
 
 		promptInput := pack.PromptInput{
 			Pack:           pk,
@@ -813,6 +818,10 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 		if err != nil {
 			// Fallback seguro: salva trace + RUN failed e não altera estado nem responde
 			return p.failPipeline(ctx, latest, runID, traceRef, trace, err)
+		}
+
+		if p.tryDiscardStaleAndExpandBatch(ctx, tenantID, channelID, sourceKey, runID, "analysis", &initialSeq, &reprocessCount, &batch, &latest, &excludeIDs, trace) {
+			goto staleReprocessLoop
 		}
 
 		now := p.now()
@@ -1119,7 +1128,8 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 	replyTruncCopy := replyBundle.Truncation
 	trace.ReplyTruncation = &replyTruncCopy
 
-	recentForReply := bundlePromptMessages(replyBundle)
+	replyWin, recentForReply, newReplyPromptMsg := buildWindowForBundle(replyBundle, batch, pk, p.cfg.RecentMessagesLimit)
+	trace.Window = &replyWin
 	knowledge := bundleKnowledge(replyBundle)
 
 	replyInput := pack.PromptInput{
@@ -1129,15 +1139,11 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 		Signals:        replyBundle.Signals,
 		Context:        bundleStructuredSections(replyBundle),
 		RecentMessages: recentForReply,
-		NewMessage: pack.PromptMessage{
-			Sender:    pk.Actors.Customer,
-			Text:      joinBatchTexts(batch),
-			Timestamp: latest.Timestamp.UTC().Format(time.RFC3339),
-		},
-		Knowledge:     knowledge.Docs,
-		QAContent:     knowledge.QAContent,
-		PlainTextOnly: plainTextOnly,
-		Directive:     journeyDirective,
+		NewMessage:     newReplyPromptMsg,
+		Knowledge:      knowledge.Docs,
+		QAContent:      knowledge.QAContent,
+		PlainTextOnly:  plainTextOnly,
+		Directive:      journeyDirective,
 	}
 
 	renderedReply, err := pack.RenderReply(pk, replyInput)
@@ -1177,6 +1183,11 @@ func (p *Pipeline) ProcessBatch(ctx context.Context, batch []core.NormalizedMess
 	})
 	if err != nil {
 		return p.failPipeline(ctx, latest, runID, traceRef, trace, err)
+	}
+
+	if p.tryDiscardStaleAndExpandBatch(ctx, tenantID, channelID, sourceKey, runID, "response", &initialSeq, &reprocessCount, &batch, &latest, &excludeIDs, trace) {
+		p.cancelPendingOutboxForRun(ctx, tenantID, channelID, sourceKey, runID)
+		goto staleReprocessLoop
 	}
 
 	parsedReply, _ := ParseReplyOutput(replyResp.Content)
@@ -1807,4 +1818,77 @@ func newID(prefix string) string {
 	var b [6]byte
 	_, _ = rand.Read(b[:])
 	return fmt.Sprintf("%s_%d_%s", prefix, time.Now().UTC().UnixNano(), hex.EncodeToString(b[:]))
+}
+
+func (p *Pipeline) tryDiscardStaleAndExpandBatch(
+	ctx context.Context,
+	tenantID, channelID, sourceKey, runID, stage string,
+	initialSeq *uint64,
+	reprocessCount *int,
+	batch *[]core.NormalizedMessage,
+	latest *core.NormalizedMessage,
+	excludeIDs *[]string,
+	trace *RunTrace,
+) bool {
+	if p.dispatcher == nil {
+		return false
+	}
+	currentSeq := p.dispatcher.CurrentSeq(tenantID, channelID, sourceKey)
+	dec := ShouldDiscardReply(*initialSeq, currentSeq, *reprocessCount, DefaultStaleReplyPolicy())
+	if !dec.Discard {
+		return false
+	}
+	extra, newSeq := p.dispatcher.TakePending(tenantID, channelID, sourceKey)
+	if len(extra) == 0 {
+		*initialSeq = currentSeq
+		return false
+	}
+	*batch = append(*batch, extra...)
+	*latest = (*batch)[len(*batch)-1]
+	for _, m := range extra {
+		*excludeIDs = append(*excludeIDs, m.MessageID)
+	}
+	*initialSeq = newSeq
+	*reprocessCount++
+	if trace != nil {
+		trace.ReprocessCount = *reprocessCount
+		trace.DiscardedReplies++
+		trace.BatchSize = len(*batch)
+	}
+	p.publish(core.Event{
+		ID:        newID("ev"),
+		Type:      core.EventReplyDiscardedStale,
+		TenantID:  tenantID,
+		Channel:   channelID,
+		SourceKey: sourceKey,
+		MessageID: latest.MessageID,
+		RunID:     runID,
+		At:        p.now(),
+		Payload: map[string]any{
+			"stage":           stage,
+			"reason":          dec.Reason,
+			"reprocess_count": *reprocessCount,
+			"batch_size":      len(*batch),
+		},
+	})
+	return true
+}
+
+func (p *Pipeline) cancelPendingOutboxForRun(ctx context.Context, tenantID, channelID, sourceKey, runID string) {
+	if p.cfg.Store == nil {
+		return
+	}
+	items, err := p.cfg.Store.ListOutboxItems(ctx, tenantID, channelID, sourceKey, 50)
+	if err != nil {
+		return
+	}
+	now := p.now()
+	for _, it := range items {
+		if it.RunID == runID && it.Status == core.OutboxStatusPending {
+			it.Status = core.OutboxStatusDead
+			it.LastError = "cancelled_stale_reply"
+			it.UpdatedAt = now
+			_ = p.cfg.Store.UpdateOutboxItem(ctx, it)
+		}
+	}
 }
