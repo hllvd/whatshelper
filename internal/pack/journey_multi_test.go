@@ -72,3 +72,16 @@ states:
 		t.Fatalf("expected unknown workflow to fallback to support (triage), got %+v", j)
 	}
 }
+
+func TestLoadAllRepositoryPacks(t *testing.T) {
+	for _, name := range []string{"realestate", "support", "supporter"} {
+		pDir := filepath.Join("..", "..", "packs", name)
+		pk, err := pack.LoadFromDir(pDir)
+		if err != nil {
+			t.Fatalf("LoadFromDir(%s) failed: %v", name, err)
+		}
+		if pk.Name != name {
+			t.Fatalf("expected pack name %q, got %q", name, pk.Name)
+		}
+	}
+}

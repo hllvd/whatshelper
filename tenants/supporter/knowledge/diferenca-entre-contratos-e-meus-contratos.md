@@ -34,4 +34,8 @@ Embora ambas as telas exibam informações de vendas e indicadores financeiros, 
 - **Reivindicar/atribuir** um contrato fechado por você usando o botão **`+ Novo`**.
 - Acompanhar contratos que você já solicitou e estão **aguardando importação**.
 
-> **Dica para Admins**: Mesmo tendo acesso à tela **Contratos**, um administrador que também realiza vendas pessoais deve usar **Meus Contratos** para reivindicar suas vendas via **`+ Novo`** e acompanhar seu gráfico individual de produção.
+> **Dica para Admins / Gestores (Resumo de Treinamento)**:
+> - O papel principal do gestor no sistema é **adicionar e remover consultores** (`#/users`) e dar suporte à equipe.
+> - O gestor consegue visualizar **todos os contratos abaixo dele**, as **equipes abaixo dele** (`#/teams`) e acompanhar o **Plano de Carreira**. Na tela **Contratos** (`#/contracts`), usar os **filtros** para filtrar por equipe é muito importante no dia a dia.
+> - **Quem deve atribuir os contratos vendidos?** É papel do próprio **consultor** atribuir os contratos que vendeu em **Meus Contratos** (`#/my-contracts`) > **`+ Novo`**, mesmo que o gestor também possa atribuir ou alterar o vendedor manualmente em **Contratos** (`#/contracts`) clicando em **Editar** no contrato.
+> - Além disso, quando o próprio gestor realiza vendas pessoais, deve usar **Meus Contratos** para reivindicar suas vendas via **`+ Novo`** e acompanhar seu gráfico individual de produção.

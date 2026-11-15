@@ -1,0 +1,1265 @@
+openapi: 3.0.3
+info:
+  title: SalesApp API - Superadmin & LLM Integration Spec
+  description: >
+    Especificação OpenAPI 3.0 dos 20 endpoints estratégicos do SalesApp para consumo por
+    agentes autônomos, assistentes virtuais e ferramentas de chat com privilégios de Superadmin.
+    Permite auditar contratos, usuários, relações de matrículas (titular vs participante),
+    histórico de importações, execuções do robô de scraping e saúde do sistema.
+  version: 1.0.0
+servers:
+  - url: http://localhost:5000
+    description: Servidor de Desenvolvimento Local
+  - url: https://api.salesapp.com
+    description: Servidor de Produção
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Auth
+    description: Autenticação OAuth2 Password Grant e emissão de tokens JWT
+  - name: Contracts
+    description: Consulta, listagem e detalhamento de contratos e vendas
+  - name: AdminTools
+    description: Ferramentas administrativas exclusivas de Superadmin para auditoria em lote
+  - name: Users
+    description: Gestão, busca e detalhamento de usuários, consultores e hierarquia
+  - name: Matriculas
+    description: Gestão de matrículas e mapeamento de vínculos N:N com titularidade (isOwner)
+  - name: Imports
+    description: Histórico de ingestão e processamento de planilhas e cargas de dados
+  - name: Scraping
+    description: Rastreabilidade das execuções do robô de extração do Power BI
+  - name: Monitoring
+    description: Diagnóstico de saúde, integridade e volume por matrícula e equipe
+  - name: Dashboard
+    description: Métricas consolidadas de vendas, faturamento e atingimento por segmento
+
+paths:
+  # ============================================================================
+  # 1. AUTH
+  # ============================================================================
+  /api/auth/token:
+    post:
+      tags:
+        - Auth
+      summary: Autenticação Superadmin (Obtenção do Token JWT)
+      description: >
+        Emite um token JWT Bearer com validade de 7 dias mediante credenciais de Superadmin.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - grant_type
+                - username
+                - password
+              properties:
+                grant_type:
+                  type: string
+                  example: password
+                  description: Deve ser exatamente 'password'.
+                username:
+                  type: string
+                  example: superadmin@salesapp.com
+                  description: E-mail de login do Superadmin.
+                password:
+                  type: string
+                  format: password
+                  example: string
+                  description: Senha do Superadmin (configurada via SUPERADMIN_PASSWORD).
+      responses:
+        '200':
+          description: Autenticação bem-sucedida.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokenResponse'
+        '400':
+          description: Parâmetro grant_type inválido.
+        '401':
+          description: Credenciais inválidas ou usuário inativo.
+
+  # ============================================================================
+  # 2. CONTRACTS
+  # ============================================================================
+  /api/contracts/number/{contractNumber}:
+    get:
+      tags:
+        - Contracts
+      summary: Consultar contrato pelo número
+      description: >
+        Localiza um contrato pelo número comercial. Retorna o titular associado,
+        status, valor total, matrícula vinculada e a data de última atualização (updatedAt).
+      parameters:
+        - name: contractNumber
+          in: path
+          required: true
+          description: Número oficial do contrato (ex. CTR-987654).
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Contrato localizado com sucesso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContractApiResponse'
+        '404':
+          description: Contrato não encontrado ou já solicitado por outro consultor.
+
+  /api/contracts/{id}:
+    get:
+      tags:
+        - Contracts
+      summary: Consultar contrato por ID interno
+      description: Busca os detalhes completos de um contrato pela sua chave primária numérica.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID interno numérico do contrato.
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Contrato retornado com sucesso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContractApiResponse'
+        '404':
+          description: Contrato não encontrado.
+
+  /api/contracts:
+    get:
+      tags:
+        - Contracts
+      summary: Listar contratos com filtros avançados
+      description: >
+        Lista contratos de forma paginada permitindo filtrar por texto de busca,
+        consultor titular, intervalo de datas e status.
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+          description: Número da página.
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 10
+          description: Quantidade de registros por página.
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Termo de busca por contrato ou cliente.
+        - name: userId
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: Filtra contratos pertencentes a um consultor específico.
+        - name: status
+          in: query
+          schema:
+            type: string
+          description: Filtra por status (ex. Ativo, Cancelado).
+      responses:
+        '200':
+          description: Lista paginada de contratos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedContractApiResponse'
+
+  /api/contracts/aggregation/historic-production:
+    get:
+      tags:
+        - Contracts
+      summary: Consultar produção histórica agrupada
+      description: >
+        Retorna a soma consolidada de valores vendidos e quantidade de contratos
+        agrupados mês a mês para o período especificado.
+      parameters:
+        - name: startDate
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Data inicial do período.
+        - name: endDate
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Data final do período.
+        - name: userId
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: Opcional - Filtrar histórico de um consultor específico.
+      responses:
+        '200':
+          description: Agregação histórica calculada com sucesso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HistoricProductionApiResponse'
+
+  # ============================================================================
+  # 3. ADMIN TOOLS
+  # ============================================================================
+  /api/admintools/check-contracts:
+    post:
+      tags:
+        - AdminTools
+      summary: Conferência e auditoria de contratos em lote
+      description: >
+        Recebe uma lista de números de contratos e audita individualmente se cada um
+        existe no sistema, se está ativo ou soft-deleted, valor e a quem está atribuído.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminCheckContractsRequest'
+      responses:
+        '200':
+          description: Resultado detalhado da auditoria em lote.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCheckContractsApiResponse'
+        '403':
+          description: Acesso restrito a Superadmin.
+
+  /api/admintools/deleted-contracts:
+    get:
+      tags:
+        - AdminTools
+      summary: Listar contratos excluídos (soft-deleted)
+      description: >
+        Retorna listagem de contratos que foram desativados/excluídos logicamente,
+        permitindo identificar quem era o titular e quando foi cancelado.
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 10
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Busca por número de contrato ou nome de consultor.
+      responses:
+        '200':
+          description: Lista de contratos excluídos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedContractApiResponse'
+
+  /api/admintools/users/search:
+    get:
+      tags:
+        - AdminTools
+      summary: Busca rápida de usuários para administração
+      description: >
+        Busca compacta e otimizada de usuários por nome ou e-mail, trazendo
+        diretamente a lista de matrículas atribuídas a cada um.
+      parameters:
+        - name: query
+          in: query
+          schema:
+            type: string
+          description: Nome ou e-mail a pesquisar.
+      responses:
+        '200':
+          description: Lista de usuários com matrículas.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserSearchApiResponse'
+
+  /api/admintools/team-inconsistencies:
+    get:
+      tags:
+        - AdminTools
+      summary: Diagnóstico de inconsistências entre consultores e equipes
+      description: >
+        Identifica membros que possuem contratos atribuídos a equipes divergentes
+        da sua equipe atual ou vínculos cadastrais conflituosos.
+      responses:
+        '200':
+          description: Lista de inconsistências identificadas.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminTeamInconsistenciesApiResponse'
+
+  # ============================================================================
+  # 4. USERS
+  # ============================================================================
+  /api/users:
+    get:
+      tags:
+        - Users
+      summary: Listar e pesquisar usuários
+      description: >
+        Lista usuários cadastrados permitindo busca por nome, e-mail ou
+        localização direta do consultor titular de um determinado número de contrato.
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Termo de busca (nome ou e-mail).
+        - name: contractNumber
+          in: query
+          schema:
+            type: string
+          description: Número de contrato para localizar o consultor titular.
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 10
+        - name: status
+          in: query
+          schema:
+            type: string
+            default: active
+          description: Filtra por status ('active', 'inactive', 'all').
+      responses:
+        '200':
+          description: Lista paginada de usuários.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedUserApiResponse'
+
+  /api/users/{id}:
+    get:
+      tags:
+        - Users
+      summary: Detalhes do perfil do usuário por UUID
+      description: >
+        Retorna informações completas do usuário incluindo papel, equipe atual,
+        gestor hierárquico direto e data de último acesso.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: UUID do usuário.
+      responses:
+        '200':
+          description: Dados do usuário retornados com sucesso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserApiResponse'
+        '404':
+          description: Usuário não encontrado.
+
+  # ============================================================================
+  # 5. MATRICULAS
+  # ============================================================================
+  /api/usermatriculas:
+    get:
+      tags:
+        - Matriculas
+      summary: Listar todos os vínculos de matrículas e titulares
+      description: >
+        Retorna a tabela de relacionamentos N:N entre usuários e matrículas.
+        O campo 'isOwner' identifica se o consultor é o titular/proprietário da matrícula
+        ou se é um participante associado.
+      responses:
+        '200':
+          description: Vínculos de matrículas recuperados com sucesso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserMatriculasListApiResponse'
+
+  /api/usermatriculas/user/{userId}:
+    get:
+      tags:
+        - Matriculas
+      summary: Listar matrículas vinculadas a um usuário específico
+      description: >
+        Consulta todas as matrículas atribuídas ao consultor especificado pelo UUID,
+        detalhando quais ele é proprietário (isOwner = true).
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: UUID do consultor.
+      responses:
+        '200':
+          description: Matrículas do usuário recuperadas com sucesso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserMatriculasListApiResponse'
+
+  /api/matriculas:
+    get:
+      tags:
+        - Matriculas
+      summary: Listar catálogo mestre de matrículas
+      description: Retorna a lista de todas as matrículas comerciais cadastradas na aplicação.
+      responses:
+        '200':
+          description: Catálogo de matrículas recuperado com sucesso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatriculasMasterListApiResponse'
+
+  # ============================================================================
+  # 6. IMPORTS & SCRAPING
+  # ============================================================================
+  /api/imports/history:
+    get:
+      tags:
+        - Imports
+      summary: Histórico de importações de planilhas e cargas
+      description: >
+        Lista as sessões de importação de arquivos no sistema, informando data de conclusão,
+        arquivo carregado, total de linhas processadas e quantidade de falhas.
+      responses:
+        '200':
+          description: Histórico de importações retornado com sucesso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportHistoryApiResponse'
+
+  /api/scrape/runs/all:
+    get:
+      tags:
+        - Scraping
+      summary: Histórico das execuções do robô de scraping do Power BI
+      description: >
+        Retorna as rodadas de sincronização automática com o Power BI,
+        apresentando status final (SUCCESS/FAILED), horário e total de registros extraídos.
+      responses:
+        '200':
+          description: Histórico de execuções de scraping retornado com sucesso.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ScrapeRunSummary'
+
+  # ============================================================================
+  # 7. MONITORING & DASHBOARDS
+  # ============================================================================
+  /api/monitoring/contracts:
+    get:
+      tags:
+        - Monitoring
+      summary: Diagnóstico de saúde e volume por matrícula
+      description: >
+        Retorna relatório de saúde operacional indicando a última sincronização de cada
+        matrícula comercial e a contagem de contratos ativos associados.
+      responses:
+        '200':
+          description: Relatório de saúde das matrículas gerado com sucesso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatriculaHealthApiResponse'
+
+  /api/monitoring/equipes:
+    get:
+      tags:
+        - Monitoring
+      summary: Diagnóstico de saúde de matrículas agrupadas por equipe
+      description: >
+        Consolida a situação das matrículas de cada equipe comercial,
+        apontando o pior status de integridade encontrado na equipe.
+      responses:
+        '200':
+          description: Saúde das equipes retornada com sucesso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamMatriculaHealthApiResponse'
+
+  /api/monitoring/admins:
+    get:
+      tags:
+        - Monitoring
+      summary: Estatísticas de importação por administrador
+      description: >
+        Informa o total de cargas de dados e a data da última importação
+        realizada por cada gestor/administrador.
+      responses:
+        '200':
+          description: Estatísticas de administradores geradas com sucesso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminImportStatsApiResponse'
+
+  /api/dashboard/segments:
+    get:
+      tags:
+        - Dashboard
+      summary: Indicadores consolidados de vendas por segmento e metas
+      description: >
+        Gera métricas executivas de faturamento e volume segmentado por segmento
+        (Motores, Lar, Outros) e percentual de atingimento de metas.
+      parameters:
+        - name: adminUserId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: UUID do gestor/administrador cujo dashboard será gerado.
+        - name: refresh
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Se true, força o recalculo ignorando o cache.
+      responses:
+        '200':
+          description: Métricas do dashboard geradas com sucesso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardSegmentsApiResponse'
+
+# ==============================================================================
+# COMPONENTS & SCHEMAS
+# ==============================================================================
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Insira o token JWT gerado pelo endpoint POST /api/auth/token
+
+  schemas:
+    # --------------------------------------------------------------------------
+    # Auth
+    # --------------------------------------------------------------------------
+    AuthTokenResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+          description: Token de autenticação JWT assinado.
+        token_type:
+          type: string
+          example: Bearer
+          description: Tipo de autorização HTTP.
+        expires_in:
+          type: integer
+          example: 604800
+          description: Validade do token em segundos (7 dias).
+
+    # --------------------------------------------------------------------------
+    # Generic API Wrapper
+    # --------------------------------------------------------------------------
+    ApiResponseBase:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Indica se a requisição foi atendida com sucesso.
+        message:
+          type: string
+          description: Mensagem descritiva do resultado da operação.
+
+    # --------------------------------------------------------------------------
+    # Contracts
+    # --------------------------------------------------------------------------
+    ContractResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Identificador único primário do contrato.
+        contractNumber:
+          type: string
+          description: Código comercial identificador do contrato.
+        userId:
+          type: string
+          format: uuid
+          nullable: true
+          description: UUID do consultor titular proprietário do contrato.
+        userName:
+          type: string
+          nullable: true
+          description: Nome completo do consultor titular.
+        totalAmount:
+          type: number
+          format: decimal
+          description: Valor financeiro total transacionado na venda.
+        groupId:
+          type: integer
+          nullable: true
+          description: ID do grupo/consórcio.
+        groupName:
+          type: string
+          description: Descrição do grupo ou consórcio.
+        status:
+          type: string
+          description: Status padronizado do contrato (ex. Ativo, Cancelado).
+        rawStatus:
+          type: string
+          nullable: true
+          description: Status bruto original vindo da integração externa.
+        contractStartDate:
+          type: string
+          format: date-time
+          description: Data de vigência ou início do contrato.
+        isActive:
+          type: boolean
+          description: Indica se o contrato está ativo (não excluído).
+        createdAt:
+          type: string
+          format: date-time
+          description: Data em que o contrato foi registrado no sistema.
+        updatedAt:
+          type: string
+          format: date-time
+          description: Data e hora da última alteração deste contrato.
+        segment:
+          type: integer
+          nullable: true
+          description: Código do segmento de mercado.
+        segmentName:
+          type: string
+          nullable: true
+          description: Descrição do segmento (ex. Imóveis, Veículos).
+        quota:
+          type: integer
+          nullable: true
+          description: Número da cota associada.
+        customerName:
+          type: string
+          nullable: true
+          description: Nome do cliente comprador.
+        matriculaId:
+          type: integer
+          nullable: true
+          description: ID interno da matrícula associada.
+        matriculaNumber:
+          type: string
+          nullable: true
+          description: Número da matrícula sob a qual a venda ocorreu.
+        hasPayment:
+          type: boolean
+          nullable: true
+          description: Se houve comprovação de pagamento de parcela.
+        isAwaitingPayment:
+          type: boolean
+          description: Se o contrato aguarda confirmação de liquidação.
+        teamName:
+          type: string
+          nullable: true
+          description: Nome da equipe comercial do consultor.
+
+    ContractApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/ContractResponse'
+
+    PagedContractApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/ContractResponse'
+                totalCount:
+                  type: integer
+                  description: Quantidade total de contratos existentes com os filtros.
+                page:
+                  type: integer
+                  description: Página atual retornada.
+                pageSize:
+                  type: integer
+                  description: Tamanho da página.
+
+    MonthlyProductionDto:
+      type: object
+      properties:
+        year:
+          type: integer
+          description: Ano de referência.
+        month:
+          type: integer
+          description: Mês de referência (1-12).
+        totalProduction:
+          type: number
+          format: decimal
+          description: Valor financeiro faturado no mês.
+        contractCount:
+          type: integer
+          description: Quantidade de contratos fechados no mês.
+
+    HistoricProductionApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                monthlyData:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/MonthlyProductionDto'
+                totalProduction:
+                  type: number
+                  format: decimal
+                  description: Valor somado de toda a produção do período.
+                totalContracts:
+                  type: integer
+                  description: Total de contratos fechados no período.
+
+    # --------------------------------------------------------------------------
+    # Admin Tools
+    # --------------------------------------------------------------------------
+    AdminCheckContractsRequest:
+      type: object
+      required:
+        - contractNumbers
+      properties:
+        contractNumbers:
+          type: array
+          items:
+            type: string
+          description: Lista de códigos ou números de contrato para conferência.
+          example:
+            - CTR-987654
+            - CTR-111222
+
+    AdminContractCheckItemDto:
+      type: object
+      properties:
+        contractNumber:
+          type: string
+          description: Número do contrato analisado.
+        existsInSystem:
+          type: boolean
+          description: true se o contrato existe no banco de dados.
+        isDeleted:
+          type: boolean
+          description: true se foi excluído logicamente (soft-delete).
+        assignedTo:
+          type: string
+          nullable: true
+          description: Nome do consultor que é o titular atual do contrato.
+        totalAmount:
+          type: number
+          format: decimal
+          nullable: true
+          description: Valor monetário da venda.
+        saleStartDate:
+          type: string
+          format: date-time
+          nullable: true
+          description: Data da venda informada no contrato.
+
+    AdminCheckContractsApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                results:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/AdminContractCheckItemDto'
+                totalInput:
+                  type: integer
+                  description: Total de itens enviados na requisição.
+                foundCount:
+                  type: integer
+                  description: Quantidade de contratos encontrados.
+                notFoundCount:
+                  type: integer
+                  description: Quantidade de contratos não existentes.
+                deletedCount:
+                  type: integer
+                  description: Contratos encontrados que estão excluídos.
+
+    AdminUserSearchItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: UUID do usuário.
+        name:
+          type: string
+          description: Nome do consultor.
+        email:
+          type: string
+          description: E-mail do consultor.
+        isActive:
+          type: boolean
+          description: Status de ativação da conta.
+        matriculas:
+          type: array
+          items:
+            type: string
+          description: Lista direta de números de matrícula associadas.
+
+    AdminUserSearchApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/AdminUserSearchItem'
+
+    AdminTeamInconsistencyItemDto:
+      type: object
+      properties:
+        userId:
+          type: string
+          format: uuid
+        userName:
+          type: string
+        userEmail:
+          type: string
+        isActive:
+          type: boolean
+        currentTeamName:
+          type: string
+          nullable: true
+        totalContractsCount:
+          type: integer
+        inconsistencies:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+              description:
+                type: string
+
+    AdminTeamInconsistenciesApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/AdminTeamInconsistencyItemDto'
+
+    # --------------------------------------------------------------------------
+    # Users
+    # --------------------------------------------------------------------------
+    UserResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: UUID único do usuário.
+        name:
+          type: string
+          description: Nome completo do usuário.
+        email:
+          type: string
+          description: Endereço de e-mail cadastrado.
+        role:
+          type: string
+          description: Papel de acesso (superadmin, admin, user).
+        parentUserId:
+          type: string
+          format: uuid
+          nullable: true
+          description: UUID do gestor hierárquico direto.
+        parentUserName:
+          type: string
+          nullable: true
+          description: Nome do gestor hierárquico direto.
+        parentEmail:
+          type: string
+          nullable: true
+          description: E-mail do gestor hierárquico.
+        currentTeamName:
+          type: string
+          nullable: true
+          description: Nome da equipe comercial atual.
+        currentLevelName:
+          type: string
+          nullable: true
+          description: Nível do plano de carreira do consultor.
+        isActive:
+          type: boolean
+          description: true se o usuário estiver ativo no sistema.
+        createdAt:
+          type: string
+          format: date-time
+          description: Data de cadastro da conta.
+        updatedAt:
+          type: string
+          format: date-time
+          description: Data da última modificação cadastral.
+        lastAccessedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Data do último login no sistema.
+
+    UserApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/UserResponse'
+
+    PagedUserApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/UserResponse'
+                totalCount:
+                  type: integer
+                page:
+                  type: integer
+                pageSize:
+                  type: integer
+
+    # --------------------------------------------------------------------------
+    # Matriculas
+    # --------------------------------------------------------------------------
+    UserMatriculaResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: ID único do registro do vínculo.
+        userId:
+          type: string
+          format: uuid
+          description: UUID do consultor vinculado à matrícula.
+        userName:
+          type: string
+          description: Nome do consultor vinculado.
+        matriculaNumber:
+          type: string
+          description: Número ou código da matrícula comercial.
+        startDate:
+          type: string
+          format: date-time
+          description: Data de início do vínculo da matrícula.
+        endDate:
+          type: string
+          format: date-time
+          nullable: true
+          description: Data de encerramento do vínculo (se houver).
+        isActive:
+          type: boolean
+          description: Se o vínculo está ativo.
+        isOwner:
+          type: boolean
+          description: >
+            Indica titularidade: true se o usuário for o proprietário/dono da matrícula;
+            false se for participante ou assistente associado.
+        status:
+          type: string
+          description: Status do vínculo ('active', 'inactive').
+        createdAt:
+          type: string
+          format: date-time
+          description: Data em que o vínculo foi criado.
+        lastUpdate:
+          type: string
+          format: date-time
+          nullable: true
+          description: Data da última sincronização ou movimentação desta matrícula.
+
+    UserMatriculasListApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/UserMatriculaResponse'
+
+    MatriculaMasterDto:
+      type: object
+      properties:
+        id:
+          type: integer
+        matriculaNumber:
+          type: string
+        status:
+          type: string
+        startDate:
+          type: string
+          format: date-time
+
+    MatriculasMasterListApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/MatriculaMasterDto'
+
+    # --------------------------------------------------------------------------
+    # Imports & Scraping
+    # --------------------------------------------------------------------------
+    ImportSessionResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        uploadId:
+          type: string
+        templateName:
+          type: string
+          nullable: true
+        templateEntityType:
+          type: string
+          nullable: true
+          description: Entidade importada (ex. Contracts, Users, Matriculas).
+        fileName:
+          type: string
+        status:
+          type: string
+          description: Status final ('completed', 'completed_with_errors', 'undone').
+        totalRows:
+          type: integer
+        processedRows:
+          type: integer
+        failedRows:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          description: Data e horário em que o processamento do arquivo foi concluído.
+        uploadedByName:
+          type: string
+          nullable: true
+
+    ImportHistoryApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/ImportSessionResponse'
+
+    ScrapeRunSummary:
+      type: object
+      properties:
+        runId:
+          type: string
+          description: Identificador da rodada de extração.
+        userId:
+          type: string
+        userEmail:
+          type: string
+        finalStatus:
+          type: string
+          description: Situação da rodada ('SUCCESS', 'FAILED', 'PARTIAL').
+        createdAt:
+          type: string
+          format: date-time
+          description: Horário em que o robô executou o scraping.
+        totalJobs:
+          type: integer
+        succeededJobs:
+          type: integer
+        failedJobs:
+          type: integer
+        totalRowCount:
+          type: integer
+          description: Total de vendas/linhas extraídas do Power BI.
+
+    # --------------------------------------------------------------------------
+    # Monitoring & Dashboards
+    # --------------------------------------------------------------------------
+    MatriculaHealthResponse:
+      type: object
+      properties:
+        matricula:
+          type: string
+          description: Número da matrícula monitorada.
+        lastUpdate:
+          type: string
+          format: date-time
+          description: Data da última produção ou sincronização registrada.
+        contractCount:
+          type: integer
+          description: Volume de contratos ativos.
+        status:
+          type: string
+          description: Classificação de saúde ('Healthy' ou 'Stale').
+
+    MatriculaHealthApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/MatriculaHealthResponse'
+
+    TeamMatriculaHealthResponse:
+      type: object
+      properties:
+        teamId:
+          type: integer
+        teamName:
+          type: string
+        totalMatriculas:
+          type: integer
+        worstStatus:
+          type: string
+          description: Pior status de saúde entre as matrículas da equipe.
+        matriculas:
+          type: array
+          items:
+            $ref: '#/components/schemas/MatriculaHealthResponse'
+
+    TeamMatriculaHealthApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/TeamMatriculaHealthResponse'
+
+    AdminImportStatsResponse:
+      type: object
+      properties:
+        userId:
+          type: string
+          format: uuid
+        userName:
+          type: string
+        userEmail:
+          type: string
+        lastImportAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Última vez que o gestor executou uma importação.
+        totalImports:
+          type: integer
+          description: Quantidade total de importações realizadas.
+
+    AdminImportStatsApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/AdminImportStatsResponse'
+
+    DashboardSegmentsResponse:
+      type: object
+      properties:
+        adminUserId:
+          type: string
+          format: uuid
+        adminName:
+          type: string
+        motoresTotal:
+          type: number
+          format: decimal
+          description: Total faturado no segmento Motores.
+        larTotal:
+          type: number
+          format: decimal
+          description: Total faturado no segmento Lar.
+        outrosTotal:
+          type: number
+          format: decimal
+          description: Total faturado em Outros segmentos.
+        totalAmount:
+          type: number
+          format: decimal
+          description: Total geral de vendas da equipe do gestor.
+        cachedAtUtc:
+          type: string
+          format: date-time
+        fromCache:
+          type: boolean
+
+    DashboardSegmentsApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/DashboardSegmentsResponse'
