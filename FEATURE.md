@@ -168,3 +168,18 @@ curl -X PUT "http://127.0.0.1:8080/api/llm/config?tenant=demo" \
     - [`tenants/supporter/knowledge/como-gerenciar-usuarios.md`](file:///Users/hudson/development/whatshelper/tenants/supporter/knowledge/como-gerenciar-usuarios.md)
     - [`tenants/supporter/knowledge/como-gerenciar-equipes.md`](file:///Users/hudson/development/whatshelper/tenants/supporter/knowledge/como-gerenciar-equipes.md)
     - [`tenants/supporter/knowledge/QA.md`](file:///Users/hudson/development/whatshelper/tenants/supporter/knowledge/QA.md)
+
+---
+
+## 2026-11-15 — Especificação Técnica de APIs por Tenant (`tenants/supporter/apis/`) + Refinamento de QA de Contratos (Avapro / Filtros)
+
+### Itens Implementados
+- **Estrutura de Especificação de APIs por Tenant (`tenants/supporter/apis/`)**:
+  - Criada pasta dedicada `tenants/supporter/apis/` (separada de `knowledge/` para evitar injeção de credenciais/rotas técnicas no prompt de FAQ dos usuários finais).
+  - [`tenants/supporter/apis/README.md`](file:///Users/hudson/development/whatshelper/tenants/supporter/apis/README.md): instruções de uso e organização de um arquivo `.md` por serviço externo (suportando formato descritivo Markdown e formato Swagger/OpenAPI em `.md`).
+  - [`tenants/supporter/apis/servico-exemplo.md`](file:///Users/hudson/development/whatshelper/tenants/supporter/apis/servico-exemplo.md): template técnico padronizado cobrindo se o serviço possui autenticação (`Sim`/`Não`), credenciais (`Login` e `Senha`), links opcionais de Swagger/OpenAPI, endpoint de login/token e catálogo detalhado de cada endpoint.
+  - [`tenants/supporter/apis/swagger-exemplo.md`](file:///Users/hudson/development/whatshelper/tenants/supporter/apis/swagger-exemplo.md): template dedicado para documentação **Swagger / OpenAPI em `.md`**, combinando cabeçalho de credenciais (`Login`, `Senha`, `Swagger UI/Spec URL`), tabela resumo das rotas e bloco `openapi: 3.0.3` (YAML/JSON) com `paths`, `description`, `security`, `parameters` e `responses`.
+- **Melhoria de Respostas sobre Contratos e Sincronização com o Avapro (`supporter`)**:
+  - **Contrato não encontrado no sistema**: orienta a verificar filtros ativos/mal formatados (`Limpar Filtros`) e explica a sincronização diária com o **Avapro (Ava Pro)** (prazo de até 24h para novos contratos).
+  - **Contrato consta como cancelado mas já está pago/ativo**: orienta sobre as duas causas possíveis — ainda constar como cancelado no Avapro (acionar a **Ademicon**) ou mudança no Avapro há menos de 24h (aguardar a sincronização matinal).
+  - Arquivos atualizados: [`tenants/supporter/knowledge/QA.md`](file:///Users/hudson/development/whatshelper/tenants/supporter/knowledge/QA.md), [`tenants/supporter/knowledge/como-acompanhar-meus-contratos.md`](file:///Users/hudson/development/whatshelper/tenants/supporter/knowledge/como-acompanhar-meus-contratos.md), [`tenants/supporter/knowledge/como-gerenciar-contratos-admin.md`](file:///Users/hudson/development/whatshelper/tenants/supporter/knowledge/como-gerenciar-contratos-admin.md), [`tenants/supporter/knowledge/como-acompanhar-meu-plano-de-carreira.md`](file:///Users/hudson/development/whatshelper/tenants/supporter/knowledge/como-acompanhar-meu-plano-de-carreira.md) e [`packs/supporter/pack.yaml`](file:///Users/hudson/development/whatshelper/packs/supporter/pack.yaml).
