@@ -46,6 +46,15 @@ type FactDef struct {
 	Values      []string `yaml:"values,omitempty" json:"values,omitempty"`
 }
 
+// CollectionDef define uma coleção repetível de entidades tipadas com id ou chave natural (WIN-05).
+type CollectionDef struct {
+	Key         string    `yaml:"key" json:"key"`
+	Description string    `yaml:"description,omitempty" json:"description,omitempty"`
+	IDField     string    `yaml:"id_field,omitempty" json:"id_field,omitempty"`
+	NaturalKey  []string  `yaml:"natural_key,omitempty" json:"natural_key,omitempty"`
+	Fields      []FactDef `yaml:"fields" json:"fields"`
+}
+
 // SignalDef define um sinal booleano configurável no pack.yaml.
 type SignalDef struct {
 	Key         string `yaml:"key" json:"key"`
@@ -201,6 +210,7 @@ type Pack struct {
 	Language       string              `yaml:"language" json:"language"`
 	Actors         ActorsDef           `yaml:"actors" json:"actors"`
 	Facts          []FactDef           `yaml:"facts" json:"facts"`
+	Collections    []CollectionDef     `yaml:"collections,omitempty" json:"collections,omitempty"`
 	Signals        []SignalDef         `yaml:"signals" json:"signals"`
 	Dimensions     []DimensionDef      `yaml:"dimensions,omitempty" json:"dimensions,omitempty"`
 	Intents        []IntentDef         `yaml:"intents,omitempty" json:"intents,omitempty"`

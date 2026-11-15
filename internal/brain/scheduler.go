@@ -232,6 +232,36 @@ func (d *SourceDispatcher) TakePending(tenantID, channel, sourceKey string) ([]c
 	return extra, seq
 }
 
+// ApplyMutation aplica de forma atômica uma edição ou exclusão sobre o lote pendente antes do flush (WIN-07).
+func (d *SourceDispatcher) ApplyMutation(tenantID, channel, sourceKey string, evt MessageMutationEvent, policy EditPolicy) EditApplicationResult {
+	d.mu.Lock()
+	if d.closed {
+		d.mu.Unlock()
+		return EditApplicationResult{}
+	}
+	key := store.SourcePK(tenantID, channel, sourceKey)
+	q, ok := d.queues[key]
+	if !ok {
+		d.mu.Unlock()
+		return ApplyMessageEdit(nil, evt, policy)
+	}
+	q.mu.Lock()
+	d.mu.Unlock()
+
+	res := ApplyMessageEdit(q.pending, evt, policy)
+	if res.AppliedInBatch {
+		q.pending = res.UpdatedBatch
+		if len(q.pending) == 0 && q.timer != nil {
+			q.timer.Stop()
+			q.timer = nil
+			q.waitingTyping = false
+			q.cycleStart = time.Time{}
+		}
+	}
+	q.mu.Unlock()
+	return res
+}
+
 // SetTyping atualiza o estado de digitação do cliente para uma conversa usando NextDebounceDecision.
 func (d *SourceDispatcher) SetTyping(tenantID, channel, sourceKey string, typing bool) {
 	d.mu.Lock()

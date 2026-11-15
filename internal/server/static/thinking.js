@@ -96,6 +96,22 @@
       card.appendChild(makeDetails('Orçamento de Contexto (CTX-05)', lines));
     }
 
+    if (trace.window) {
+      const w = trace.window;
+      const batchArr = w.batch || [];
+      const histArr = w.history || [];
+      const droppedArr = w.dropped || [];
+      const fmtMsg = (m) => `  [${m.delta_from_prev || '0s'}] (${m.role}) ${m.sender}: ${m.text}`;
+      const winLines = [
+        `Lote atual (${batchArr.length} msgs · nunca cortado) · Reprocessamentos: ${trace.reprocess_count || 0} · Respostas descartadas: ${trace.discarded_replies || 0}`,
+        ...batchArr.map(fmtMsg),
+        `Histórico recente (${histArr.length} msgs · ${w.used_tokens || 0} tok):`,
+        ...histArr.map(fmtMsg),
+        droppedArr.length ? `Cortados: ${droppedArr.map(d => `${d.item_id} (${d.reason})`).join(', ')}` : 'Cortados: nenhum',
+      ].join('\n');
+      card.appendChild(makeDetails(`Janela e Lote (WIN-08 · lote=${batchArr.length}, hist=${histArr.length})`, winLines));
+    }
+
     if (trace.analysis) {
       const a = trace.analysis;
       card.appendChild(makeDetails(
