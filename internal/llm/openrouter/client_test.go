@@ -93,3 +93,55 @@ func TestOpenRouterClient_GenerateHeadersAndErrors(t *testing.T) {
 		t.Fatalf("expected json_schema response_format, got %+v", rf)
 	}
 }
+
+func TestOpenRouterClient_RetriesOnEmptyResponse(t *testing.T) {
+	ctx := context.Background()
+	var attempts int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.Header().Set("Content-Type", "application/json")
+		if attempts == 1 {
+			// Primeira tentativa: retorno com choices vazias
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":      "or-empty",
+				"choices": []any{},
+			})
+			return
+		}
+		// Segunda tentativa: sucesso
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id": "or-ok",
+			"choices": []any{
+				map[string]any{
+					"index": 0,
+					"message": map[string]any{
+						"role":    "assistant",
+						"content": `{"retried":true}`,
+					},
+					"finish_reason": "stop",
+				},
+			},
+			"usage": map[string]any{"prompt_tokens": 10, "completion_tokens": 5},
+		})
+	}))
+	defer srv.Close()
+
+	client, err := openrouter.New("or-secret", srv.URL, "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := client.Generate(ctx, core.LLMRequest{
+		Model:  "openai/gpt-oss-20b",
+		Prompt: "teste",
+	})
+	if err != nil {
+		t.Fatalf("expected retry to succeed, got %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("expected 2 attempts, got %d", attempts)
+	}
+	if resp.Content != `{"retried":true}` {
+		t.Fatalf("unexpected content: %s", resp.Content)
+	}
+}

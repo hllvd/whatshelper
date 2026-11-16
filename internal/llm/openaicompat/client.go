@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
@@ -159,27 +160,48 @@ func (c *Client) Generate(ctx context.Context, req core.LLMRequest) (*core.LLMRe
 		}
 	}
 
-	start := c.clock.Now()
-	comp, err := c.sdk.Chat.Completions.New(ctx, params, callOpts...)
-	durationMs := c.clock.Now().Sub(start).Milliseconds()
-	if err != nil {
-		return nil, fmt.Errorf("%s chat.completions.new falhou: %w", c.provider, err)
-	}
-	if comp == nil || len(comp.Choices) == 0 {
-		return nil, fmt.Errorf("%s: %w", c.provider, ErrEmptyResponse)
+	var comp *openai.ChatCompletion
+	var durationMs int64
+	var lastErr error
+	const maxRetries = 2
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(time.Duration(attempt*500) * time.Millisecond):
+			}
+		}
+
+		start := c.clock.Now()
+		var err error
+		comp, err = c.sdk.Chat.Completions.New(ctx, params, callOpts...)
+		durationMs = c.clock.Now().Sub(start).Milliseconds()
+		if err != nil {
+			lastErr = fmt.Errorf("%s chat.completions.new falhou: %w", c.provider, err)
+			continue
+		}
+		if comp == nil || len(comp.Choices) == 0 {
+			lastErr = fmt.Errorf("%s: %w", c.provider, ErrEmptyResponse)
+			continue
+		}
+
+		content := comp.Choices[0].Message.Content
+		if strings.TrimSpace(content) == "" {
+			lastErr = fmt.Errorf("%s: %w", c.provider, ErrEmptyResponse)
+			continue
+		}
+
+		return &core.LLMResponse{
+			Content:          content,
+			Provider:         c.provider,
+			Model:            strings.TrimSpace(req.Model),
+			PromptTokens:     int(comp.Usage.PromptTokens),
+			CompletionTokens: int(comp.Usage.CompletionTokens),
+			DurationMs:       durationMs,
+		}, nil
 	}
 
-	content := comp.Choices[0].Message.Content
-	if strings.TrimSpace(content) == "" {
-		return nil, fmt.Errorf("%s: %w", c.provider, ErrEmptyResponse)
-	}
-
-	return &core.LLMResponse{
-		Content:          content,
-		Provider:         c.provider,
-		Model:            strings.TrimSpace(req.Model),
-		PromptTokens:     int(comp.Usage.PromptTokens),
-		CompletionTokens: int(comp.Usage.CompletionTokens),
-		DurationMs:       durationMs,
-	}, nil
+	return nil, lastErr
 }
