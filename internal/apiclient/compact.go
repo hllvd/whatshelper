@@ -408,18 +408,12 @@ func unwrapEnvelopeMap(m map[string]any) (any, bool) {
 	if !ok {
 		return nil, false
 	}
-	// Se houver paginação no envelope (totalCount, totalItems, totalPages), preserva metadado enxuto junto aos itens
+	// Se houver campos que não sejam do envelope padrão, não desempacota
 	for k := range m {
 		lower := strings.ToLower(k)
 		if lower != "data" && lower != "success" && lower != "error" && lower != "message" {
 			return nil, false
 		}
-	}
-	if msg, hasMsg := m["message"].(string); hasMsg && strings.TrimSpace(msg) != "" {
-		return map[string]any{
-			"message": msg,
-			"data":    dataVal,
-		}, true
 	}
 	return dataVal, true
 }

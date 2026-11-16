@@ -317,20 +317,28 @@ func PlanDeterministicRequests(endpoints []EndpointDef, messageText string, rece
 		}
 	}
 
-	// 3. Se houver TargetUser nos fatos ou se um consultor específico for citado, consulta /api/admintools/users/search?q=...
-	if targetUser := strings.TrimSpace(facts["TargetUser"]); targetUser != "" && available["/api/admintools/users/search"] {
-		addPlan(
-			"/api/admintools/users/search?q="+url.QueryEscape(targetUser),
-			fmt.Sprintf("Buscar consultor/usuário %s no sistema", targetUser),
-			"",
-		)
+	// 3. Se houver TargetUser nos fatos ou se um consultor específico for citado, consulta /api/users?search=... ou /api/admintools/users/search?q=...
+	if targetUser := strings.TrimSpace(facts["TargetUser"]); targetUser != "" {
+		if available["/api/users"] {
+			addPlan(
+				"/api/users?search="+url.QueryEscape(targetUser),
+				fmt.Sprintf("Buscar consultor/usuário %s no sistema", targetUser),
+				"",
+			)
+		} else if available["/api/admintools/users/search"] {
+			addPlan(
+				"/api/admintools/users/search?q="+url.QueryEscape(targetUser),
+				fmt.Sprintf("Buscar consultor/usuário %s no sistema", targetUser),
+				"",
+			)
+		}
 	}
 
 	return planned
 }
 
 // PlanFollowUpUserRequests gera chamadas GET encadeadas por userId quando a resposta anterior contém um UUID de usuário
-// e a pergunta menciona plano de carreira, classificação/nível ou matrículas do usuário.
+// e a pergunta menciona perfil/gestor/equipe, plano de carreira, classificação/nível ou matrículas do usuário.
 func PlanFollowUpUserRequests(endpoints []EndpointDef, combinedText, bodyJSON string) []PlannedRequest {
 	matches := uuidValuePattern.FindStringSubmatch(bodyJSON)
 	if len(matches) < 2 {
@@ -344,6 +352,29 @@ func PlanFollowUpUserRequests(endpoints []EndpointDef, combinedText, bodyJSON st
 
 	lower := strings.ToLower(combinedText)
 	var out []PlannedRequest
+
+	// 1. Perfil completo do usuário e gestor responsável (/api/users/{id} ou /api/users/{userId})
+	var userPathTmpl string
+	if available["/api/users/{id}"] {
+		userPathTmpl = "/api/users/" + url.PathEscape(userID)
+	} else if available["/api/users/{userId}"] {
+		userPathTmpl = "/api/users/" + url.PathEscape(userID)
+	}
+	if userPathTmpl != "" {
+		if lower == "" ||
+			strings.Contains(lower, "gestor") || strings.Contains(lower, "líder") || strings.Contains(lower, "lider") ||
+			strings.Contains(lower, "equipe") || strings.Contains(lower, "responsável") || strings.Contains(lower, "responsavel") ||
+			strings.Contains(lower, "quem") || strings.Contains(lower, "email") || strings.Contains(lower, "e-mail") ||
+			strings.Contains(lower, "pertence") || strings.Contains(lower, "consultor") || strings.Contains(lower, "dono") ||
+			strings.Contains(lower, "atribuído") || strings.Contains(lower, "atribuido") || strings.Contains(lower, "usuario") ||
+			strings.Contains(lower, "usuário") || strings.Contains(lower, "contrato") {
+			out = append(out, PlannedRequest{
+				Path:   userPathTmpl,
+				Reason: "Consultar perfil e gestor da equipe do usuário identificado",
+			})
+		}
+	}
+
 	if (strings.Contains(lower, "carreira") || strings.Contains(lower, "meta") || strings.Contains(lower, "retenção") || strings.Contains(lower, "retencao")) &&
 		available["/api/careerplan/users/{userId}"] {
 		out = append(out, PlannedRequest{
@@ -590,7 +621,8 @@ func (ins *Inspector) Inspect(ctx context.Context, in InspectInput) (*InspectRes
 				})
 			}
 		} else if status >= 200 && status < 300 {
-			for _, follow := range PlanFollowUpUserRequests(cfg.Endpoints, in.MessageText+" "+in.Summary, body) {
+			combinedContext := in.MessageText + " " + strings.Join(in.RecentMessages, " ") + " " + in.Summary
+			for _, follow := range PlanFollowUpUserRequests(cfg.Endpoints, combinedContext, body) {
 				if IsSafeGetPath(follow.Path, cfg.Endpoints) && !executedPaths[follow.Path] {
 					planned = append(planned, follow)
 				}

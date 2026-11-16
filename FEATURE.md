@@ -251,3 +251,21 @@ curl -X PUT "http://127.0.0.1:8080/api/llm/config?tenant=demo" \
   - Propagado `Signals` de `SourceState` para [`InspectInput`](file:///Users/hudson/development/whatshelper/internal/apiclient/inspector.go) em [`Pipeline.enrichKnowledgeWithLiveAPI`](file:///Users/hudson/development/whatshelper/internal/brain/pipeline.go).
 - **Testes**:
   - Testes unitários atualizados em [`internal/apiclient/inspector_test.go`](file:///Users/hudson/development/whatshelper/internal/apiclient/inspector_test.go) cobrindo desativação de consultas para How-To (`needs_api_lookup: false`) e busca determinística por `TargetUser`.
+
+---
+
+## 2026-11-15 — Encadeamento de Gestor/Equipe e Resolução de Usuário na API (`GET /api/users/{id}`)
+
+### Itens Implementados
+- **Consulta Encadeada de Perfil e Gestor em [`internal/apiclient/inspector.go`](file:///Users/hudson/development/whatshelper/internal/apiclient/inspector.go)**:
+  - Na função [`PlanFollowUpUserRequests`](file:///Users/hudson/development/whatshelper/internal/apiclient/inspector.go#L342-L390), adicionado o encadeamento automático para `GET /api/users/{id}` (ou `/api/users/{userId}`) ao detectar um `userId` em respostas de contrato ou na conversa.
+  - A consulta fornece de forma completa e instantânea: nome, e-mail do consultor, `parentUserName` (nome do gestor da equipe), `parentEmail` (e-mail do gestor), `currentTeamName`, matrículas ativas e status.
+  - Atualizado o contexto passado para `PlanFollowUpUserRequests` para incluir `MessageText`, `RecentMessages` e `Summary`, permitindo que perguntas em turnos subsequentes (como *"quem é o gestor da equipe?"*) acionem a busca pelo gestor a partir do contrato consultado no turno anterior.
+  - Priorizada a rota `/api/users?search={TargetUser}` quando disponível para busca por nome/e-mail de consultor.
+- **Regra de Grounding para Gestor no Pack do Suporte em [`packs/supporter/pack.yaml`](file:///Users/hudson/development/whatshelper/packs/supporter/pack.yaml)**:
+  - Adicionada regra instruindo explicitamente o modelo a utilizar os campos `parentUserName` e `parentEmail` de `api-live-data.md` para identificar e informar o gestor responsável pela equipe do consultor.
+- **Correção de Recursão em [`internal/apiclient/compact.go`](file:///Users/hudson/development/whatshelper/internal/apiclient/compact.go)**:
+  - Eliminado o reempacotamento de `{message, data}` no desempacotador de envelopes que gerava recursão infinita na deserialização de respostas com envelopes mistos.
+- **Testes**:
+  - Atualizado [`internal/apiclient/inspector_test.go`](file:///Users/hudson/development/whatshelper/internal/apiclient/inspector_test.go) com testes cobrindo a extração do gestor da equipe tanto no fluxo direto de contrato quanto na pergunta subsequente sem número de contrato repetido.
+  - Adicionado [`internal/apiclient/compact_recursion_test.go`](file:///Users/hudson/development/whatshelper/internal/apiclient/compact_recursion_test.go).

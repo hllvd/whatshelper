@@ -50,6 +50,20 @@ paths:
         - name: userId
           in: path
           required: true
+  /api/users/{id}:
+    get:
+      summary: Consultar perfil do usuário e gestor
+      parameters:
+        - name: id
+          in: path
+          required: true
+  /api/users:
+    get:
+      summary: Buscar usuários
+      parameters:
+        - name: search
+          in: query
+          required: false
 `
 
 func TestParseDotEnv_And_ParseOpenAPIGetEndpoints(t *testing.T) {
@@ -65,8 +79,8 @@ func TestParseDotEnv_And_ParseOpenAPIGetEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseOpenAPIGetEndpoints failed: %v", err)
 	}
-	if len(eps) != 4 {
-		t.Fatalf("expected 4 GET endpoints, got %d", len(eps))
+	if len(eps) != 6 {
+		t.Fatalf("expected 6 GET endpoints, got %d", len(eps))
 	}
 	if !apiclient.IsSafeGetPath("/api/contracts/number/1101053001", eps) {
 		t.Fatalf("expected /api/contracts/number/1101053001 to be safe")
@@ -126,6 +140,12 @@ func TestInspector_Inspect_ContractFoundAndFallbackDeleted(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/admintools/deleted-contracts":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"success":true,"data":[{"contractNumber":"9999999999","isActive":false,"deletedReason":"Cancelado"}]}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/users/9d5d2b12-d32b-4532-8dd2-29d5bc3b6b2b":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"success":true,"data":{"id":"9d5d2b12-d32b-4532-8dd2-29d5bc3b6b2b","name":"Emanuelly Barbosa","email":"manubarbosa102030@gmail.com","role":"user","parentUserName":"João Augusto e Deborah Bozza","parentEmail":"deborah.bozza@autorizadoademicon.com.br","currentTeamName":"netzer","isActive":true}}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/users":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"success":true,"data":{"items":[{"id":"9d5d2b12-d32b-4532-8dd2-29d5bc3b6b2b","name":"Emanuelly Barbosa","email":"manubarbosa102030@gmail.com","parentUserName":"João Augusto e Deborah Bozza","parentEmail":"deborah.bozza@autorizadoademicon.com.br","currentTeamName":"netzer"}]}}`))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -148,7 +168,7 @@ func TestInspector_Inspect_ContractFoundAndFallbackDeleted(t *testing.T) {
 	clock := fakes.NewFakeClock(time.Date(2026, 11, 15, 19, 0, 0, 0, time.UTC))
 	ins := apiclient.NewInspector(tmp, clock, nil).WithHTTPClient(srv.Client())
 
-	// 1. Contrato ativo 1101053001 -> retorna Emanuelly Barbosa
+	// 1. Contrato ativo 1101053001 -> retorna Emanuelly Barbosa e encadeia dados do usuário/gestor
 	res, err := ins.Inspect(context.Background(), apiclient.InspectInput{
 		TenantID:    "supporter",
 		MessageText: "vc poderia conferir se o contrato 1101053001 existe?",
@@ -162,6 +182,9 @@ func TestInspector_Inspect_ContractFoundAndFallbackDeleted(t *testing.T) {
 	}
 	if !strings.Contains(res.Content, "Emanuelly Barbosa") || !strings.Contains(res.Content, "1101053001") {
 		t.Fatalf("expected API response to contain Emanuelly Barbosa and 1101053001, got:\n%s", res.Content)
+	}
+	if !strings.Contains(res.Content, "João Augusto e Deborah Bozza") {
+		t.Fatalf("expected chained user response to contain manager João Augusto e Deborah Bozza, got:\n%s", res.Content)
 	}
 
 	// 2. Contrato 9999999999 não ativo -> aciona fallback automático em deleted-contracts e reutiliza token em cache
@@ -202,14 +225,26 @@ func TestInspector_Inspect_ContractFoundAndFallbackDeleted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// No mock srv, /api/admintools/users/search não está no sampleSwaggerYAML, mas verificamos a geração em PlanDeterministicRequests
 	plansUser := apiclient.PlanDeterministicRequests([]apiclient.EndpointDef{
-		{Path: "/api/admintools/users/search"},
+		{Path: "/api/users"},
 	}, "a consultora Emanuelly pertence a qual equipe?", nil, map[string]string{"TargetUser": "Emanuelly"})
-	if len(plansUser) != 1 || !strings.Contains(plansUser[0].Path, "search?q=Emanuelly") {
-		t.Fatalf("expected user search plan, got %+v", plansUser)
+	if len(plansUser) != 1 || !strings.Contains(plansUser[0].Path, "/api/users?search=Emanuelly") {
+		t.Fatalf("expected user search plan via /api/users?search, got %+v", plansUser)
 	}
 	_ = res4
+
+	// 5. Pergunta subsequente de gestor da equipe sem citar contrato diretamente na mensagem atual
+	res5, err := ins.Inspect(context.Background(), apiclient.InspectInput{
+		TenantID:       "supporter",
+		MessageText:    "quem é o gestor da equipe?",
+		RecentMessages: []string{"o contrato 1101053001 está ativo", "esse contrato nao pertence a emily, como faço?"},
+	})
+	if err != nil || res5 == nil {
+		t.Fatalf("expected Inspect result for follow-up manager question, got res=%v err=%v", res5, err)
+	}
+	if !strings.Contains(res5.Content, "João Augusto e Deborah Bozza") {
+		t.Fatalf("expected manager information in api-live-data, got:\n%s", res5.Content)
+	}
 }
 
 func TestCompactJSONBody_PrunesNoiseCapsArraysAndPreservesNumbers(t *testing.T) {
