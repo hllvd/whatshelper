@@ -29,3 +29,6 @@ R: Claro! Como gestor, o seu papel principal no sistema é adicionar e remover c
 1. Visão da operação e equipes: você consegue visualizar todos os contratos abaixo de você, gerenciar as equipes abaixo de você (`#/teams` e `#/teams/calendar`) e acompanhar a evolução em Plano de Carreira (`#/my-career-plan`).
 2. Uso de filtros em Contratos (`#/contracts`): utilizar os filtros na tela "Contratos" para filtrar a sua equipe, consultores ou período é fundamental para acompanhar os resultados do time.
 3. Atribuição de contratos vendidos: oriente os consultores abaixo de você a atribuírem os próprios contratos vendidos acessando "Meus Contratos" (`#/my-contracts`) > "+ Novo" (informando o número do contrato e a matrícula). É papel do consultor fazer essa atribuição, embora você como gestor também consiga fazer isso manualmente na tela "Contratos" (`#/contracts`), editando o contrato e adicionando ou modificando o vendedor.
+
+P: Você consegue saber quem é o meu gestor da equipe? / Você consegue saber quem é?
+R: Consigo sim! Para que eu possa localizar o seu cadastro no sistema e verificar quem é o seu gestor responsável, por favor me informe o seu nome completo, seu e-mail de acesso ou o número de um contrato atribuído a você.
