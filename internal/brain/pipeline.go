@@ -261,6 +261,11 @@ func (p *Pipeline) IngestWithStatus(ctx context.Context, msg core.NormalizedMess
 	})
 	msg.Origin = originRes.Origin
 
+	isAnswered := msg.Direction == core.DirectionOutbound ||
+		originRes.Origin == core.OriginBot ||
+		originRes.Origin == core.OriginHumanAdmin ||
+		originRes.Origin == core.OriginHumanPhone
+
 	meta := core.MessageMeta{
 		TenantID:  msg.TenantID,
 		Channel:   msg.Channel,
@@ -273,6 +278,7 @@ func (p *Pipeline) IngestWithStatus(ctx context.Context, msg core.NormalizedMess
 		RawRef:    rawRef,
 		Sender:    sender,
 		Origin:    originRes.Origin,
+		Answered:  isAnswered,
 	}
 
 	if err := p.cfg.Store.PutMessageMeta(ctx, meta); err != nil {
@@ -341,9 +347,17 @@ func (p *Pipeline) IngestWithStatus(ctx context.Context, msg core.NormalizedMess
 		}
 
 		switch originRes.Origin {
-		case core.OriginBot, core.OriginUnknown, core.OriginHumanAdmin:
+		case core.OriginBot, core.OriginUnknown:
+			return false, nil
+		case core.OriginHumanAdmin:
+			if p.cfg.Store != nil {
+				_ = p.cfg.Store.MarkMessagesAnswered(ctx, msg.TenantID, msg.Channel, msg.SourceKey, []string{"*"})
+			}
 			return false, nil
 		case core.OriginHumanPhone:
+			if p.cfg.Store != nil {
+				_ = p.cfg.Store.MarkMessagesAnswered(ctx, msg.TenantID, msg.Channel, msg.SourceKey, []string{"*"})
+			}
 			if err := p.handleHumanTakeover(ctx, msg); err != nil {
 				return false, err
 			}
@@ -1394,6 +1408,14 @@ staleReprocessLoop:
 	if err != nil {
 		return err
 	}
+	if replyStatus == "ok" && finalReply != NeutralFallbackReply {
+		msgIDs := make([]string, 0, len(batch)+1)
+		msgIDs = append(msgIDs, "*")
+		for _, m := range batch {
+			msgIDs = append(msgIDs, m.MessageID)
+		}
+		_ = p.cfg.Store.MarkMessagesAnswered(ctx, tenantID, channelID, sourceKey, msgIDs)
+	}
 	return p.ScheduleNudge(ctx, tenantID, channelID, sourceKey, latest.Account)
 }
 
@@ -1437,6 +1459,7 @@ func (p *Pipeline) ApproveTask(ctx context.Context, tenant, channel, sourceKey, 
 	if _, err := p.DeliverTextOutbound(ctx, tenant, channel, draft.Account, sourceKey, businessActor, text, draft.RunID, ""); err != nil {
 		return nil, err
 	}
+	_ = p.cfg.Store.MarkMessagesAnswered(ctx, tenant, channel, sourceKey, []string{"*"})
 
 	now := p.now()
 	task.Status = core.TaskStatusCompleted
@@ -1516,6 +1539,7 @@ func (p *Pipeline) DeliverTextOutbound(
 		RawRef:    outMsg.RawRef,
 		Sender:    businessActor,
 		Origin:    core.OriginBot,
+		Answered:  true,
 	}); err != nil {
 		return "", fmt.Errorf("erro ao gravar MSG# outbound: %w", err)
 	}
@@ -1729,6 +1753,7 @@ func (p *Pipeline) loadRecentPromptMessages(
 			Sender:    sender,
 			Text:      text,
 			Timestamp: meta.Timestamp.UTC().Format(time.RFC3339),
+			Answered:  meta.Answered,
 		})
 	}
 	return result, nil
@@ -1922,10 +1947,19 @@ func (p *Pipeline) enrichKnowledgeWithLiveAPI(
 	if p.apiInspector == nil || knowledge == nil {
 		return
 	}
+	var unansweredParts []string
 	recentTexts := make([]string, 0, len(recentMsgs))
 	for _, m := range recentMsgs {
-		recentTexts = append(recentTexts, m.Text)
+		if !m.Answered {
+			unansweredParts = append(unansweredParts, m.Text)
+		} else {
+			recentTexts = append(recentTexts, m.Text)
+		}
 	}
+	if strings.TrimSpace(messageText) != "" {
+		unansweredParts = append(unansweredParts, messageText)
+	}
+	unansweredText := strings.Join(unansweredParts, "\n")
 	var summary string
 	var facts map[string]string
 	var signals map[string]bool
@@ -1937,7 +1971,7 @@ func (p *Pipeline) enrichKnowledgeWithLiveAPI(
 	analysisCfg := p.resolveStageLLMConfig("analysis", tenantCfg, p.cfg.AnalysisModel)
 	res, err := p.apiInspector.Inspect(ctx, apiclient.InspectInput{
 		TenantID:       tenantID,
-		MessageText:    messageText,
+		MessageText:    unansweredText,
 		RecentMessages: recentTexts,
 		Summary:        summary,
 		Intent:         intent,

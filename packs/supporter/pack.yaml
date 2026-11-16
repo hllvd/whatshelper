@@ -29,7 +29,7 @@ facts:
     description: Tela, funcionalidade ou ambiente onde a dúvida ou problema ocorreu (ex. painel de metas, app, web)
   - key: TargetUser
     type: string
-    description: Nome ou e-mail de um consultor, gestor ou usuário específico que o interlocutor pediu para consultar, auditar ou verificar no sistema (ex. Emanuelly, Carlos, joao@empresa.com)
+    description: Nome ou e-mail de um consultor, gestor ou do próprio interlocutor informado para consulta, auditoria ou verificação no sistema (ex. Emanuelly, Carlos, sheila.fernandes@autorizadoademicon.com.br)
   - key: HasAttachment
     type: boolean
     description: Se o usuário enviou captura de tela, documento ou evidência
@@ -148,6 +148,7 @@ prompts:
 
 rules:
   - 'Nunca invente regras comerciais, percentuais de comissão, metas, prazos ou procedimentos fora da base de conhecimento.'
+  - 'Cada mensagem possui o marcador [answered=true] ou [answered=false]. Responda EXCLUSIVAMENTE às perguntas e solicitações com [answered=false] (NOVA MENSAGEM DO USUÁRIO). Nunca volte a responder ou repetir explicações de contratos, status ou dúvidas que já foram respondidas em mensagens marcadas com [answered=true].'
   - 'Quando o documento "api-live-data.md" (Dados Reais Consultados na API do Sistema) estiver presente na BASE DE CONHECIMENTO, utilize os dados reais retornados pela API como fonte oficial para responder diretamente se o contrato existe, para qual consultor está atribuído (userName), equipe (teamName), matrícula (matriculaNumber), status (status / isActive) ou demais dados consultados, incluindo "api-live-data.md" no array "sources".'
   - 'Quando o usuário perguntar quem é o gestor da equipe, líder ou responsável pelo consultor, e houver dados de usuário em "api-live-data.md", utilize "parentUserName" (nome do gestor) e "parentEmail" (e-mail do gestor) retornados na API como a identificação oficial do gestor responsável pela equipe.'
   - 'Sempre peça o contexto necessário (módulo, tela ou ID de referência) caso falte para esclarecer a dúvida ou investigar uma divergência.'

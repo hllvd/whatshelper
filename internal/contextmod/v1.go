@@ -121,6 +121,7 @@ type MessageView struct {
 	Text      string    `json:"text"`
 	MediaRef  string    `json:"media_ref,omitempty"`
 	RawRef    string    `json:"raw_ref,omitempty"`
+	Answered  bool      `json:"answered"`
 }
 
 // MessagePage representa uma página determinística de mensagens com cursor.

@@ -102,8 +102,9 @@ type messageItem struct {
 	Type      core.MessageType   `dynamodbav:"type"`
 	Origin    core.MessageOrigin `dynamodbav:"origin,omitempty"`
 	MediaRef  string             `dynamodbav:"media_ref,omitempty"`
-	RawRef    string           `dynamodbav:"raw_ref,omitempty"`
-	Sender    string           `dynamodbav:"sender,omitempty"`
+	RawRef    string             `dynamodbav:"raw_ref,omitempty"`
+	Sender    string             `dynamodbav:"sender,omitempty"`
+	Answered  bool               `dynamodbav:"answered"`
 }
 
 type dedupItem struct {
@@ -576,6 +577,7 @@ func (s *Store) PutMessageMeta(ctx context.Context, msg core.MessageMeta) error 
 		MediaRef:  msg.MediaRef,
 		RawRef:    msg.RawRef,
 		Sender:    msg.Sender,
+		Answered:  msg.Answered,
 	})
 	if err != nil {
 		return err
@@ -626,6 +628,63 @@ func (s *Store) PutMessageMeta(ctx context.Context, msg core.MessageMeta) error 
 	return nil
 }
 
+func (s *Store) MarkMessagesAnswered(ctx context.Context, tenant, channel, sourceKey string, messageIDs []string) error {
+	if len(messageIDs) == 0 {
+		return nil
+	}
+	pk := store.SourcePK(tenant, channel, sourceKey)
+	out, err := s.client.Query(ctx, &dynamodb.QueryInput{
+		TableName:              aws.String(s.tableName),
+		KeyConditionExpression: aws.String("PK = :pk AND begins_with(SK, :prefix)"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":pk":     &types.AttributeValueMemberS{Value: pk},
+			":prefix": &types.AttributeValueMemberS{Value: "MSG#"},
+		},
+		ScanIndexForward: aws.Bool(false),
+		ConsistentRead:   aws.Bool(true),
+		Limit:            aws.Int32(50),
+	})
+	if err != nil {
+		return fmt.Errorf("dynamo MarkMessagesAnswered query falhou: %w", err)
+	}
+
+	idSet := make(map[string]bool, len(messageIDs))
+	markAllInbound := false
+	for _, mid := range messageIDs {
+		if mid == "*" {
+			markAllInbound = true
+		}
+		idSet[mid] = true
+	}
+
+	for _, raw := range out.Items {
+		var item messageItem
+		if err := attributevalue.UnmarshalMap(raw, &item); err != nil {
+			continue
+		}
+		if item.Answered {
+			continue
+		}
+		if (markAllInbound && item.Direction == core.DirectionInbound) || idSet[item.MessageID] {
+			_, updErr := s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+				TableName: aws.String(s.tableName),
+				Key: map[string]types.AttributeValue{
+					"PK": &types.AttributeValueMemberS{Value: item.PK},
+					"SK": &types.AttributeValueMemberS{Value: item.SK},
+				},
+				UpdateExpression: aws.String("SET answered = :t"),
+				ExpressionAttributeValues: map[string]types.AttributeValue{
+					":t": &types.AttributeValueMemberBOOL{Value: true},
+				},
+			})
+			if updErr != nil {
+				return fmt.Errorf("dynamo MarkMessagesAnswered update falhou: %w", updErr)
+			}
+		}
+	}
+	return nil
+}
+
 func (s *Store) ListRecentMessages(ctx context.Context, tenant, channel, sourceKey string, limit int) ([]core.MessageMeta, error) {
 	pk := store.SourcePK(tenant, channel, sourceKey)
 	input := &dynamodb.QueryInput{
@@ -665,6 +724,7 @@ func (s *Store) ListRecentMessages(ctx context.Context, tenant, channel, sourceK
 			MediaRef:  item.MediaRef,
 			RawRef:    item.RawRef,
 			Sender:    item.Sender,
+			Answered:  item.Answered,
 		})
 	}
 	return result, nil

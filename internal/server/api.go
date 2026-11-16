@@ -34,6 +34,7 @@ type chatMessageView struct {
 	Text      string             `json:"text"`
 	Sender    string             `json:"sender,omitempty"`
 	RawRef    string             `json:"raw_ref,omitempty"`
+	Answered  bool               `json:"answered"`
 }
 
 func (s *Server) handlePostSimMessage(w http.ResponseWriter, r *http.Request) {
@@ -190,6 +191,7 @@ func (s *Server) loadChatMessages(ctx context.Context, tenant, channel, key stri
 			Text:      text,
 			Sender:    m.Sender,
 			RawRef:    m.RawRef,
+			Answered:  m.Answered,
 		})
 	}
 	return views, nil

@@ -31,7 +31,7 @@ FATOS CONHECIDOS:
 {{if .Facts}}{{range $k, $v := .Facts}}- {{$k}}: {{$v}}
 {{end}}{{else}}(nenhum fato extraído){{end}}
 HISTÓRICO RECENTE:
-{{if .RecentMessages}}{{range .RecentMessages}}[{{.Timestamp}}] {{.Sender}}: {{.Text}}
+{{if .RecentMessages}}{{range .RecentMessages}}[{{.Timestamp}}] [answered={{.Answered}}] {{.Sender}}: {{.Text}}
 {{end}}{{else}}(nenhuma mensagem anterior){{end}}
 NOVA MENSAGEM DO USUÁRIO:
-[{{.NewMessage.Timestamp}}] {{.NewMessage.Sender}}: {{.NewMessage.Text}}
+[{{.NewMessage.Timestamp}}] [answered=false] {{.NewMessage.Sender}}: {{.NewMessage.Text}}

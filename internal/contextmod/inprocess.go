@@ -203,6 +203,7 @@ func (s *InProcessService) ListMessages(ctx context.Context, scope Scope, cursor
 			Text:      text,
 			MediaRef:  meta.MediaRef,
 			RawRef:    meta.RawRef,
+			Answered:  meta.Answered,
 		})
 	}
 

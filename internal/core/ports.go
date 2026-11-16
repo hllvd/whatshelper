@@ -85,6 +85,7 @@ type Store interface {
 	SaveSourceMeta(ctx context.Context, meta SourceMeta) error
 	CommitAnalysis(ctx context.Context, input CommitAnalysisInput) error
 	PutMessageMeta(ctx context.Context, msg MessageMeta) error
+	MarkMessagesAnswered(ctx context.Context, tenant, channel, sourceKey string, messageIDs []string) error
 	ListRecentMessages(ctx context.Context, tenant, channel, sourceKey string, limit int) ([]MessageMeta, error)
 	ListSources(ctx context.Context, tenant string) ([]SourceMeta, error)
 	ListRuns(ctx context.Context, tenant, channel, sourceKey string, limit int) ([]Run, error)

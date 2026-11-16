@@ -167,6 +167,7 @@ type MessageMeta struct {
 	MediaRef  string        `json:"media_ref,omitempty"`
 	RawRef    string        `json:"raw_ref,omitempty"`
 	Sender    string        `json:"sender,omitempty"`
+	Answered  bool          `json:"answered"`
 }
 
 // OutboundRecordStatus define o estado de pré-registro de um envio do bot (EVT-03).

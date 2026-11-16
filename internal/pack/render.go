@@ -14,6 +14,7 @@ type PromptMessage struct {
 	Sender    string `json:"sender"`
 	Text      string `json:"text"`
 	Timestamp string `json:"timestamp"`
+	Answered  bool   `json:"answered"`
 }
 
 // KnowledgeDoc representa um documento de conhecimento carregado do tenant.

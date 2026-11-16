@@ -245,6 +245,28 @@ func TestInspector_Inspect_ContractFoundAndFallbackDeleted(t *testing.T) {
 	if !strings.Contains(res5.Content, "João Augusto e Deborah Bozza") {
 		t.Fatalf("expected manager information in api-live-data, got:\n%s", res5.Content)
 	}
+
+	// 6. Mudança de assunto ("quem é o meu gestor") não deve reconsultar contrato já respondido (1101053001)
+	plansNoRepeat := apiclient.PlanDeterministicRequests(
+		[]apiclient.EndpointDef{{Path: "/api/contracts/number/{contractNumber}"}, {Path: "/api/users"}},
+		"e tb queria saber quem é o meu gestor\nnao sei onde aparece",
+		[]string{"O contrato 1101053001 está registrado no sistema."},
+		map[string]string{"ReferenceId": "1101053001"},
+	)
+	if len(plansNoRepeat) != 0 {
+		t.Fatalf("expected 0 plans when user asks about own manager without referencing previous contract, got %+v", plansNoRepeat)
+	}
+
+	// 7. Mensagem não respondida com e-mail ("meu email é sheila.fernandes@...") busca usuário pelo e-mail sem repetir contrato antigo
+	plansEmail := apiclient.PlanDeterministicRequests(
+		[]apiclient.EndpointDef{{Path: "/api/contracts/number/{contractNumber}"}, {Path: "/api/users"}},
+		"meu email é sheila.fernandes@autorizadoademicon.com.br",
+		[]string{"O contrato 1101053001 está registrado no sistema."},
+		map[string]string{"ReferenceId": "1101053001"},
+	)
+	if len(plansEmail) != 1 || !strings.Contains(plansEmail[0].Path, "/api/users?search=sheila.fernandes%40autorizadoademicon.com.br") {
+		t.Fatalf("expected 1 email user search plan, got %+v", plansEmail)
+	}
 }
 
 func TestCompactJSONBody_PrunesNoiseCapsArraysAndPreservesNumbers(t *testing.T) {

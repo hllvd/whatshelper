@@ -145,6 +145,9 @@ done:
 	if msgsMeta[0].Sender != "agent" || msgsMeta[1].Sender != "customer" {
 		t.Fatalf("expected senders agent/customer, got %q/%q", msgsMeta[0].Sender, msgsMeta[1].Sender)
 	}
+	if !msgsMeta[0].Answered || !msgsMeta[1].Answered {
+		t.Fatalf("expected both messages to be marked Answered=true after grounded bot reply, got %+v", msgsMeta)
+	}
 	traceBytes, err := blobs.Get(ctx, runs[0].TraceBlobRef)
 	if err != nil {
 		t.Fatalf("expected trace blob at %s: %v", runs[0].TraceBlobRef, err)

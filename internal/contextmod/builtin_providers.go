@@ -158,6 +158,7 @@ func (p *recentMessagesProvider) Fetch(ctx context.Context, req ProviderRequest)
 			Text:      text,
 			MediaRef:  meta.MediaRef,
 			RawRef:    meta.RawRef,
+			Answered:  meta.Answered,
 		})
 	}
 	return &ProviderResult{RecentMessages: selectRecentMessages(all, limit, minInboundMessagesInContext)}, nil

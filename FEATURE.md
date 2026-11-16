@@ -269,3 +269,21 @@ curl -X PUT "http://127.0.0.1:8080/api/llm/config?tenant=demo" \
 - **Testes**:
   - Atualizado [`internal/apiclient/inspector_test.go`](file:///Users/hudson/development/whatshelper/internal/apiclient/inspector_test.go) com testes cobrindo a extração do gestor da equipe tanto no fluxo direto de contrato quanto na pergunta subsequente sem número de contrato repetido.
   - Adicionado [`internal/apiclient/compact_recursion_test.go`](file:///Users/hudson/development/whatshelper/internal/apiclient/compact_recursion_test.go).
+
+---
+
+## 2026-11-15 — Flag `Answered` por Mensagem e Busca Determinística por E-mail
+
+### Itens Implementados
+- **Persistência do Flag `Answered` (`answered: true/false`)**:
+  - Adicionado o campo `Answered bool` em [`core.MessageMeta`](file:///Users/hudson/development/whatshelper/internal/core/entities.go#L158-L171), [`contextmod.MessageView`](file:///Users/hudson/development/whatshelper/internal/contextmod/v1.go#L115-L125), [`contextmod.WindowMessage`](file:///Users/hudson/development/whatshelper/internal/contextmod/window.go#L18-L40) e [`pack.PromptMessage`](file:///Users/hudson/development/whatshelper/internal/pack/render.go#L13-L18).
+  - Adicionado `MarkMessagesAnswered` na interface [`core.Store`](file:///Users/hudson/development/whatshelper/internal/core/ports.go#L88) e implementado em [`internal/store/dynamo/store.go`](file:///Users/hudson/development/whatshelper/internal/store/dynamo/store.go) e [`internal/core/fakes/memory_store.go`](file:///Users/hudson/development/whatshelper/internal/core/fakes/memory_store.go).
+- **Ciclo de Vida de Mensagens Respondidas em [`internal/brain/pipeline.go`](file:///Users/hudson/development/whatshelper/internal/brain/pipeline.go)**:
+  - Mensagens *inbound* são marcadas como `Answered = true` após resposta fundamentada enviada com sucesso pelo bot (`replyStatus == "ok"`) ou após resposta de operador humano; permanecem `Answered = false` caso a resposta escale para humano.
+- **Templates e Regras de Prompt (`[answered=true/false]`)**:
+  - Atualizados [`packs/supporter/prompts/reply.tmpl`](file:///Users/hudson/development/whatshelper/packs/supporter/prompts/reply.tmpl), [`packs/supporter/prompts/analysis.tmpl`](file:///Users/hudson/development/whatshelper/packs/supporter/prompts/analysis.tmpl) e [`packs/supporter/pack.yaml`](file:///Users/hudson/development/whatshelper/packs/supporter/pack.yaml) para rotular cada mensagem com `[answered=true/false]` e proibir a repetição de respostas sobre contratos/dúvidas já marcadas como `[answered=true]`.
+- **Inspector de API Guiado por Mensagens Não Respondidas e E-mail em [`internal/apiclient/inspector.go`](file:///Users/hudson/development/whatshelper/internal/apiclient/inspector.go)**:
+  - Extrai números de contrato, matrículas e e-mails (`emailPattern`) apenas das mensagens com `Answered = false`, recorrendo ao histórico (`ReferenceId` / `RecentMessages`) somente quando houver referência anafórica explícita (`refersToPreviousContract`).
+  - Detecta e-mails informados na mensagem atual (ex.: `sheila.fernandes@autorizadoademicon.com.br`) e planeja deterministicamente `GET /api/users?search={email}`.
+- **Testes**:
+  - Adicionados testes em [`internal/apiclient/inspector_test.go`](file:///Users/hudson/development/whatshelper/internal/apiclient/inspector_test.go) e [`internal/brain/pipeline_test.go`](file:///Users/hudson/development/whatshelper/internal/brain/pipeline_test.go).

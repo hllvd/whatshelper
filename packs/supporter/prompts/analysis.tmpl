@@ -39,7 +39,7 @@ FACTS:
 {{if .Facts}}{{range $k, $v := .Facts}}- {{$k}}: {{$v}}
 {{end}}{{else}}(nenhum fato conhecido){{end}}
 RECENT MESSAGES:
-{{if .RecentMessages}}{{range .RecentMessages}}[{{.Timestamp}}] {{.Sender}}: {{.Text}}
+{{if .RecentMessages}}{{range .RecentMessages}}[{{.Timestamp}}] [answered={{.Answered}}] {{.Sender}}: {{.Text}}
 {{end}}{{else}}(nenhuma mensagem anterior){{end}}
 NEW MESSAGE:
-[{{.NewMessage.Timestamp}}] {{.NewMessage.Sender}}: {{.NewMessage.Text}}
+[{{.NewMessage.Timestamp}}] [answered=false] {{.NewMessage.Sender}}: {{.NewMessage.Text}}

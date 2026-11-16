@@ -23,6 +23,7 @@ type WindowMessage struct {
 	Sender    string    `json:"sender,omitempty"`
 	Text      string    `json:"text"`
 	Deleted   bool      `json:"deleted,omitempty"`
+	Answered  bool      `json:"answered"`
 }
 
 // LabeledWindowMessage representa uma mensagem rotulada com papel, delta de tempo e marcador de lote.
@@ -34,6 +35,7 @@ type LabeledWindowMessage struct {
 	Text          string    `json:"text"`
 	DeltaFromPrev string    `json:"delta_from_prev"`
 	IsNewBatch    bool      `json:"is_new_batch"`
+	Answered      bool      `json:"answered"`
 }
 
 // WindowInput define os parâmetros explícitos de entrada para BuildWindow.
@@ -171,6 +173,7 @@ func BuildWindow(in WindowInput) WindowOutput {
 			Text:          m.Text,
 			DeltaFromPrev: delta,
 			IsNewBatch:    false,
+			Answered:      m.Answered,
 		}
 	}
 
@@ -196,6 +199,7 @@ func BuildWindow(in WindowInput) WindowOutput {
 			Text:          m.Text,
 			DeltaFromPrev: delta,
 			IsNewBatch:    true,
+			Answered:      false,
 		}
 		batchLines = append(batchLines, strings.TrimSpace(m.Text))
 	}

@@ -33,6 +33,7 @@ const (
 var (
 	contractNumPattern = regexp.MustCompile(`\b\d{6,14}\b`)
 	shortNumPattern    = regexp.MustCompile(`\b\d{3,14}\b`)
+	emailPattern       = regexp.MustCompile(`[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}`)
 	pathParamPattern   = regexp.MustCompile(`\{([a-zA-Z0-9_]+)\}`)
 	uuidValuePattern   = regexp.MustCompile(`"(?:userId|id)"\s*:\s*"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"`)
 )
@@ -258,7 +259,11 @@ func PlanDeterministicRequests(endpoints []EndpointDef, messageText string, rece
 		})
 	}
 
-	// 1. Extrai possíveis números de contrato/referência (priorizando mensagem atual e ReferenceId).
+	// 1. Extrai e-mails e números de contrato apenas das mensagens não respondidas (messageText).
+	// Só recorre ao ReferenceId ou histórico respondido (recentTexts) se a mensagem atual fizer
+	// referência explícita ao item anterior (ex.: "esse contrato", "quem é o gestor da equipe") e não trouxer novo identificador.
+	emails := emailPattern.FindAllString(messageText, -1)
+
 	var candidateNumbers []string
 	seenNums := make(map[string]bool)
 	pushNum := func(n string) {
@@ -273,14 +278,16 @@ func PlanDeterministicRequests(endpoints []EndpointDef, messageText string, rece
 	for _, m := range contractNumPattern.FindAllString(messageText, -1) {
 		pushNum(m)
 	}
-	if ref := strings.TrimSpace(facts["ReferenceId"]); ref != "" {
-		for _, m := range contractNumPattern.FindAllString(ref, -1) {
-			pushNum(m)
+	if len(candidateNumbers) == 0 && len(emails) == 0 && refersToPreviousContract(messageText) {
+		if ref := strings.TrimSpace(facts["ReferenceId"]); ref != "" {
+			for _, m := range contractNumPattern.FindAllString(ref, -1) {
+				pushNum(m)
+			}
 		}
-	}
-	for i := len(recentTexts) - 1; i >= 0; i-- {
-		for _, m := range contractNumPattern.FindAllString(recentTexts[i], -1) {
-			pushNum(m)
+		for i := len(recentTexts) - 1; i >= 0; i-- {
+			for _, m := range contractNumPattern.FindAllString(recentTexts[i], -1) {
+				pushNum(m)
+			}
 		}
 	}
 
@@ -317,24 +324,70 @@ func PlanDeterministicRequests(endpoints []EndpointDef, messageText string, rece
 		}
 	}
 
-	// 3. Se houver TargetUser nos fatos ou se um consultor específico for citado, consulta /api/users?search=... ou /api/admintools/users/search?q=...
-	if targetUser := strings.TrimSpace(facts["TargetUser"]); targetUser != "" {
+	// 3. E-mails informados na mensagem atual não respondida -> busca direta do usuário no sistema.
+	for _, email := range emails {
+		email = strings.TrimSpace(email)
+		if email == "" {
+			continue
+		}
 		if available["/api/users"] {
 			addPlan(
-				"/api/users?search="+url.QueryEscape(targetUser),
-				fmt.Sprintf("Buscar consultor/usuário %s no sistema", targetUser),
+				"/api/users?search="+url.QueryEscape(email),
+				fmt.Sprintf("Buscar usuário pelo e-mail %s no sistema", email),
 				"",
 			)
 		} else if available["/api/admintools/users/search"] {
 			addPlan(
-				"/api/admintools/users/search?q="+url.QueryEscape(targetUser),
-				fmt.Sprintf("Buscar consultor/usuário %s no sistema", targetUser),
+				"/api/admintools/users/search?q="+url.QueryEscape(email),
+				fmt.Sprintf("Buscar usuário pelo e-mail %s no sistema", email),
 				"",
 			)
 		}
 	}
 
+	// 4. Se houver TargetUser nos fatos (citado na mensagem atual ou sem outra busca planejada), consulta /api/users?search=...
+	if targetUser := strings.TrimSpace(facts["TargetUser"]); targetUser != "" {
+		if len(planned) == 0 || strings.Contains(lowerMsg, strings.ToLower(targetUser)) {
+			if available["/api/users"] {
+				addPlan(
+					"/api/users?search="+url.QueryEscape(targetUser),
+					fmt.Sprintf("Buscar consultor/usuário %s no sistema", targetUser),
+					"",
+				)
+			} else if available["/api/admintools/users/search"] {
+				addPlan(
+					"/api/admintools/users/search?q="+url.QueryEscape(targetUser),
+					fmt.Sprintf("Buscar consultor/usuário %s no sistema", targetUser),
+					"",
+				)
+			}
+		}
+	}
+
 	return planned
+}
+
+// refersToPreviousContract verifica de modo puro se a mensagem não respondida faz referência anafórica
+// a um contrato ou equipe já discutidos anteriormente, sem introduzir nova pergunta sobre o próprio usuário ("meu gestor").
+func refersToPreviousContract(messageText string) bool {
+	lower := strings.ToLower(strings.TrimSpace(messageText))
+	if lower == "" {
+		return false
+	}
+	if strings.Contains(lower, "meu gestor") || strings.Contains(lower, "minha equipe") {
+		return false
+	}
+	anaphoricTerms := []string{
+		"esse contrato", "este contrato", "nesse contrato", "neste contrato", "o contrato",
+		"gestor da equipe", "gestor dessa equipe", "líder da equipe", "lider da equipe",
+		"a quem pertence", "pertence a quem", "dono dele", "dele", "dela",
+	}
+	for _, term := range anaphoricTerms {
+		if strings.Contains(lower, term) {
+			return true
+		}
+	}
+	return false
 }
 
 // PlanFollowUpUserRequests gera chamadas GET encadeadas por userId quando a resposta anterior contém um UUID de usuário

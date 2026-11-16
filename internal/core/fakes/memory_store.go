@@ -227,6 +227,35 @@ func (m *MemoryStore) PutMessageMeta(ctx context.Context, msg core.MessageMeta) 
 	return nil
 }
 
+func (m *MemoryStore) MarkMessagesAnswered(ctx context.Context, tenant, channel, sourceKey string, messageIDs []string) error {
+	if len(messageIDs) == 0 {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	id := sourceKeyID(tenant, channel, sourceKey)
+	msgs, ok := m.messages[id]
+	if !ok || len(msgs) == 0 {
+		return nil
+	}
+	idSet := make(map[string]bool, len(messageIDs))
+	markAllInbound := false
+	for _, mid := range messageIDs {
+		if mid == "*" {
+			markAllInbound = true
+		}
+		idSet[mid] = true
+	}
+	for i := range msgs {
+		if (markAllInbound && msgs[i].Direction == core.DirectionInbound) || idSet[msgs[i].MessageID] {
+			msgs[i].Answered = true
+		}
+	}
+	m.messages[id] = msgs
+	return nil
+}
+
 func (m *MemoryStore) ListRecentMessages(ctx context.Context, tenant, channel, sourceKey string, limit int) ([]core.MessageMeta, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

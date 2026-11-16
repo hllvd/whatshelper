@@ -122,6 +122,7 @@ func bundlePromptMessages(b *contextmod.ContextBundle) []pack.PromptMessage {
 			Sender:    m.Sender,
 			Text:      m.Text,
 			Timestamp: m.Timestamp.UTC().Format(time.RFC3339),
+			Answered:  m.Answered,
 		}
 	}
 	return out
@@ -138,6 +139,7 @@ func buildWindowForBundle(b *contextmod.ContextBundle, batch []core.NormalizedMe
 				Direction: m.Direction,
 				Sender:    m.Sender,
 				Text:      m.Text,
+				Answered:  m.Answered,
 			}
 		}
 	}
@@ -154,6 +156,7 @@ func buildWindowForBundle(b *contextmod.ContextBundle, batch []core.NormalizedMe
 			Origin:    string(m.Origin),
 			Sender:    custActor,
 			Text:      m.Text,
+			Answered:  false,
 		}
 	}
 
@@ -170,6 +173,7 @@ func buildWindowForBundle(b *contextmod.ContextBundle, batch []core.NormalizedMe
 			Sender:    m.Sender,
 			Text:      m.Text,
 			Timestamp: m.Timestamp.UTC().Format(time.RFC3339),
+			Answered:  m.Answered,
 		}
 	}
 
@@ -181,6 +185,7 @@ func buildWindowForBundle(b *contextmod.ContextBundle, batch []core.NormalizedMe
 		Sender:    custActor,
 		Text:      win.CombinedBatchText,
 		Timestamp: latestTS,
+		Answered:  false,
 	}
 	return win, histMsgs, newMsg
 }
