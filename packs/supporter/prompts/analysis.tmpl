@@ -13,6 +13,8 @@ EXTRACTION RULES:
   - {{.Key}} ({{.Type}}): {{.Description}}
 {{- end}}
 - Summary must be 1–3 factual sentences in {{.Pack.Language}}.
+- When previous messages already addressed the user's inquiry and NEW MESSAGE is purely gratitude, courtesy or confirmation of resolution (e.g. "obrigado", "valeu", "deu certo", "consegui", "muito obrigado"), even if sent hours or a day later: classify intent as "closing_or_gratitude" with has_new_question=false and issue_resolved=true. Never classify gratitude as "greeting".
+- If NEW MESSAGE contains gratitude but ALSO introduces a new objective question or problem, prioritize the question intent (e.g. "ask_howto") and set has_new_question=true.
 
 SIGNAL RULES:
 {{- range .Pack.Signals}}

@@ -88,6 +88,12 @@ states:
         intent: report_issue
         to: investigando_ocorrencia
         reason: "Usuário relatou divergência durante dúvida"
+      - id: responder_to_closing
+        priority: 20
+        on_event: user_message
+        intent: closing_or_gratitude
+        to: encerrado
+        reason: "Usuário agradeceu ou confirmou resolução após explicação"
       - id: responder_to_followup
         priority: 15
         on_event: user_message
@@ -116,6 +122,12 @@ states:
           - type: notify_admin
             params:
               reason: "Ocorrência documentada pronta para análise"
+      - id: issue_to_closing
+        priority: 15
+        on_event: user_message
+        intent: closing_or_gratitude
+        to: encerrado
+        reason: "Usuário encerrou ocorrência com agradecimento ou confirmação"
       - id: issue_to_followup
         priority: 10
         on_event: user_message
@@ -140,6 +152,12 @@ states:
         intent: ask_howto
         to: responder_pergunta
         reason: "Nova dúvida enviada"
+      - id: mais_ajuda_closing
+        priority: 15
+        on_event: user_message
+        intent: closing_or_gratitude
+        to: encerrado
+        reason: "Atendimento concluído com agradecimento"
       - id: mais_ajuda_encerrar
         priority: 10
         on_event: user_message
@@ -157,8 +175,27 @@ states:
 
   encerrado:
     description: "Atendimento encerrado"
-    terminal: true
+    terminal: false
     directive:
       goal: "Agradecer o contato e encerrar."
       constraints:
         - "Mensagem curta."
+    rules:
+      - id: encerrado_nova_duvida
+        priority: 20
+        on_event: user_message
+        intent: ask_howto
+        to: responder_pergunta
+        reason: "Novo atendimento iniciado com dúvida"
+      - id: encerrado_novo_reporte
+        priority: 18
+        on_event: user_message
+        intent: report_issue
+        to: investigando_ocorrencia
+        reason: "Novo atendimento iniciado com ocorrência"
+      - id: encerrado_nova_saudacao
+        priority: 10
+        on_event: user_message
+        intent: greeting
+        to: entender_pergunta
+        reason: "Novo atendimento iniciado com saudação"

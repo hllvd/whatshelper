@@ -47,6 +47,8 @@ signals:
     description: true se o consultor ou gestor está interagindo ativamente
   - key: needs_api_lookup
     description: true se o usuário pediu para consultar, conferir, verificar ou auditar um registro/dado específico no sistema (ex. se um contrato específico existe ou pertence a alguém, dados de um consultor específico, matrícula, status de importação ou scraping); false se for dúvida genérica, saudação ou procedimento de manual (como fazer algo)
+  - key: issue_resolved
+    description: true se o usuário confirmou que o problema foi resolvido, deu certo ou agradeceu pelo atendimento concluído
 
 dimensions:
   - key: sentiment
@@ -91,9 +93,19 @@ intents:
       - "SAIR"
     action: opt_out
   - name: greeting
-    description: Saudação ou agradecimento curto
+    description: Saudação inicial de abertura ou cumprimento sem dúvida técnica (ex. "Olá", "Bom dia", "Boa tarde", "Oi")
     examples:
-      - "Oi, obrigado pela ajuda!"
+      - "Olá, bom dia!"
+      - "Oi, tudo bem?"
+      - "Boa noite!"
+    action: reply
+  - name: closing_or_gratitude
+    description: Agradecimento pelo atendimento, confirmação de que deu certo/resolveu, ou encerramento cordial (ex. "Obrigado", "Valeu", "Deu certo", "Consegui", "Muito obrigado", "Resolvido", "Tudo certo agora")
+    examples:
+      - "Obrigado!"
+      - "Valeu pela ajuda"
+      - "Deu certo, consegui ver aqui"
+      - "Muito obrigado, tudo resolvido!"
     action: reply
 
 opt_out_keywords:
@@ -154,6 +166,8 @@ rules:
   - 'Sempre peça o contexto necessário (módulo, tela ou ID de referência) caso falte para esclarecer a dúvida ou investigar uma divergência.'
   - 'Quando o usuário perguntar se você consegue saber ou quem é o gestor dele ("você consegue saber quem é?", "quem é meu gestor?") sem ter se identificado, confirme que consegue verificar e solicite o nome completo, e-mail de acesso ou o número de um contrato para localizar o cadastro dele no sistema.'
   - 'Quando você estiver orientando procedimentos ou solicitando dados ao usuário (como nome, e-mail, matrícula, tela ou contrato) para poder pesquisar ou ajudá-lo, defina SEMPRE "answerable": true. Nunca marque "answerable": false ao pedir dados ao usuário.'
+  - 'Quando o usuário apenas agradecer (ex.: "obrigado", "valeu", "muito obrigado", "agradeço") ou confirmar que deu certo / que resolveu (ex.: "deu certo", "consegui", "resolvido", "perfeito", "funcionou"), mesmo que a mensagem venha horas ou no dia seguinte após a dúvida ter sido respondida: classifique o intent como "closing_or_gratitude", com "has_new_question": false e "issue_resolved": true. NUNCA classifique agradecimento ou confirmação de resolução como "greeting".'
+  - 'Se a mensagem contiver agradecimento mas também contiver uma nova dúvida objetiva (ex.: "Obrigado! E como vejo o contrato 123?"), classifique o intent como "ask_howto" (ou "report_issue") e marque "has_new_question": true para que a nova dúvida seja prontamente atendida.'
   - 'Quando o usuário disser que um consultor "saiu da equipe" (ou "não faz mais parte da equipe" / "quero tirar da equipe") sem especificar o motivo, pergunte primeiro se o consultor saiu da Ademicon (não trabalha mais na empresa) ou se migrou para outra equipe. Se saiu da Ademicon (desligamento da empresa), oriente SOMENTE a desativar o usuário em Usuários → Lista (#/users), sem mexer no Calendário de Equipes. Se saiu da equipe e migrou para outra equipe (ou virou gestor de nova equipe), oriente a ajustar a data de corte em Equipes → Calendário (#/teams/calendar).'
   - 'Quando o usuário informar que não encontra um contrato no sistema (ou que um contrato não aparece), oriente primeiro sobre as duas causas principais: (1) algum filtro mal formatado ou ativo (como Data Início e Data Fim), recomendando clicar em "Limpar Filtros"; e (2) o contrato ainda não estar no sistema, informando que todos os dias sincronizamos o banco de dados com os contratos do Avapro (Ava Pro) e que pode demorar até 24h para aparecer um novo contrato.'
   - 'Quando o usuário informar que um contrato aparece como cancelado (ou desatualizado) mesmo após o cliente ter pago / já estar ativo, explique as duas possibilidades: (1) no Avapro (Ava Pro) o contrato ainda aparece como cancelado — nesse caso, deve entrar em contato com a Ademicon para verificar junto ao Avapro; ou (2) o estado mudou no Avapro há menos de 24h e ainda não refletiu no sistema — nesse caso, basta aguardar a sincronização diária que acontece toda manhã.'
@@ -165,7 +179,7 @@ context_module:
   providers: [summary, facts, signals, recent_messages, knowledge]
   exposed_fields:
     facts: [UserRole, Topic, Severity, ReferenceId, TargetUser, ChannelOrScreen, HasAttachment]
-    signals: [has_new_question, has_pending_question, has_pending_issue, has_pending_callback, user_engaged, needs_api_lookup]
+    signals: [has_new_question, has_pending_question, has_pending_issue, has_pending_callback, user_engaged, needs_api_lookup, issue_resolved]
     context_sections: [last_action, ticket, callback]
   views:
     external_agent:
@@ -179,7 +193,7 @@ context_module:
 
 fsm:
   initial_state: triage
-  states: [triage, assisting, escalated, opted_out]
+  states: [triage, assisting, resolved, escalated, opted_out]
   transitions:
     - from: "*"
       to: opted_out
@@ -207,6 +221,11 @@ fsm:
         intent: greeting
       action: greet_support
     - from: triage
+      to: resolved
+      when:
+        intent: closing_or_gratitude
+      action: close_support
+    - from: triage
       to: assisting
       when:
         intent: report_issue
@@ -217,6 +236,11 @@ fsm:
       when:
         intent: report_issue
       action: reply_with_knowledge
+    - from: assisting
+      to: resolved
+      when:
+        intent: closing_or_gratitude
+      action: close_support
     - from: assisting
       to: assisting
       when:
@@ -238,10 +262,39 @@ fsm:
       when:
         intent: ask_howto
       action: reply_with_knowledge
+    - from: resolved
+      to: resolved
+      when:
+        intent: closing_or_gratitude
+      action: close_support
+    - from: resolved
+      to: assisting
+      when:
+        intent: greeting
+      action: greet_support
+    - from: resolved
+      to: assisting
+      when:
+        intent: ask_howto
+      action: reply_with_knowledge
+    - from: resolved
+      to: assisting
+      when:
+        intent: report_issue
+        required_facts: [ChannelOrScreen]
+      action: reply_with_knowledge
+    - from: resolved
+      to: assisting
+      when:
+        intent: report_issue
+      action: reply_with_knowledge
   actions:
     greet_support:
       type: message_template
       text: "Olá! Sou o assistente de suporte para consultores e gestores. Como posso te ajudar hoje?"
+    close_support:
+      type: message_template
+      text: "Por nada! Fico à disposição se precisar de algo mais. Tenha um ótimo dia e bom trabalho!"
     reply_with_knowledge:
       type: knowledge_reply
     ask_issue_details:

@@ -1032,6 +1032,14 @@ staleReprocessLoop:
 				return err
 			}
 			_, err := p.DeliverTextOutbound(ctx, tenantID, channelID, latest.Account, sourceKey, pk.Actors.Business, replyText, runID, traceRef)
+			if err == nil && p.cfg.Store != nil {
+				msgIDs := make([]string, 0, len(batch)+1)
+				msgIDs = append(msgIDs, "*")
+				for _, m := range batch {
+					msgIDs = append(msgIDs, m.MessageID)
+				}
+				_ = p.cfg.Store.MarkMessagesAnswered(ctx, tenantID, channelID, sourceKey, msgIDs)
+			}
 			return err
 		case "knowledge_reply":
 			if decision.Action != DecisionCreateTask {
@@ -1100,6 +1108,14 @@ staleReprocessLoop:
 				return err
 			}
 			_, err := p.DeliverTextOutbound(ctx, tenantID, channelID, latest.Account, sourceKey, pk.Actors.Business, replyText, runID, traceRef)
+			if err == nil && p.cfg.Store != nil {
+				msgIDs := make([]string, 0, len(batch)+1)
+				msgIDs = append(msgIDs, "*")
+				for _, m := range batch {
+					msgIDs = append(msgIDs, m.MessageID)
+				}
+				_ = p.cfg.Store.MarkMessagesAnswered(ctx, tenantID, channelID, sourceKey, msgIDs)
+			}
 			return err
 		}
 		return p.recordRouterOnlyRun(ctx, latest, runID, traceRef, trace, analysisOutcome.Status)

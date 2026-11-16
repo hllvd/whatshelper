@@ -287,3 +287,21 @@ curl -X PUT "http://127.0.0.1:8080/api/llm/config?tenant=demo" \
   - Detecta e-mails informados na mensagem atual (ex.: `sheila.fernandes@autorizadoademicon.com.br`) e planeja deterministicamente `GET /api/users?search={email}`.
 - **Testes**:
   - Adicionados testes em [`internal/apiclient/inspector_test.go`](file:///Users/hudson/development/whatshelper/internal/apiclient/inspector_test.go) e [`internal/brain/pipeline_test.go`](file:///Users/hudson/development/whatshelper/internal/brain/pipeline_test.go).
+
+---
+
+## 2026-11-16 — Fechamento Cordial de Atendimento (`closing_or_gratitude` e Estado `resolved`)
+
+### Itens Implementados
+- **Intenção Dedicada `closing_or_gratitude` em [`packs/supporter/pack.yaml`](file:///Users/hudson/development/whatshelper/packs/supporter/pack.yaml)**:
+  - Desacoplado o agradecimento de `greeting`. Agora "Obrigado", "Valeu", "Deu certo", "Consegui", "Muito obrigado", "Resolvido" são classificados estritamente como `closing_or_gratitude` (com `has_new_question: false` e `issue_resolved: true`), mesmo que o cliente responda horas depois ou no dia seguinte à solução.
+  - O intent `greeting` passa a cobrir exclusivamente saudações iniciais de abertura ("Olá", "Bom dia", "Boa tarde", "Oi").
+  - Quando a mensagem contiver agradecimento mas também introduzir uma nova dúvida, a intenção objetiva (`ask_howto`, `report_issue`) prevalece e `has_new_question: true` é acionado.
+- **Transição de Estados e Fechamento no FSM e Journey**:
+  - Adicionado o estado `resolved` ao FSM de [`packs/supporter/pack.yaml`](file:///Users/hudson/development/whatshelper/packs/supporter/pack.yaml) e sincronizado com [`packs/supporter/journey.yaml`](file:///Users/hudson/development/whatshelper/packs/supporter/journey.yaml) / [`packs/supporter/journeys/support.yaml`](file:///Users/hudson/development/whatshelper/packs/supporter/journeys/support.yaml).
+  - Adicionada a ação `close_support` com resposta cordial de fechamento (*"Por nada! Fico à disposição se precisar de algo mais. Tenha um ótimo dia e bom trabalho!"*).
+  - Ao sair do estado `resolved`, saudações ("Olá") voltam a apresentar o bot (`greet_support`), e novas dúvidas (`ask_howto`) avançam direto para resposta com conhecimento sem repetir fluxos anteriores.
+- **Marcação Automática de Mensagens Respondidas em Templates (`internal/brain/pipeline.go`)**:
+  - `MarkMessagesAnswered` passa a ser invocado também nas ações do tipo `message_template` (como `close_support` e `greet_support`), garantindo que mensagens de agradecimento fiquem registradas como `answered = true` no DynamoDB.
+- **Testes**:
+  - Adicionado [`TestFSMPipeline_Supporter_GratitudeClosesFlow`](file:///Users/hudson/development/whatshelper/internal/brain/fsm_pipeline_test.go) validando pergunta técnica inicial, agradecimento posterior com fechamento cordial em `resolved`, preservação contra reinício indevido de saudação e abertura de novo atendimento subsequente.
