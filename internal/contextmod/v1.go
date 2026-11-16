@@ -105,6 +105,7 @@ type ContextBundle struct {
 	RecentMessages    []MessageView          `json:"recent_messages,omitempty"`
 	Knowledge         []KnowledgeDocView     `json:"knowledge,omitempty"`
 	QAContent         string                 `json:"qa_content,omitempty"`
+	Personality       string                 `json:"personality,omitempty"`
 	Blocks            []ContextBlock         `json:"blocks,omitempty"`
 	Truncation        TruncationReport       `json:"truncation"`
 	DegradedProviders []string               `json:"degraded_providers,omitempty"`

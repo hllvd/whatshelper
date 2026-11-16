@@ -77,6 +77,22 @@ func TestLocalTenantAndKnowledgeSource_ReloadsOnChange(t *testing.T) {
 	if b3.Docs[0].Content != "# FAQ v2 atualizado" {
 		t.Fatalf("expected updated content, got %q", b3.Docs[0].Content)
 	}
+
+	// Adicionando personality.md na raiz do tenant deve carregar no bundle e invalidar cache
+	time.Sleep(10 * time.Millisecond)
+	if err := os.WriteFile(filepath.Join(tmp, "demo", "personality.md"), []byte("# Tom Amigável"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b4, err := ks.Load(context.Background(), "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b4.Fingerprint == b3.Fingerprint {
+		t.Fatalf("expected fingerprint to change after adding personality.md")
+	}
+	if b4.Personality != "# Tom Amigável" {
+		t.Fatalf("expected Personality to be loaded, got %q", b4.Personality)
+	}
 }
 
 func TestBlobKnowledgeSource_TTLCache(t *testing.T) {

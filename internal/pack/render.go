@@ -34,6 +34,7 @@ type PromptInput struct {
 	NewMessage     PromptMessage
 	Knowledge      []KnowledgeDoc
 	QAContent      string
+	Personality    string
 	OutputSchema   string
 	PlainTextOnly  bool
 	Directive      *ResponseDirectiveDef
@@ -65,6 +66,9 @@ func RenderAnalysis(p *Pack, input PromptInput) (RenderedPrompt, error) {
 func RenderReply(p *Pack, input PromptInput) (RenderedPrompt, error) {
 	if p == nil || p.ReplyTmpl == nil {
 		return RenderedPrompt{}, fmt.Errorf("%w: template de resposta não carregado", ErrInvalidPack)
+	}
+	if strings.TrimSpace(input.Personality) == "" && p.Personality != "" {
+		input.Personality = p.Personality
 	}
 	input.Pack = p
 	rendered, err := executeTemplate(p.ReplyTmpl, input)

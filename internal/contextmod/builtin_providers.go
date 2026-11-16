@@ -216,10 +216,16 @@ func (p *knowledgeProvider) Fetch(ctx context.Context, req ProviderRequest) (*Pr
 	if err != nil {
 		return nil, err
 	}
-	return &ProviderResult{
+	res := &ProviderResult{
 		Knowledge: docs,
 		QAContent: qa,
-	}, nil
+	}
+	if pr, ok := p.reader.(interface{ LoadPersonality(ctx context.Context, tenantID string) (string, error) }); ok {
+		if pers, err := pr.LoadPersonality(ctx, req.Scope.TenantID); err == nil && pers != "" {
+			res.Personality = pers
+		}
+	}
+	return res, nil
 }
 
 func toStructuredContextView(scope Scope, c core.ConversationContext) *StructuredContextView {

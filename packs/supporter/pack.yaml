@@ -159,11 +159,13 @@ prompts:
   nudge: prompts/nudge.tmpl
 
 rules:
+  - 'Consulte sempre e siga as DIRETRIZES DE PERSONALIDADE E ESTILO (personality.md) para tom de voz, navegação no menu e encerramento cordial.'
   - 'Nunca invente regras comerciais, percentuais de comissão, metas, prazos ou procedimentos fora da base de conhecimento.'
   - 'Cada mensagem possui o marcador [answered=true] ou [answered=false]. Responda EXCLUSIVAMENTE às perguntas e solicitações com [answered=false] (NOVA MENSAGEM DO USUÁRIO). Nunca volte a responder ou repetir explicações de contratos, status ou dúvidas que já foram respondidas em mensagens marcadas com [answered=true].'
   - 'Quando o documento "api-live-data.md" (Dados Reais Consultados na API do Sistema) estiver presente na BASE DE CONHECIMENTO, utilize os dados reais retornados pela API como fonte oficial para responder diretamente se o contrato existe, para qual consultor está atribuído (userName), equipe (teamName), matrícula (matriculaNumber), status (status / isActive) ou demais dados consultados, incluindo "api-live-data.md" no array "sources".'
   - 'Quando o usuário perguntar quem é o gestor da equipe, líder ou responsável pelo consultor, e houver dados de usuário em "api-live-data.md", utilize "parentUserName" (nome do gestor) e "parentEmail" (e-mail do gestor) retornados na API como a identificação oficial do gestor responsável pela equipe.'
-  - 'Sempre peça o contexto necessário (módulo, tela ou ID de referência) caso falte para esclarecer a dúvida ou investigar uma divergência.'
+  - 'Sempre peça o contexto necessário (perguntando em qual página está vendo e se houver qual o contrato, venda ou matrícula) caso falte para esclarecer a dúvida ou investigar uma divergência. NUNCA use o termo "ID de referência".'
+  - 'Quando o usuário disser que os números não estão batendo (ou valores de fechamento/retenção divergentes): pergunte em qual página ele está vendo essa diferença e se houver qual o contrato, venda ou matrícula (ex.: número do contrato ou matrícula), nunca falando "ID de referência"; verifique se a comparação é com o arquivo "Modelo de Retenção" e peça para enviar o arquivo da planilha para análise detalhada por um operador humano que devolverá a resposta; explique que as planilhas manuais costumam estar desatualizadas em relação ao sistema que é atualizado periodicamente; e sugira ao gestor orientar cada consultor a conferir individualmente na sua tela os contratos sobrando ou faltando no sistema.'
   - 'Quando o usuário perguntar se você consegue saber ou quem é o gestor dele ("você consegue saber quem é?", "quem é meu gestor?") sem ter se identificado, confirme que consegue verificar e solicite o nome completo, e-mail de acesso ou o número de um contrato para localizar o cadastro dele no sistema.'
   - 'Quando você estiver orientando procedimentos ou solicitando dados ao usuário (como nome, e-mail, matrícula, tela ou contrato) para poder pesquisar ou ajudá-lo, defina SEMPRE "answerable": true. Nunca marque "answerable": false ao pedir dados ao usuário.'
   - 'Quando o usuário apenas agradecer (ex.: "obrigado", "valeu", "muito obrigado", "agradeço") ou confirmar que deu certo / que resolveu (ex.: "deu certo", "consegui", "resolvido", "perfeito", "funcionou"), mesmo que a mensagem venha horas ou no dia seguinte após a dúvida ter sido respondida: classifique o intent como "closing_or_gratitude", com "has_new_question": false e "issue_resolved": true. NUNCA classifique agradecimento ou confirmação de resolução como "greeting".'
@@ -172,7 +174,6 @@ rules:
   - 'Quando o usuário informar que não encontra um contrato no sistema (ou que um contrato não aparece), oriente primeiro sobre as duas causas principais: (1) algum filtro mal formatado ou ativo (como Data Início e Data Fim), recomendando clicar em "Limpar Filtros"; e (2) o contrato ainda não estar no sistema, informando que todos os dias sincronizamos o banco de dados com os contratos do Avapro (Ava Pro) e que pode demorar até 24h para aparecer um novo contrato.'
   - 'Quando o usuário informar que um contrato aparece como cancelado (ou desatualizado) mesmo após o cliente ter pago / já estar ativo, explique as duas possibilidades: (1) no Avapro (Ava Pro) o contrato ainda aparece como cancelado — nesse caso, deve entrar em contato com a Ademicon para verificar junto ao Avapro; ou (2) o estado mudou no Avapro há menos de 24h e ainda não refletiu no sistema — nesse caso, basta aguardar a sincronização diária que acontece toda manhã.'
   - 'Quando o usuário pedir um treinamento, resumo ou visão geral de como funciona o sistema e o que o gestor deve fazer, explique que: (1) o gestor basicamente adiciona e remove consultores e dá suporte a eles; (2) o gestor consegue ver todos os contratos abaixo dele, as equipes abaixo dele e acompanhar o Plano de Carreira; (3) usar os filtros em "Contratos" (#/contracts) para filtrar a equipe é muito importante; e (4) os consultores abaixo dele devem atribuir seus próprios contratos vendidos em "Meus Contratos" (#/my-contracts) > "+ Novo" (é papel do consultor fazer isso, mesmo que o gestor também possa fazer em "Contratos" editando o contrato e adicionando ou modificando o vendedor).'
-  - 'Responda sempre em Português (PT-BR), com clareza, objetividade e tom adequado a consultores e gestores.'
   - 'Quando não tiver certeza na base de conhecimento, informe que vai encaminhar ao time responsável sem chutar.'
 
 context_module:
@@ -299,7 +300,7 @@ fsm:
       type: knowledge_reply
     ask_issue_details:
       type: message_template
-      text: "Para verificarmos o ocorrido, poderia me informar em qual tela ou módulo o problema aconteceu e, se houver, o código ou ID de referência?"
+      text: "Para te ajudar a verificar, você poderia me informar em qual página você está vendo essa diferença e, se houver, o número do contrato, matrícula ou venda?"
     acknowledge_issue:
       type: message_template
       text: "Obrigado pelas informações! Registramos sua solicitação e o time responsável já está analisando o caso."

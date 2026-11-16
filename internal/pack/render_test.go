@@ -135,3 +135,40 @@ func TestLoadSupportPackAndRender(t *testing.T) {
 		t.Fatalf("RenderNudge(support) unexpected: err=%v", err)
 	}
 }
+
+func TestLoadSupporterPack_WithPersonality(t *testing.T) {
+	packDir := filepath.Join("..", "..", "packs", "supporter")
+	p, err := pack.LoadFromDir(packDir)
+	if err != nil {
+		t.Fatalf("failed to load supporter pack: %v", err)
+	}
+	if p.Personality == "" {
+		t.Fatalf("expected supporter pack to load personality.md")
+	}
+	if !strings.Contains(p.Personality, "menu lateral") {
+		t.Fatalf("expected personality to mention menu lateral, got: %s", p.Personality)
+	}
+
+	input := pack.PromptInput{
+		Summary: "Consultor com dúvida de matrícula.",
+		NewMessage: pack.PromptMessage{
+			Sender:    "customer",
+			Text:      "Como solicito matrícula?",
+			Timestamp: "2026-11-16T10:00:00Z",
+		},
+		Knowledge: []pack.KnowledgeDoc{
+			{Name: "como-gerenciar-matriculas.md", Content: "Solicite matrícula no menu lateral."},
+		},
+	}
+
+	rp, err := pack.RenderReply(p, input)
+	if err != nil {
+		t.Fatalf("RenderReply failed: %v", err)
+	}
+	if !strings.Contains(rp.System, "DIRETRIZES DE PERSONALIDADE E ESTILO") {
+		t.Fatalf("expected reply prompt to contain personality section header")
+	}
+	if !strings.Contains(rp.System, "menu lateral") {
+		t.Fatalf("expected reply prompt to contain personality content")
+	}
+}

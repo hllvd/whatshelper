@@ -55,5 +55,9 @@ A tela **Meus Contratos** (`#/my-contracts`) é a área onde consultores e admin
 - **Um contrato aparece como cancelado (ou desatualizado), mas o cliente já pagou e está ativo**:
   1. **O Avapro ainda exibe como cancelado**: Nesse caso, é necessário entrar em contato com a **Ademicon** para regularizar a situação no Avapro.
   2. **O Avapro mudou o status há menos de 24h**: Como a sincronização ocorre todos os dias pela manhã, basta aguardar a próxima sincronização matinal para que o novo status seja refletido no sistema.
+- **Os números ou valores de retenção não estão batendo (comparação com a planilha Modelo de Retenção)**:
+  1. Verifique se a divergência ocorre na comparação com a planilha manual **Modelo de Retenção**. Se sim, envie o arquivo da planilha para que um operador humano realize a análise e devolva a conciliação.
+  2. As planilhas manuais frequentemente ficam com dados e status desatualizados, enquanto o sistema é atualizado periodicamente com as bases oficiais.
+  3. O gestor pode orientar cada consultor a conferir em sua própria tela de contratos quais registros específicos estão faltando ou sobrando no sistema.
 - **Meu contrato apareceu em "Contratos Solicitados" e não na tabela principal**: Isso significa que o contrato ainda não entrou na sincronização diária com o Avapro / Power BI (que pode levar até 24h). Assim que for importado/sincronizado, o vínculo é feito automaticamente.
 - **Preciso editar dados de um contrato já cadastrado**: A tela **Meus Contratos** é voltada para acompanhamento e atribuição. Alterações cadastrais em contratos são feitas na tela administrativa **Contratos** (`#/contracts`).

@@ -22,6 +22,7 @@ type RawContextData struct {
 	RecentMessages    []MessageView
 	Knowledge         []KnowledgeDocView
 	QAContent         string
+	Personality       string
 	DegradedProviders []string
 	GeneratedAt       time.Time
 }
@@ -84,6 +85,9 @@ func BuildContextBundle(spec ViewSpec, raw RawContextData) *ContextBundle {
 	}
 	if hasBlock["qa"] && strings.TrimSpace(raw.QAContent) != "" {
 		bundle.QAContent = raw.QAContent
+	}
+	if strings.TrimSpace(raw.Personality) != "" {
+		bundle.Personality = raw.Personality
 	}
 
 	trunc := enforceBudget(bundle, spec.MaxTokens)

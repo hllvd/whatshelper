@@ -28,6 +28,17 @@ func (r knowledgeSourceReader) Load(ctx context.Context, tenantID string) ([]con
 	return docs, bundle.QAContent, nil
 }
 
+func (r knowledgeSourceReader) LoadPersonality(ctx context.Context, tenantID string) (string, error) {
+	if r.src == nil {
+		return "", nil
+	}
+	bundle, err := r.src.Load(ctx, tenantID)
+	if err != nil {
+		return "", err
+	}
+	return bundle.Personality, nil
+}
+
 type pipelinePackResolver struct {
 	tenants TenantConfigLoader
 	loader  func(string) (*pack.Pack, error)
@@ -213,8 +224,9 @@ func bundleKnowledge(b *contextmod.ContextBundle) KnowledgeBundle {
 		docs[i] = pack.KnowledgeDoc{Name: d.Name, Content: d.Content}
 	}
 	return KnowledgeBundle{
-		Docs:      docs,
-		QAContent: b.QAContent,
+		Docs:        docs,
+		QAContent:   b.QAContent,
+		Personality: b.Personality,
 	}
 }
 

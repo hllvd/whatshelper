@@ -153,6 +153,7 @@ func SeedLocalTenants(ctx context.Context, tenantsDir string, st core.Store) ([]
 type KnowledgeBundle struct {
 	Docs        []pack.KnowledgeDoc `json:"docs"`
 	QAContent   string              `json:"qa_content"`
+	Personality string              `json:"personality,omitempty"`
 	Fingerprint string              `json:"fingerprint"`
 }
 
@@ -220,7 +221,12 @@ func (s *LocalKnowledgeSource) Load(ctx context.Context, tenantID string) (Knowl
 		return files[i].name < files[j].name
 	})
 
+	tenantPersPath := filepath.Join(s.tenantsDir, cleanID, "personality.md")
+
 	h := sha256.New()
+	if persInfo, err := os.Stat(tenantPersPath); err == nil {
+		_, _ = fmt.Fprintf(h, "personality:%d:%d;", persInfo.Size(), persInfo.ModTime().UnixNano())
+	}
 	for _, f := range files {
 		_, _ = fmt.Fprintf(h, "%s:%d:%d;", f.name, f.size, f.mtime)
 	}
@@ -235,6 +241,12 @@ func (s *LocalKnowledgeSource) Load(ctx context.Context, tenantID string) (Knowl
 
 	var docs []pack.KnowledgeDoc
 	var qaContent string
+	var personalityContent string
+
+	if rawPers, err := os.ReadFile(tenantPersPath); err == nil {
+		personalityContent = strings.TrimSpace(string(rawPers))
+	}
+
 	for _, f := range files {
 		raw, err := os.ReadFile(f.path)
 		if err != nil {
@@ -243,6 +255,12 @@ func (s *LocalKnowledgeSource) Load(ctx context.Context, tenantID string) (Knowl
 		content := strings.TrimSpace(string(raw))
 		if strings.EqualFold(f.name, "QA.md") {
 			qaContent = content
+			continue
+		}
+		if strings.EqualFold(f.name, "personality.md") {
+			if personalityContent == "" {
+				personalityContent = content
+			}
 			continue
 		}
 		docs = append(docs, pack.KnowledgeDoc{
@@ -254,6 +272,7 @@ func (s *LocalKnowledgeSource) Load(ctx context.Context, tenantID string) (Knowl
 	bundle := KnowledgeBundle{
 		Docs:        docs,
 		QAContent:   qaContent,
+		Personality: personalityContent,
 		Fingerprint: fp,
 	}
 

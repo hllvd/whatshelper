@@ -6,7 +6,7 @@ A tela **Matrículas** (`#/matriculas`) permite que administradores consultem as
 
 ## 1. Pré-requisitos
 - Para acessar a tela **Matrículas** (`#/matriculas`): possuir perfil **Admin** (ou permissão `matriculas:read`).
-- Para consultores sem acesso à tela de Matrículas: utilizar o módulo **Solicitações** (`#/requests`).
+- Para consultores sem acesso à tela de Matrículas: no menu lateral, clique em **Solicitações** (`#/requests`).
 
 ---
 
@@ -42,16 +42,16 @@ Na listagem, você visualiza:
 
 ## 3. Adendo: Como Criar ou Vincular Matrículas via Solicitações (Consultor e Gestor)
 
-Consultores e gestores que precisam de uma nova matrícula (ou de acesso à matrícula de um líder) devem usar o módulo **Solicitações** (`#/requests`):
+Consultores e gestores que precisam de uma nova matrícula (ou de acesso à matrícula de um líder) devem fazer a solicitação no sistema:
 
-1. Acesse **Solicitações** (`#/requests`) e clique em **`+ Nova Solicitação`**.
+1. No menu lateral, clique em **Solicitações** (`#/requests`) e clique em **`+ Nova Solicitação`**.
 2. Escolha o tipo adequado ao seu caso:
    - **Solicitação de Matrícula (Proprietário)**: para gestores/proprietários ou consultores que precisam cadastrar ou reivindicar uma nova matrícula própria ou de filial no sistema. Informe o **Número da Matrícula** e aguarde a aprovação.
    - **Solicitar o uso da matrícula do gestor**: para consultores que precisam utilizar a matrícula corporativa do seu gestor direto. Informe o **Número da Matrícula** do gestor e aguarde a aprovação do titular.
 
 > **Importante — Ao tentar adicionar um contrato e a matrícula não aparecer:**
 > Se você acessar **Meus Contratos** (`#/my-contracts`), clicar em **`+ Novo`** e perceber que a matrícula desejada **não aparece na lista**, isso significa que ela ainda não está cadastrada ou vinculada ao seu usuário.
-> Nesse caso, acesse **Solicitações** (`#/requests`) e escolha entre:
+> Nesse caso, no menu lateral, clique em **Solicitações** (`#/requests`) e escolha entre:
 > - **Solicitar uma nova matrícula** (*Solicitação de Matrícula (Proprietário)*), ou
 > - **Solicitar o uso da matrícula do seu gestor** (*Solicitar o uso da matrícula do gestor*).
 >

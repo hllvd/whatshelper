@@ -6,7 +6,7 @@ A tela **Equipes → Lista** (`#/teams`) permite que administradores visualizem 
 
 ## 1. Pré-requisitos
 - Possuir perfil **Admin** (ou permissão `teams:manage`).
-- **Criação de nova equipe**: Um perfil Admin não cria equipes diretamente pelo botão nesta tela. Caso você tenha sido promovido a **Guimel** e precise criar sua própria equipe, utilize o módulo **Solicitações** (`#/requests`) selecionando a opção *Eu sou Guimel agora, quero criar minha equipe*. A solicitação será encaminhada ao gestor e ao SuperAdmin para aprovação.
+- **Criação de nova equipe**: Um perfil Admin não cria equipes diretamente pelo botão nesta tela. Caso você tenha sido promovido a **Guimel** e precise criar sua própria equipe, no menu lateral, clique em **Solicitações** (`#/requests`) selecionando a opção *Eu sou Guimel agora, quero criar minha equipe*. A solicitação será encaminhada ao gestor e ao SuperAdmin para aprovação.
 
 ---
 

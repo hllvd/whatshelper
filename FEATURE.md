@@ -346,3 +346,36 @@ curl -X PUT "http://127.0.0.1:8080/api/llm/config?tenant=demo" \
   - Testes de modo listening e gravação em pastas aninhadas em [`internal/brain/listening_test.go`](file:///Users/hudson/development/whatshelper/internal/brain/listening_test.go).
   - Testes da API REST em [`internal/server/contacts_api_test.go`](file:///Users/hudson/development/whatshelper/internal/server/contacts_api_test.go).
 
+---
+
+## 2026-11-16 — Suporte a `personality.md` (Pack e Tenant) + Navegação Amigável no Menu ("no menu lateral, clique em...") e Alívio de Regras no YAML
+
+### Itens Implementados
+- **Suporte Nativo a `personality.md` no Motor Go**:
+  - **Pack**: Adicionado campo `Personality` em [`internal/pack/pack.go`](file:///Users/hudson/development/whatshelper/internal/pack/pack.go). `LoadFromDir` carrega automaticamente o arquivo `packs/<pack>/personality.md` quando presente.
+  - **Knowledge / Tenant Override**: `KnowledgeBundle` e `LocalKnowledgeSource` em [`internal/brain/knowledge.go`](file:///Users/hudson/development/whatshelper/internal/brain/knowledge.go) passam a ler `tenants/<tenant>/personality.md` (ou `tenants/<tenant>/knowledge/personality.md`) de forma desacoplada dos documentos factuais de negócio (`Docs`), com invalidação automática de cache no fingerprint.
+  - **Context Adapter e In-Process Provider**: Propagação de `Personality` através de `knowledgeSourceReader`, `contextmod.ContextBundle` e `PromptInput` até `RenderReply` em [`internal/pack/render.go`](file:///Users/hudson/development/whatshelper/internal/pack/render.go).
+  - **Template de Resposta (`reply.tmpl`)**: Atualizados [`packs/supporter/prompts/reply.tmpl`](file:///Users/hudson/development/whatshelper/packs/supporter/prompts/reply.tmpl), [`packs/support/prompts/reply.tmpl`](file:///Users/hudson/development/whatshelper/packs/support/prompts/reply.tmpl) e [`packs/realestate/prompts/reply.tmpl`](file:///Users/hudson/development/whatshelper/packs/realestate/prompts/reply.tmpl) para exibir o bloco dedicado `DIRETRIZES DE PERSONALIDADE E ESTILO`.
+- **Criação de `tenants/supporter/personality.md` e `packs/supporter/personality.md`**:
+  - Centraliza o tom de voz humano, cordial e direto para WhatsApp, tratamento de encerramento e agradecimentos sem repetição de respostas.
+  - **Regra Estrita de Navegação**: NUNCA utilizar termos técnicos como "módulo". Orientar sempre no padrão visual e amigável: *"no menu lateral, clique em [Nome] (`#/rota`)"*.
+- **Alívio das Regras em `packs/supporter/pack.yaml`**:
+  - As diretrizes de tom, estilo de conversa e navegação foram transferidas para `personality.md`, mantendo as `rules:` do YAML concisas e dedicadas exclusivamente a regras operacionais e de negócio.
+- **Varredura e Padronização da Base de Conhecimento**:
+  - Eliminada 100% das ocorrências de "módulo Solicitações" em [`como-usar-solicitacoes.md`](file:///Users/hudson/development/whatshelper/tenants/supporter/knowledge/como-usar-solicitacoes.md), [`como-gerenciar-matriculas.md`](file:///Users/hudson/development/whatshelper/tenants/supporter/knowledge/como-gerenciar-matriculas.md), [`como-gerenciar-usuarios.md`](file:///Users/hudson/development/whatshelper/tenants/supporter/knowledge/como-gerenciar-usuarios.md), [`como-gerenciar-equipes.md`](file:///Users/hudson/development/whatshelper/tenants/supporter/knowledge/como-gerenciar-equipes.md) e [`QA.md`](file:///Users/hudson/development/whatshelper/tenants/supporter/knowledge/QA.md).
+- **Tratamento de Divergência de Valores e Fluxo do Modelo de Retenção**:
+  - Adicionado procedimento em [`QA.md`](file:///Users/hudson/development/whatshelper/tenants/supporter/knowledge/QA.md), [`como-acompanhar-meus-contratos.md`](file:///Users/hudson/development/whatshelper/tenants/supporter/knowledge/como-acompanhar-meus-contratos.md), [`personality.md`](file:///Users/hudson/development/whatshelper/tenants/supporter/personality.md) e regras do pack para quando o usuário disser que os números não estão batendo:
+    1. Perguntar em qual página está a divergência e o contrato/matrícula (sem falar "ID de referência").
+    2. Verificar se a comparação é com a planilha manual **Modelo de Retenção**.
+    3. Solicitar o arquivo da planilha para análise detalhada por um **operador humano**, que devolverá a análise.
+    4. Explicar que a planilha manual costuma estar desatualizada em relação ao sistema (atualizado periodicamente com a base oficial).
+    5. Sugerir que o gestor peça a cada consultor para verificar na sua própria carteira quais contratos estão sobrando ou faltando no sistema.
+- **Eliminação do Jargão Técnico "ID de Referência"**:
+  - Banido o termo técnico "ID de referência" no prompt e templates ([`packs/supporter/pack.yaml`](file:///Users/hudson/development/whatshelper/packs/supporter/pack.yaml), [`journey.yaml`](file:///Users/hudson/development/whatshelper/packs/supporter/journey.yaml) e [`personality.md`](file:///Users/hudson/development/whatshelper/tenants/supporter/personality.md)), substituindo pela pergunta natural: *"em qual página você está vendo essa diferença e, se houver, qual é o número do contrato, matrícula ou venda?"*.
+- **Guia Completo de Retenção e Métricas**:
+  - Criado o documento [`tenants/supporter/knowledge/o-que-e-retencao-tipos-e-como-calcular.md`](file:///Users/hudson/development/whatshelper/tenants/supporter/knowledge/o-que-e-retencao-tipos-e-como-calcular.md) com os conceitos de retenção, tipos (CRR, GRR, NRR, Produto/Cohort), fórmulas matemáticas com exemplos numéricos e tabela de benchmarks de mercado.
+  - Adicionada pergunta e resposta rápida correspondente em [`QA.md`](file:///Users/hudson/development/whatshelper/tenants/supporter/knowledge/QA.md).
+- **Testes**:
+  - [`TestLoadSupporterPack_WithPersonality`](file:///Users/hudson/development/whatshelper/internal/pack/render_test.go#L139-L174): valida carregamento do `personality.md` pelo pack e injeção no prompt de resposta.
+  - [`TestLocalTenantAndKnowledgeSource_ReloadsOnChange`](file:///Users/hudson/development/whatshelper/internal/brain/knowledge_test.go#L18-L94): valida recarga e invalidação de cache ao adicionar ou modificar `personality.md` no tenant.
+

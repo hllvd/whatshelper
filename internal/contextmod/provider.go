@@ -36,6 +36,7 @@ type ProviderResult struct {
 	RecentMessages    []MessageView
 	Knowledge         []KnowledgeDocView
 	QAContent         string
+	Personality       string
 }
 
 // ContextProvider define o contrato de um provedor plugável de contexto.
@@ -179,5 +180,8 @@ func mergeProviderResult(dst *RawContextData, src *ProviderResult) {
 	}
 	if src.QAContent != "" {
 		dst.QAContent = src.QAContent
+	}
+	if src.Personality != "" {
+		dst.Personality = src.Personality
 	}
 }

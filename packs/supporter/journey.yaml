@@ -37,9 +37,9 @@ states:
     stagnation_threshold: 3
     stagnation_to: perguntar_humano
     directive:
-      goal: "Identificar assunto, tela/módulo e eventual ID de referência."
+      goal: "Identificar assunto, em qual página está e qual contrato, venda ou matrícula."
       must_ask:
-        - "Qual módulo, tela ou ID de referência está envolvido?"
+        - "Em qual página você está vendo isso e qual contrato, matrícula ou venda está envolvido?"
       constraints:
         - "Faça no máximo 1 ou 2 perguntas objetivas."
     rules:
@@ -106,9 +106,9 @@ states:
     stagnation_threshold: 3
     stagnation_to: perguntar_humano
     directive:
-      goal: "Confirmar tela/módulo e ID de referência para encaminhar ou orientar."
+      goal: "Confirmar em qual página e qual contrato, matrícula ou venda para encaminhar ou orientar."
       must_ask:
-        - "Pode informar o ID de referência (ex.: VENDA-123) e a tela onde ocorreu?"
+        - "Pode informar em qual página ocorreu e, se houver, o número do contrato, matrícula ou venda?"
       constraints:
         - "Seja objetivo na coleta."
     rules:

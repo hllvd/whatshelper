@@ -12,7 +12,7 @@ P: O consultor saiu da minha equipe porque migrou para outra equipe (ou se torno
 R: Quando o consultor continua na Ademicon e migrou para outra equipe (ou virou gestor), você deve ajustar o Calendário de Equipes. Acesse Equipes → Calendário (#/teams/calendar), busque pelo consultor, edite o bloco da equipe anterior preenchendo a Data Final (data de corte) e vincule/confirme a nova equipe com a respectiva Data de Início (mantendo a equipe atual sem data final).
 
 P: Fui promovido ao nível Guimel (bati o Guimel) e quero criar minha própria equipe. Como faço?
-R: Acesse o módulo Solicitações (#/requests), clique em "+ Nova Solicitação", selecione o tipo "Eu sou Guimel agora, quero criar minha equipe", preencha o Nome da Equipe e envie. A solicitação será encaminhada ao gestor e ao SuperAdmin. Quando aprovada, a equipe será criada automaticamente, você se tornará o proprietário (Owner) e seu perfil será atualizado para Administrador.
+R: No menu lateral, clique em Solicitações (#/requests), clique em "+ Nova Solicitação", selecione o tipo "Eu sou Guimel agora, quero criar minha equipe", preencha o Nome da Equipe e envie. A solicitação será encaminhada ao gestor e ao SuperAdmin. Quando aprovada, a equipe será criada automaticamente, você se tornará o proprietário (Owner) e seu perfil será atualizado para Administrador.
 
 P: Eu não encontro o contrato no sistema (ou meu contrato não aparece na lista). O que pode ser?
 R: Se você não está encontrando um contrato no sistema, verifique os dois motivos mais comuns:
@@ -32,3 +32,19 @@ R: Claro! Como gestor, o seu papel principal no sistema é adicionar e remover c
 
 P: Você consegue saber quem é o meu gestor da equipe? / Você consegue saber quem é?
 R: Consigo sim! Para que eu possa localizar o seu cadastro no sistema e verificar quem é o seu gestor responsável, por favor me informe o seu nome completo, seu e-mail de acesso ou o número de um contrato atribuído a você.
+
+P: Os números não estão batendo (ou valores de fechamento/retenção não batem). O que fazer?
+R: Para te ajudar a entender essa divergência, vamos verificar passo a passo:
+1. Em qual página você está vendo essa diferença e qual é o contrato, venda ou matrícula (ex.: número do contrato ou matrícula)?
+2. Você está comparando os números com a planilha "Modelo de Retenção"?
+   - Se sim, nos envie o arquivo do modelo de retenção por aqui: um operador humano fará a análise comparativa detalhada do arquivo e devolverá o resultado para você.
+   - Vale lembrar que os status na planilha manual do modelo de retenção geralmente ficam desatualizados, enquanto o sistema é atualizado periodicamente com a base oficial.
+   - Uma recomendação importante para os gestores é pedir para que cada consultor da equipe verifique individualmente na sua própria carteira quais contratos estão sobrando ou faltando no sistema.
+
+P: O que é retenção, quais são os tipos e como calcular?
+R: Retenção é a capacidade de manter clientes, contas ou receitas ativos ao longo do tempo (o oposto de Churn). Os principais tipos são:
+1. Retenção de Clientes (CRR): mede a proporção de contas preservadas: CRR = ((E - N) / S) * 100, onde S é início, E é fim e N são novos clientes.
+2. Retenção de Receita Bruta (GRR): mede a receita preservada sem contar novas expansões: GRR = ((MRR Inicial - Churn - Downgrades) / MRR Inicial) * 100 (teto máximo 100%).
+3. Retenção de Receita Líquida (NRR): considera perdas e ganhos adicionais (upsell/cross-sell): NRR = ((MRR Inicial + Expansão - Churn - Downgrades) / MRR Inicial) * 100. Acima de 100% indica que a base cresce organicamente.
+4. Retenção por Safra/Cohort (Produto): avalia o retorno de usuários ativos ao longo do tempo (D1, D7, D30).
+Para detalhes completos de fórmulas e exemplos numéricos, consulte o guia de retenção na base de conhecimento.

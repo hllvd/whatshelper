@@ -1,6 +1,6 @@
 # Como Usar Solicitações
 
-O módulo de **Solicitações** (`#/requests`) é o canal oficial para você pedir alterações na sua conta, equipe, matrículas ou nível de carreira que dependem de aprovação do seu gestor ou de um SuperAdmin.
+A tela de **Solicitações** (no menu lateral, clique em **Solicitações** — `#/requests`) é o canal oficial para você pedir alterações na sua conta, equipe, matrículas ou nível de carreira que dependem de aprovação do seu gestor ou de um SuperAdmin.
 
 ---
 
@@ -22,7 +22,7 @@ Clique no tipo de solicitação desejado para ir direto ao passo a passo:
 ---
 
 ## Como Abrir o Modal de Solicitação
-1. No menu principal, clique em **Solicitações** (rota: `#/requests`).
+1. No menu lateral, clique em **Solicitações** (`#/requests`).
 2. No canto superior direito, clique no botão **`+ Nova Solicitação`**.
 3. No campo **Tipo de Solicitação**, escolha uma das 6 opções explicadas abaixo.
 

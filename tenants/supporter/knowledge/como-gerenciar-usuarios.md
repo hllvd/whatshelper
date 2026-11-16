@@ -62,4 +62,4 @@ A tela **Usuários → Lista** (`#/users`) é o local oficial onde administrador
   - Se **saiu da Ademicon (não trabalha mais na empresa)**: **somente desative o usuário** em **Usuários → Lista** (`#/users`) clicando no ícone de lixeira → **`Desativar`**.
   - Se **migrou para outra equipe** (continua na Ademicon): ajuste a data de corte em **Equipes → Calendário** (`#/teams/calendar`).
 - **Aparece "Apenas leitura" na coluna Ações**: Isso significa que o consultor não está abaixo de você na árvore hierárquica. Apenas o gestor superior correspondente (ou um SuperAdmin) pode editá-lo ou desativá-lo.
-- **Um consultor precisa alterar o próprio superior ou solicitar mudança de equipe**: Ele deve utilizar o módulo **Solicitações** (`#/requests`) para pedidos que dependam de aprovação.
+- **Um consultor precisa alterar o próprio superior ou solicitar mudança de equipe**: No menu lateral, clique em **Solicitações** (`#/requests`) para pedidos que dependam de aprovação.

@@ -224,6 +224,7 @@ type Pack struct {
 	Prompts        PromptsDef             `yaml:"prompts" json:"prompts"`
 	Timing         *TimingDef             `yaml:"timing,omitempty" json:"timing,omitempty"`
 	Rules          []string               `yaml:"rules,omitempty" json:"rules,omitempty"`
+	Personality    string                 `yaml:"-" json:"personality,omitempty"`
 
 	// Templates compilados na carga
 	AnalysisTmpl *template.Template `yaml:"-" json:"-"`
@@ -283,6 +284,12 @@ func LoadFromDir(dir string) (*Pack, error) {
 		journey = journeys["support"]
 	}
 	p.Journey = journey
+
+	persData, err := os.ReadFile(filepath.Join(dir, "personality.md"))
+	if err == nil {
+		p.Personality = strings.TrimSpace(string(persData))
+	}
+
 	return p, nil
 }
 

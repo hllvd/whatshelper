@@ -1202,6 +1202,11 @@ staleReprocessLoop:
 	knowledge := bundleKnowledge(replyBundle)
 	p.enrichKnowledgeWithLiveAPI(ctx, tenantID, &tenantCfg, newReplyPromptMsg.Text, recentForReply, updatedState, decision.Intent, &knowledge)
 
+	effectivePers := strings.TrimSpace(knowledge.Personality)
+	if effectivePers == "" && pk != nil {
+		effectivePers = pk.Personality
+	}
+
 	replyInput := pack.PromptInput{
 		Pack:           pk,
 		Summary:        bundleSummaryText(replyBundle),
@@ -1212,6 +1217,7 @@ staleReprocessLoop:
 		NewMessage:     newReplyPromptMsg,
 		Knowledge:      knowledge.Docs,
 		QAContent:      knowledge.QAContent,
+		Personality:    effectivePers,
 		PlainTextOnly:  plainTextOnly,
 		Directive:      journeyDirective,
 	}
