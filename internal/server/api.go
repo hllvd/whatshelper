@@ -629,6 +629,247 @@ func (s *Server) handleListContactSources(w http.ResponseWriter, r *http.Request
 	})
 }
 
+type ContactSummaryView struct {
+	core.Contact
+	SourcesCount int               `json:"sources_count"`
+	Sources      []core.SourceLink `json:"sources,omitempty"`
+	LastSummary  string            `json:"last_summary,omitempty"`
+}
+
+type ContactDetailView struct {
+	core.Contact
+	Sources      []core.SourceLink            `json:"sources"`
+	SourceStates map[string]*core.SourceState `json:"source_states,omitempty"`
+}
+
+func (s *Server) handleListContacts(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Store == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "store não configurado")
+		return
+	}
+	tenant := strings.TrimSpace(r.URL.Query().Get("tenant"))
+	if tenant == "" {
+		tenant = "demo"
+	}
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+
+	contacts, err := s.deps.Store.SearchContacts(r.Context(), tenant, query, 100)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	views := make([]ContactSummaryView, 0, len(contacts))
+	for _, c := range contacts {
+		links, _ := s.deps.Store.ListContactSources(r.Context(), tenant, c.ID)
+		lastSummary := ""
+		if len(links) > 0 {
+			if st, stErr := s.deps.Store.GetSourceState(r.Context(), tenant, links[0].Channel, links[0].SourceKey); stErr == nil && st != nil {
+				lastSummary = st.Summary.Text
+			}
+		}
+		views = append(views, ContactSummaryView{
+			Contact:      c,
+			SourcesCount: len(links),
+			Sources:      links,
+			LastSummary:  lastSummary,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"tenant":   tenant,
+		"contacts": views,
+		"total":    len(views),
+	})
+}
+
+func (s *Server) handleGetContact(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Store == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "store não configurado")
+		return
+	}
+	contactID := strings.TrimSpace(r.PathValue("id"))
+	if contactID == "" {
+		writeJSONError(w, http.StatusBadRequest, "id do contato é obrigatório")
+		return
+	}
+	tenant := strings.TrimSpace(r.URL.Query().Get("tenant"))
+	if tenant == "" {
+		tenant = "demo"
+	}
+
+	contact, err := s.deps.Store.GetContact(r.Context(), tenant, contactID)
+	if err != nil {
+		if errors.Is(err, core.ErrContactNotFound) {
+			writeJSONError(w, http.StatusNotFound, "contato não encontrado")
+			return
+		}
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	sources, _ := s.deps.Store.ListContactSources(r.Context(), tenant, contactID)
+	states := make(map[string]*core.SourceState)
+	for _, src := range sources {
+		key := fmt.Sprintf("%s/%s", src.Channel, src.SourceKey)
+		if st, stErr := s.deps.Store.GetSourceState(r.Context(), tenant, src.Channel, src.SourceKey); stErr == nil && st != nil {
+			states[key] = st
+		}
+	}
+
+	writeJSON(w, http.StatusOK, ContactDetailView{
+		Contact:      *contact,
+		Sources:      sources,
+		SourceStates: states,
+	})
+}
+
+func (s *Server) handleDeleteContact(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Store == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "store não configurado")
+		return
+	}
+	contactID := strings.TrimSpace(r.PathValue("id"))
+	if contactID == "" {
+		writeJSONError(w, http.StatusBadRequest, "id do contato é obrigatório")
+		return
+	}
+	tenant := strings.TrimSpace(r.URL.Query().Get("tenant"))
+	if tenant == "" {
+		tenant = "demo"
+	}
+
+	if err := s.deps.Store.DeleteContactAndHistory(r.Context(), tenant, contactID); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"deleted":    true,
+		"contact_id": contactID,
+		"tenant":     tenant,
+	})
+}
+
+func (s *Server) handleToggleContactListening(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Store == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "store não configurado")
+		return
+	}
+	contactID := strings.TrimSpace(r.PathValue("id"))
+	if contactID == "" {
+		writeJSONError(w, http.StatusBadRequest, "id do contato é obrigatório")
+		return
+	}
+	tenant := strings.TrimSpace(r.URL.Query().Get("tenant"))
+	if tenant == "" {
+		tenant = "demo"
+	}
+
+	var req struct {
+		Listening bool `json:"listening"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "JSON inválido")
+		return
+	}
+
+	contact, err := s.deps.Store.GetContact(r.Context(), tenant, contactID)
+	if err != nil {
+		if errors.Is(err, core.ErrContactNotFound) {
+			writeJSONError(w, http.StatusNotFound, "contato não encontrado")
+			return
+		}
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	contact.Listening = req.Listening
+	if err := s.deps.Store.SaveContact(r.Context(), *contact); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, contact)
+}
+
+func (s *Server) handleGetListeningConfig(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Store == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "store não configurado")
+		return
+	}
+	tenant := strings.TrimSpace(r.URL.Query().Get("tenant"))
+	if tenant == "" {
+		tenant = "demo"
+	}
+
+	data, err := s.deps.Store.GetTenantConfig(r.Context(), tenant, "listening")
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"tenant":    tenant,
+			"global":    false,
+			"whitelist": []string{},
+		})
+		return
+	}
+
+	var cfg struct {
+		Global    bool     `json:"global"`
+		Whitelist []string `json:"whitelist"`
+	}
+	if json.Unmarshal(data, &cfg) != nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"tenant":    tenant,
+			"global":    false,
+			"whitelist": []string{},
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"tenant":    tenant,
+		"global":    cfg.Global,
+		"whitelist": cfg.Whitelist,
+	})
+}
+
+func (s *Server) handlePutListeningConfig(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Store == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "store não configurado")
+		return
+	}
+	tenant := strings.TrimSpace(r.URL.Query().Get("tenant"))
+	if tenant == "" {
+		tenant = "demo"
+	}
+
+	var req struct {
+		Global    bool     `json:"global"`
+		Whitelist []string `json:"whitelist"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "JSON inválido")
+		return
+	}
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if err := s.deps.Store.SaveTenantConfig(r.Context(), tenant, "listening", data); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"tenant":    tenant,
+		"global":    req.Global,
+		"whitelist": req.Whitelist,
+	})
+}
+
 type knowledgeFileView struct {
 	Name    string `json:"name"`
 	Key     string `json:"key"`
@@ -638,11 +879,11 @@ type knowledgeFileView struct {
 
 func validateKnowledgeFilename(raw string) (string, bool) {
 	name := strings.TrimSpace(raw)
-	if name == "" || strings.ContainsAny(name, `/\`) || strings.Contains(name, "..") {
+	if name == "" || strings.Contains(name, "..") || strings.HasPrefix(name, "/") || strings.HasPrefix(name, "\\") {
 		return "", false
 	}
-	clean := filepath.Base(name)
-	if clean != name || !strings.HasSuffix(strings.ToLower(clean), ".md") {
+	clean := filepath.Clean(filepath.ToSlash(name))
+	if clean == "." || strings.HasPrefix(clean, "../") || !strings.HasSuffix(strings.ToLower(clean), ".md") {
 		return "", false
 	}
 	return clean, true
@@ -674,12 +915,16 @@ func (s *Server) handleListKnowledge(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			continue
 		}
-		name := filepath.Base(k)
+		relName := strings.TrimPrefix(k, prefix)
+		relName = strings.TrimPrefix(relName, "/")
+		if relName == "" {
+			relName = filepath.Base(k)
+		}
 		files = append(files, knowledgeFileView{
-			Name:    name,
+			Name:    relName,
 			Key:     k,
 			Content: string(raw),
-			IsQA:    strings.EqualFold(name, "QA.md"),
+			IsQA:    strings.EqualFold(filepath.Base(relName), "QA.md") || strings.EqualFold(filepath.Base(relName), "QA-listed.md"),
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{

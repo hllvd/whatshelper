@@ -212,6 +212,57 @@ func RunStoreContractTests(t *testing.T, makeStore func(t *testing.T, clock core
 		if len(gsiMetas) != 1 || gsiMetas[0].SourceKey != "s1" || gsiMetas[0].ContactID != "contact-99" {
 			t.Fatalf("expected 1 GSI1 source meta for s1, got %+v", gsiMetas)
 		}
+
+		// Valida CRUD de Contato e busca por e-mail/telefone
+		contact := core.Contact{
+			ID:       "contact-99",
+			TenantID: "tenant-c",
+			Name:     "Cliente Teste",
+			Email:    "cliente@teste.com",
+			Phone:    "+55 (11) 99999-8888",
+			Metadata: map[string]string{"origem": "campanha_natal"},
+		}
+		if err := s.SaveContact(ctx, contact); err != nil {
+			t.Fatalf("SaveContact failed: %v", err)
+		}
+
+		gotContact, err := s.GetContact(ctx, "tenant-c", "contact-99")
+		if err != nil {
+			t.Fatalf("GetContact failed: %v", err)
+		}
+		if gotContact.Name != "Cliente Teste" || gotContact.Phone != "11999998888" {
+			t.Fatalf("unexpected contact data: %+v", gotContact)
+		}
+
+		// Busca por telefone normalizado
+		foundByPhone, err := s.FindContactByEmailOrPhone(ctx, "tenant-c", "", "5511999998888")
+		if err != nil || foundByPhone == nil || foundByPhone.ID != "contact-99" {
+			t.Fatalf("expected to find contact by phone, got %+v, err=%v", foundByPhone, err)
+		}
+
+		// Busca por e-mail
+		foundByEmail, err := s.FindContactByEmailOrPhone(ctx, "tenant-c", "CLIENTE@TESTE.COM", "")
+		if err != nil || foundByEmail == nil || foundByEmail.ID != "contact-99" {
+			t.Fatalf("expected to find contact by email, got %+v, err=%v", foundByEmail, err)
+		}
+
+		// Busca textual
+		searchRes, err := s.SearchContacts(ctx, "tenant-c", "999998888", 10)
+		if err != nil || len(searchRes) != 1 {
+			t.Fatalf("expected 1 contact in search, got %d (err=%v)", len(searchRes), err)
+		}
+
+		// Exclui contato e histórico
+		if err := s.DeleteContactAndHistory(ctx, "tenant-c", "contact-99"); err != nil {
+			t.Fatalf("DeleteContactAndHistory failed: %v", err)
+		}
+		if _, err := s.GetContact(ctx, "tenant-c", "contact-99"); !errors.Is(err, core.ErrContactNotFound) {
+			t.Fatalf("expected ErrContactNotFound after deletion, got %v", err)
+		}
+		linksAfter, _ := s.ListContactSources(ctx, "tenant-c", "contact-99")
+		if len(linksAfter) != 0 {
+			t.Fatalf("expected 0 links after delete, got %d", len(linksAfter))
+		}
 	})
 
 	t.Run("TenantConfig_SaveAndGet", func(t *testing.T) {

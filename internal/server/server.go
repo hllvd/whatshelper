@@ -166,10 +166,16 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/llm/config", s.handlePutLLMConfig)
 	mux.HandleFunc("POST /api/llm/test", s.handleTestLLM)
 	mux.HandleFunc("POST /api/replay", s.handlePostReplay)
+	mux.HandleFunc("GET /api/contacts", s.handleListContacts)
+	mux.HandleFunc("GET /api/contacts/{id}", s.handleGetContact)
+	mux.HandleFunc("DELETE /api/contacts/{id}", s.handleDeleteContact)
+	mux.HandleFunc("POST /api/contacts/{id}/listening", s.handleToggleContactListening)
+	mux.HandleFunc("GET /api/listening/config", s.handleGetListeningConfig)
+	mux.HandleFunc("PUT /api/listening/config", s.handlePutListeningConfig)
 	mux.HandleFunc("GET /api/contacts/{contact_id}/sources", s.handleListContactSources)
 	mux.HandleFunc("GET /api/knowledge", s.handleListKnowledge)
-	mux.HandleFunc("GET /api/knowledge/{file}", s.handleGetKnowledgeFile)
-	mux.HandleFunc("PUT /api/knowledge/{file}", s.handlePutKnowledgeFile)
+	mux.HandleFunc("GET /api/knowledge/{file...}", s.handleGetKnowledgeFile)
+	mux.HandleFunc("PUT /api/knowledge/{file...}", s.handlePutKnowledgeFile)
 	mux.HandleFunc("GET /api/knowledge/{file}/versions", s.handleListKnowledgeVersions)
 	mux.HandleFunc("GET /api/learning/pending", s.handleListPendingLearning)
 	mux.HandleFunc("POST /api/learning/{id}/approve", s.handleApproveLearning)
@@ -206,6 +212,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /thinking", s.serveStaticFile(subFS, "thinking.html", "text/html; charset=utf-8"))
 	mux.HandleFunc("GET /knowledge", s.serveStaticFile(subFS, "knowledge.html", "text/html; charset=utf-8"))
 	mux.HandleFunc("GET /journey", s.serveStaticFile(subFS, "journey.html", "text/html; charset=utf-8"))
+	mux.HandleFunc("GET /contacts", s.serveStaticFile(subFS, "contacts.html", "text/html; charset=utf-8"))
 }
 
 func (s *Server) serveStaticFile(fsys fs.FS, name, contentType string) http.HandlerFunc {

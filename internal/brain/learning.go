@@ -34,6 +34,8 @@ type LearningProposal struct {
 	Answer           string     `json:"answer"`
 	Action           string     `json:"action"` // "add" | "merge"
 	TargetQuestion   string     `json:"target_question,omitempty"`
+	TargetFile       string     `json:"target_file,omitempty"`
+	Kind             string     `json:"kind,omitempty"` // "qa" | "character"
 	Status           string     `json:"status"` // "pending" | "approved" | "rejected"
 	MergeOutcome     string     `json:"merge_outcome,omitempty"`
 	ResumedReply     string     `json:"resumed_reply,omitempty"`
@@ -336,17 +338,41 @@ func (p *Pipeline) ApproveLearningProposal(ctx context.Context, req ApproveLearn
 		return nil, errors.New("pergunta e resposta não podem ficar vazias na aprovação")
 	}
 
-	// Dedupe/merge determinístico em QA.md e escrita versionada no S3/MinIO
-	existing := p.loadExistingQAEntries(ctx, tenantID)
-	merged, outcome, _ := MergeQAEntry(existing, QAEntry{
-		Question: prop.Question,
-		Answer:   prop.Answer,
-	}, prop.TargetQuestion)
-	qaBody := FormatQA(merged)
+	targetFile := prop.TargetFile
+	if targetFile == "" {
+		targetFile = "QA.md"
+	}
 
-	qaKey := store.S3KnowledgeKey(tenantID, "QA.md")
-	if err := p.cfg.Blobs.Put(ctx, qaKey, []byte(qaBody), "text/markdown; charset=utf-8"); err != nil {
-		return nil, fmt.Errorf("erro ao gravar QA.md versionado: %w", err)
+	var outcome QAMergeOutcome
+	if prop.Kind == "character" || strings.HasSuffix(targetFile, "character.md") {
+		key := store.S3KnowledgeKey(tenantID, targetFile)
+		var currentContent string
+		if raw, bErr := p.cfg.Blobs.Get(ctx, key); bErr == nil {
+			currentContent = string(raw)
+		} else {
+			currentContent = "# Personalidade do Atendente (Character)\nDiretrizes de comunicação, tom de voz e vocabulário aprendidos do atendimento.\n"
+		}
+		newSection := fmt.Sprintf("\n## %s\n- **Exemplo de uso:** %s\n", prop.Question, prop.Answer)
+		updatedContent := strings.TrimSpace(currentContent) + "\n" + newSection
+
+		if err := p.cfg.Blobs.Put(ctx, key, []byte(updatedContent), "text/markdown; charset=utf-8"); err != nil {
+			return nil, fmt.Errorf("erro ao gravar arquivo de personalidade %s: %w", targetFile, err)
+		}
+		outcome = QAMergeAdded
+	} else {
+		// Dedupe/merge determinístico em QA.md ou QA-listed.md e escrita versionada no S3/MinIO
+		existing := p.loadExistingQAEntriesForFile(ctx, tenantID, targetFile)
+		merged, mOutcome, _ := MergeQAEntry(existing, QAEntry{
+			Question: prop.Question,
+			Answer:   prop.Answer,
+		}, prop.TargetQuestion)
+		outcome = mOutcome
+		qaBody := FormatQA(merged)
+
+		qaKey := store.S3KnowledgeKey(tenantID, targetFile)
+		if err := p.cfg.Blobs.Put(ctx, qaKey, []byte(qaBody), "text/markdown; charset=utf-8"); err != nil {
+			return nil, fmt.Errorf("erro ao gravar %s versionado: %w", targetFile, err)
+		}
 	}
 
 	// Hot reload imediato do cache de conhecimento
@@ -678,10 +704,17 @@ func (p *Pipeline) findWrongReplyContext(ctx context.Context, tenantID, channelI
 }
 
 func (p *Pipeline) loadExistingQAEntries(ctx context.Context, tenantID string) []QAEntry {
+	return p.loadExistingQAEntriesForFile(ctx, tenantID, "QA.md")
+}
+
+func (p *Pipeline) loadExistingQAEntriesForFile(ctx context.Context, tenantID, filename string) []QAEntry {
 	if p.cfg.Blobs == nil {
 		return nil
 	}
-	raw, err := p.cfg.Blobs.Get(ctx, store.S3KnowledgeKey(tenantID, "QA.md"))
+	if strings.TrimSpace(filename) == "" {
+		filename = "QA.md"
+	}
+	raw, err := p.cfg.Blobs.Get(ctx, store.S3KnowledgeKey(tenantID, filename))
 	if err != nil {
 		return nil
 	}

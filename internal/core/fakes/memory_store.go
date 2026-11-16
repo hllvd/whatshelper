@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,6 +25,7 @@ type MemoryStore struct {
 	tasks         map[string]map[string]core.Task
 	runs          map[string][]core.Run
 	configs       map[string][]byte            // key: tenant#name
+	contacts      map[string]core.Contact      // key: tenant#contact_id
 	contactLinks  map[string][]core.SourceLink // key: tenant#contact_id
 	outbound      map[string]core.OutboundMessageRecord
 	journeys      map[string]*core.JourneyState
@@ -51,6 +53,7 @@ func NewMemoryStoreWithClock(clock core.Clock) *MemoryStore {
 		tasks:        make(map[string]map[string]core.Task),
 		runs:         make(map[string][]core.Run),
 		configs:      make(map[string][]byte),
+		contacts:     make(map[string]core.Contact),
 		contactLinks: make(map[string][]core.SourceLink),
 		outbound:     make(map[string]core.OutboundMessageRecord),
 		journeys:     make(map[string]*core.JourneyState),
@@ -507,6 +510,149 @@ func (m *MemoryStore) ListContactSources(ctx context.Context, tenant, contactID 
 	result := make([]core.SourceLink, len(links))
 	copy(result, links)
 	return result, nil
+}
+
+func (m *MemoryStore) SaveContact(ctx context.Context, contact core.Contact) error {
+	if err := contact.Validate(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	now := m.clock.Now().UTC()
+	if contact.CreatedAt.IsZero() {
+		contact.CreatedAt = now
+	}
+	contact.UpdatedAt = now
+
+	// normaliza email e telefone
+	if contact.Email != "" {
+		contact.Email = core.NormalizeEmail(contact.Email)
+	}
+	if contact.Phone != "" {
+		contact.Phone = core.NormalizePhone(contact.Phone)
+	}
+
+	key := fmt.Sprintf("%s#%s", contact.TenantID, contact.ID)
+	m.contacts[key] = contact
+	return nil
+}
+
+func (m *MemoryStore) GetContact(ctx context.Context, tenant, contactID string) (*core.Contact, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	key := fmt.Sprintf("%s#%s", tenant, contactID)
+	c, ok := m.contacts[key]
+	if !ok {
+		return nil, core.ErrContactNotFound
+	}
+	copied := c
+	return &copied, nil
+}
+
+func (m *MemoryStore) FindContactByEmailOrPhone(ctx context.Context, tenant, email, phone string) (*core.Contact, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	normEmail := core.NormalizeEmail(email)
+	normPhone := core.NormalizePhone(phone)
+
+	for _, c := range m.contacts {
+		if c.TenantID != tenant {
+			continue
+		}
+		if normEmail != "" && core.NormalizeEmail(c.Email) == normEmail {
+			copied := c
+			return &copied, nil
+		}
+		if normPhone != "" && core.NormalizePhone(c.Phone) == normPhone {
+			copied := c
+			return &copied, nil
+		}
+	}
+	return nil, nil
+}
+
+func (m *MemoryStore) SearchContacts(ctx context.Context, tenant, query string, limit int) ([]core.Contact, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	q := strings.ToLower(strings.TrimSpace(query))
+	normQPhone := core.NormalizePhone(query)
+
+	var list []core.Contact
+	for _, c := range m.contacts {
+		if c.TenantID != tenant {
+			continue
+		}
+		if q == "" {
+			list = append(list, c)
+			continue
+		}
+		if strings.Contains(strings.ToLower(c.ID), q) ||
+			strings.Contains(strings.ToLower(c.Name), q) ||
+			strings.Contains(strings.ToLower(c.Email), q) ||
+			strings.Contains(core.NormalizePhone(c.Phone), normQPhone) ||
+			strings.Contains(strings.ToLower(c.Phone), q) {
+			list = append(list, c)
+		}
+	}
+
+	// Ordena por UpdatedAt decrescente
+	for i := 0; i < len(list); i++ {
+		for j := i + 1; j < len(list); j++ {
+			if list[i].UpdatedAt.Before(list[j].UpdatedAt) {
+				list[i], list[j] = list[j], list[i]
+			}
+		}
+	}
+
+	if limit > 0 && len(list) > limit {
+		list = list[:limit]
+	}
+	return list, nil
+}
+
+func (m *MemoryStore) DeleteContactAndHistory(ctx context.Context, tenant, contactID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	contactKey := fmt.Sprintf("%s#%s", tenant, contactID)
+	delete(m.contacts, contactKey)
+
+	// Localiza todas as fontes vinculadas
+	links := m.contactLinks[contactKey]
+	delete(m.contactLinks, contactKey)
+
+	sourcesToDelete := make(map[string]bool)
+	for _, l := range links {
+		sourcesToDelete[sourceKeyID(tenant, l.Channel, l.SourceKey)] = true
+	}
+	// Também verifica fontes que tenham ContactID igual
+	for sid, src := range m.sources {
+		if src != nil && src.TenantID == tenant && src.ContactID == contactID {
+			sourcesToDelete[sid] = true
+		}
+	}
+
+	// Apaga todo o histórico e memória LLM de cada fonte
+	for sid := range sourcesToDelete {
+		delete(m.sources, sid)
+		delete(m.summaries, sid)
+		delete(m.facts, sid)
+		delete(m.signals, sid)
+		delete(m.contexts, sid)
+		delete(m.messages, sid)
+		delete(m.msgIndex, sid)
+		delete(m.tasks, sid)
+		delete(m.runs, sid)
+		delete(m.journeys, sid)
+		delete(m.jtransitions, sid)
+		delete(m.outbox, sid)
+	}
+
+	return nil
 }
 
 func copyContext(src *core.ConversationContext) core.ConversationContext {

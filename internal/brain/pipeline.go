@@ -353,6 +353,7 @@ func (p *Pipeline) IngestWithStatus(ctx context.Context, msg core.NormalizedMess
 			if p.cfg.Store != nil {
 				_ = p.cfg.Store.MarkMessagesAnswered(ctx, msg.TenantID, msg.Channel, msg.SourceKey, []string{"*"})
 			}
+			go p.ObserveAndLearnFromAttendant(context.Background(), msg)
 			return false, nil
 		case core.OriginHumanPhone:
 			if p.cfg.Store != nil {
@@ -361,9 +362,11 @@ func (p *Pipeline) IngestWithStatus(ctx context.Context, msg core.NormalizedMess
 			if err := p.handleHumanTakeover(ctx, msg); err != nil {
 				return false, err
 			}
+			go p.ObserveAndLearnFromAttendant(context.Background(), msg)
 			return false, nil
 		}
 
+		_, _ = p.resolveMessageContact(ctx, msg)
 		if err := p.ensureEncryptedContactInfo(ctx, msg); err != nil {
 			p.logger.Warn("falha ao cifrar contato bruto",
 				slog.String("tenant", msg.TenantID),
@@ -1009,6 +1012,27 @@ staleReprocessLoop:
 		WithinBusinessHour: withinHours,
 	})
 	trace.Decision = &decision
+
+	if p.IsListeningMode(ctx, tenantID, channelID, sourceKey, updatedState.Meta.ContactID) {
+		p.deriveAndSaveRuleTasks(ctx, pk, analysisOutcome.Result, latest)
+		trace.FinalReply = "(modo listening ativado — bot em silêncio)"
+		if err := p.recordRouterOnlyRun(ctx, latest, runID, traceRef, trace, "listening"); err != nil {
+			return err
+		}
+		p.publish(core.Event{
+			ID:        newID("ev"),
+			Type:      core.EventRunSkipped,
+			TenantID:  tenantID,
+			Channel:   channelID,
+			SourceKey: sourceKey,
+			At:        p.now(),
+			Payload: map[string]any{
+				"reason": "modo listening ativado",
+				"run_id": runID,
+			},
+		})
+		return nil
+	}
 
 	if pk.FSM != nil && withinHours {
 		switch fsmOutcome.ActionDef.Type {

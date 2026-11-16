@@ -96,6 +96,11 @@ type Store interface {
 	SaveRun(ctx context.Context, run Run) error
 	SaveTenantConfig(ctx context.Context, tenantID, name string, data []byte) error
 	GetTenantConfig(ctx context.Context, tenantID, name string) ([]byte, error)
+	SaveContact(ctx context.Context, contact Contact) error
+	GetContact(ctx context.Context, tenant, contactID string) (*Contact, error)
+	FindContactByEmailOrPhone(ctx context.Context, tenant, email, phone string) (*Contact, error)
+	SearchContacts(ctx context.Context, tenant, query string, limit int) ([]Contact, error)
+	DeleteContactAndHistory(ctx context.Context, tenant, contactID string) error
 	LinkSourceToContact(ctx context.Context, tenant, channel, sourceKey, contactID string) error
 	ListContactSources(ctx context.Context, tenant, contactID string) ([]SourceLink, error)
 	ListSourcesByContactGSI1(ctx context.Context, tenant, contactID string) ([]SourceMeta, error)

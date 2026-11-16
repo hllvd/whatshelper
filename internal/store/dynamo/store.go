@@ -186,6 +186,22 @@ type contactLinkItem struct {
 	LinkedAt  string `dynamodbav:"linked_at"`
 }
 
+type contactItem struct {
+	PK        string            `dynamodbav:"PK"`
+	SK        string            `dynamodbav:"SK"`
+	GSI1PK    string            `dynamodbav:"GSI1PK,omitempty"`
+	GSI1SK    string            `dynamodbav:"GSI1SK,omitempty"`
+	TenantID  string            `dynamodbav:"tenant_id"`
+	ContactID string            `dynamodbav:"contact_id"`
+	Name      string            `dynamodbav:"name,omitempty"`
+	Email     string            `dynamodbav:"email,omitempty"`
+	Phone     string            `dynamodbav:"phone,omitempty"`
+	Listening bool              `dynamodbav:"listening,omitempty"`
+	Metadata  map[string]string `dynamodbav:"metadata,omitempty"`
+	CreatedAt string            `dynamodbav:"created_at"`
+	UpdatedAt string            `dynamodbav:"updated_at"`
+}
+
 func (s *Store) GetSourceState(ctx context.Context, tenant, channel, sourceKey string) (*core.SourceState, error) {
 	pk := store.SourcePK(tenant, channel, sourceKey)
 	keys := make([]map[string]types.AttributeValue, 0, 5)
@@ -1148,6 +1164,272 @@ func (s *Store) ListSourcesByContactGSI1(ctx context.Context, tenant, contactID 
 		})
 	}
 	return result, nil
+}
+
+func (s *Store) SaveContact(ctx context.Context, contact core.Contact) error {
+	if err := contact.Validate(); err != nil {
+		return err
+	}
+	now := s.clock.Now().UTC()
+	created := contact.CreatedAt
+	if created.IsZero() {
+		created = now
+	}
+	contact.CreatedAt = created
+	contact.UpdatedAt = now
+	if contact.Email != "" {
+		contact.Email = core.NormalizeEmail(contact.Email)
+	}
+	if contact.Phone != "" {
+		contact.Phone = core.NormalizePhone(contact.Phone)
+	}
+
+	meta := contactItem{
+		PK:        store.ContactPK(contact.TenantID, contact.ID),
+		SK:        store.SKMeta,
+		GSI1PK:    store.TenantPK(contact.TenantID),
+		GSI1SK:    fmt.Sprintf("CONTACT#%s", contact.ID),
+		TenantID:  contact.TenantID,
+		ContactID: contact.ID,
+		Name:      contact.Name,
+		Email:     contact.Email,
+		Phone:     contact.Phone,
+		Listening: contact.Listening,
+		Metadata:  contact.Metadata,
+		CreatedAt: formatTime(created),
+		UpdatedAt: formatTime(now),
+	}
+	avMeta, err := attributevalue.MarshalMap(meta)
+	if err != nil {
+		return err
+	}
+
+	tenantIndex := contactItem{
+		PK:        store.TenantPK(contact.TenantID),
+		SK:        fmt.Sprintf("CONTACT#%s", contact.ID),
+		GSI1PK:    store.ContactPK(contact.TenantID, contact.ID),
+		GSI1SK:    store.SKMeta,
+		TenantID:  contact.TenantID,
+		ContactID: contact.ID,
+		Name:      contact.Name,
+		Email:     contact.Email,
+		Phone:     contact.Phone,
+		Listening: contact.Listening,
+		Metadata:  contact.Metadata,
+		CreatedAt: formatTime(created),
+		UpdatedAt: formatTime(now),
+	}
+	avTenantIndex, err := attributevalue.MarshalMap(tenantIndex)
+	if err != nil {
+		return err
+	}
+
+	_, err = s.client.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{
+		TransactItems: []types.TransactWriteItem{
+			{Put: &types.Put{TableName: aws.String(s.tableName), Item: avMeta}},
+			{Put: &types.Put{TableName: aws.String(s.tableName), Item: avTenantIndex}},
+		},
+	})
+	return err
+}
+
+func (s *Store) GetContact(ctx context.Context, tenant, contactID string) (*core.Contact, error) {
+	if strings.TrimSpace(tenant) == "" || strings.TrimSpace(contactID) == "" {
+		return nil, core.ErrContactNotFound
+	}
+	out, err := s.client.GetItem(ctx, &dynamodb.GetItemInput{
+		TableName: aws.String(s.tableName),
+		Key: map[string]types.AttributeValue{
+			"PK": &types.AttributeValueMemberS{Value: store.ContactPK(tenant, contactID)},
+			"SK": &types.AttributeValueMemberS{Value: store.SKMeta},
+		},
+		ConsistentRead: aws.Bool(true),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("dynamo GetContact falhou: %w", err)
+	}
+	if len(out.Item) == 0 {
+		return nil, core.ErrContactNotFound
+	}
+	var item contactItem
+	if err := attributevalue.UnmarshalMap(out.Item, &item); err != nil {
+		return nil, err
+	}
+	return &core.Contact{
+		ID:        item.ContactID,
+		TenantID:  item.TenantID,
+		Name:      item.Name,
+		Email:     item.Email,
+		Phone:     item.Phone,
+		Listening: item.Listening,
+		Metadata:  item.Metadata,
+		CreatedAt: parseTime(item.CreatedAt),
+		UpdatedAt: parseTime(item.UpdatedAt),
+	}, nil
+}
+
+func (s *Store) SearchContacts(ctx context.Context, tenant, query string, limit int) ([]core.Contact, error) {
+	if strings.TrimSpace(tenant) == "" {
+		return []core.Contact{}, nil
+	}
+	out, err := s.client.Query(ctx, &dynamodb.QueryInput{
+		TableName:              aws.String(s.tableName),
+		KeyConditionExpression: aws.String("PK = :pk AND begins_with(SK, :prefix)"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":pk":     &types.AttributeValueMemberS{Value: store.TenantPK(tenant)},
+			":prefix": &types.AttributeValueMemberS{Value: "CONTACT#"},
+		},
+		ConsistentRead: aws.Bool(true),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("dynamo SearchContacts falhou: %w", err)
+	}
+
+	q := strings.ToLower(strings.TrimSpace(query))
+	normQPhone := core.NormalizePhone(query)
+
+	var list []core.Contact
+	for _, raw := range out.Items {
+		var item contactItem
+		if err := attributevalue.UnmarshalMap(raw, &item); err != nil {
+			return nil, err
+		}
+		c := core.Contact{
+			ID:        item.ContactID,
+			TenantID:  item.TenantID,
+			Name:      item.Name,
+			Email:     item.Email,
+			Phone:     item.Phone,
+			Listening: item.Listening,
+			Metadata:  item.Metadata,
+			CreatedAt: parseTime(item.CreatedAt),
+			UpdatedAt: parseTime(item.UpdatedAt),
+		}
+		if q == "" ||
+			strings.Contains(strings.ToLower(c.ID), q) ||
+			strings.Contains(strings.ToLower(c.Name), q) ||
+			strings.Contains(strings.ToLower(c.Email), q) ||
+			(normQPhone != "" && strings.Contains(core.NormalizePhone(c.Phone), normQPhone)) ||
+			strings.Contains(strings.ToLower(c.Phone), q) {
+			list = append(list, c)
+		}
+	}
+
+	for i := 0; i < len(list); i++ {
+		for j := i + 1; j < len(list); j++ {
+			if list[i].UpdatedAt.Before(list[j].UpdatedAt) {
+				list[i], list[j] = list[j], list[i]
+			}
+		}
+	}
+	if limit > 0 && len(list) > limit {
+		list = list[:limit]
+	}
+	return list, nil
+}
+
+func (s *Store) FindContactByEmailOrPhone(ctx context.Context, tenant, email, phone string) (*core.Contact, error) {
+	normEmail := core.NormalizeEmail(email)
+	normPhone := core.NormalizePhone(phone)
+	if normEmail == "" && normPhone == "" {
+		return nil, nil
+	}
+
+	contacts, err := s.SearchContacts(ctx, tenant, "", 0)
+	if err != nil {
+		return nil, err
+	}
+	for _, c := range contacts {
+		if normEmail != "" && core.NormalizeEmail(c.Email) == normEmail {
+			copied := c
+			return &copied, nil
+		}
+		if normPhone != "" && core.NormalizePhone(c.Phone) == normPhone {
+			copied := c
+			return &copied, nil
+		}
+	}
+	return nil, nil
+}
+
+func (s *Store) DeleteContactAndHistory(ctx context.Context, tenant, contactID string) error {
+	if strings.TrimSpace(tenant) == "" || strings.TrimSpace(contactID) == "" {
+		return nil
+	}
+	links, err := s.ListContactSources(ctx, tenant, contactID)
+	if err != nil {
+		return err
+	}
+	gsiMetas, _ := s.ListSourcesByContactGSI1(ctx, tenant, contactID)
+
+	sourcesMap := make(map[string]struct{ Channel, SourceKey string })
+	for _, l := range links {
+		sourcesMap[l.Channel+"#"+l.SourceKey] = struct{ Channel, SourceKey string }{Channel: l.Channel, SourceKey: l.SourceKey}
+	}
+	for _, m := range gsiMetas {
+		sourcesMap[m.Channel+"#"+m.SourceKey] = struct{ Channel, SourceKey string }{Channel: m.Channel, SourceKey: m.SourceKey}
+	}
+
+	for _, src := range sourcesMap {
+		pk := store.SourcePK(tenant, src.Channel, src.SourceKey)
+		out, qErr := s.client.Query(ctx, &dynamodb.QueryInput{
+			TableName:              aws.String(s.tableName),
+			KeyConditionExpression: aws.String("PK = :pk"),
+			ExpressionAttributeValues: map[string]types.AttributeValue{
+				":pk": &types.AttributeValueMemberS{Value: pk},
+			},
+		})
+		if qErr == nil {
+			for _, item := range out.Items {
+				var delSK string
+				if skVal, ok := item["SK"].(*types.AttributeValueMemberS); ok {
+					delSK = skVal.Value
+				}
+				if delSK != "" {
+					_, _ = s.client.DeleteItem(ctx, &dynamodb.DeleteItemInput{
+						TableName: aws.String(s.tableName),
+						Key: map[string]types.AttributeValue{
+							"PK": &types.AttributeValueMemberS{Value: pk},
+							"SK": &types.AttributeValueMemberS{Value: delSK},
+						},
+					})
+				}
+			}
+		}
+
+		_, _ = s.client.DeleteItem(ctx, &dynamodb.DeleteItemInput{
+			TableName: aws.String(s.tableName),
+			Key: map[string]types.AttributeValue{
+				"PK": &types.AttributeValueMemberS{Value: store.TenantPK(tenant)},
+				"SK": &types.AttributeValueMemberS{Value: store.TenantSourceSK(src.Channel, src.SourceKey)},
+			},
+		})
+
+		_, _ = s.client.DeleteItem(ctx, &dynamodb.DeleteItemInput{
+			TableName: aws.String(s.tableName),
+			Key: map[string]types.AttributeValue{
+				"PK": &types.AttributeValueMemberS{Value: store.ContactPK(tenant, contactID)},
+				"SK": &types.AttributeValueMemberS{Value: store.TenantSourceSK(src.Channel, src.SourceKey)},
+			},
+		})
+	}
+
+	_, _ = s.client.DeleteItem(ctx, &dynamodb.DeleteItemInput{
+		TableName: aws.String(s.tableName),
+		Key: map[string]types.AttributeValue{
+			"PK": &types.AttributeValueMemberS{Value: store.ContactPK(tenant, contactID)},
+			"SK": &types.AttributeValueMemberS{Value: store.SKMeta},
+		},
+	})
+	_, _ = s.client.DeleteItem(ctx, &dynamodb.DeleteItemInput{
+		TableName: aws.String(s.tableName),
+		Key: map[string]types.AttributeValue{
+			"PK": &types.AttributeValueMemberS{Value: store.TenantPK(tenant)},
+			"SK": &types.AttributeValueMemberS{Value: fmt.Sprintf("CONTACT#%s", contactID)},
+		},
+	})
+
+	return nil
 }
 
 func marshalRunItem(run core.Run) (map[string]types.AttributeValue, error) {

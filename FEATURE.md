@@ -305,3 +305,44 @@ curl -X PUT "http://127.0.0.1:8080/api/llm/config?tenant=demo" \
   - `MarkMessagesAnswered` passa a ser invocado também nas ações do tipo `message_template` (como `close_support` e `greet_support`), garantindo que mensagens de agradecimento fiquem registradas como `answered = true` no DynamoDB.
 - **Testes**:
   - Adicionado [`TestFSMPipeline_Supporter_GratitudeClosesFlow`](file:///Users/hudson/development/whatshelper/internal/brain/fsm_pipeline_test.go) validando pergunta técnica inicial, agradecimento posterior com fechamento cordial em `resolved`, preservação contra reinício indevido de saudação e abertura de novo atendimento subsequente.
+
+---
+
+## 2026-11-16 — Entidades Permanentes de Contatos, Buscador na UI, Exclusão de Memória LLM e Modo Listening com Aprendizado Passivo
+
+### Itens Implementados
+- **Entidade Permanente de Contato e Normalização Determinística**:
+  - Adicionada a entidade [`core.Contact`](file:///Users/hudson/development/whatshelper/internal/core/contact.go) contendo `ID`, `TenantID`, `Name`, `Email`, `Phone`, `Listening`, `Metadata`, `CreatedAt` e `UpdatedAt`.
+  - Funções puras [`NormalizePhone`](file:///Users/hudson/development/whatshelper/internal/core/contact.go) (removendo DDI 55 nacional, padronizando DDD + número) e [`NormalizeEmail`](file:///Users/hudson/development/whatshelper/internal/core/contact.go).
+  - Resolução automática em [`internal/brain/contact_resolver.go`](file:///Users/hudson/development/whatshelper/internal/brain/contact_resolver.go):
+    - **E-mail**: extrai e normaliza o endereço de e-mail do remetente ou do corpo da mensagem.
+    - **WhatsApp**: normaliza o telefone sem o 55 e unifica com contatos já existentes pelo e-mail ou telefone.
+    - **Modo Teste / Simulador**: utiliza o identificador direto sem dados de sessão complexos.
+- **Persistência de Contatos e Deleção em Cascata no Store**:
+  - Adicionados à interface [`core.Store`](file:///Users/hudson/development/whatshelper/internal/core/ports.go) e implementados em [`internal/store/dynamo/store.go`](file:///Users/hudson/development/whatshelper/internal/store/dynamo/store.go) e [`internal/core/fakes/memory_store.go`](file:///Users/hudson/development/whatshelper/internal/core/fakes/memory_store.go):
+    - `SaveContact`, `GetContact`, `FindContactByEmailOrPhone`, `SearchContacts`.
+    - `DeleteContactAndHistory`: remove em cascata o cadastro do contato, todas as fontes vinculadas, mensagens gravadas, tarefas, traces (`Run`), resumo cumulativo (`Summary`), fatos (`Facts`), contexto e outbox.
+- **Modo "Listening" Silencioso e Aprendizado Passivo**:
+  - Implementado em [`internal/brain/listening.go`](file:///Users/hudson/development/whatshelper/internal/brain/listening.go):
+    - Suporte a ativação por contato (`contact.Listening = true`), fonte (`status = "listening"`) ou global/whitelist via configuração do tenant (`listening`).
+    - Supressão de respostas automáticas do bot (`IsListeningMode`), mantendo a compreensão e atualização de contexto em silêncio.
+    - Analisador passivo de respostas humanas (`ObserveAndLearnFromAttendant`) que gera propostas pendentes (`LearningProposal`) para:
+      1. Perguntas e respostas genéricas para `knowledge/learning/QA-listed.md` (filtrando estritamente dados pessoais ou de cliente único).
+      2. Traços de personalidade, tom de voz e vocabulário para `knowledge/personas/character.md`.
+    - Suporte a subpastas versionadas de conhecimento no BlobStore (`personas/` e `learning/`) com aprovação prévia em [`internal/brain/learning.go`](file:///Users/hudson/development/whatshelper/internal/brain/learning.go).
+- **API HTTP e Rotas Administrativas em [`internal/server/api.go`](file:///Users/hudson/development/whatshelper/internal/server/api.go)**:
+  - `GET /api/contacts?q={query}`: busca rápida textual com resumo e contagem de canais.
+  - `GET /api/contacts/{id}`: detalhes cadastrais completos, fontes conectadas e estado cumulativo.
+  - `DELETE /api/contacts/{id}`: exclusão definitiva do contato e de toda a memória do LLM.
+  - `POST /api/contacts/{id}/listening`: toggle individual do modo listening para o cliente.
+  - `GET /api/listening/config` e `PUT /api/listening/config`: visualização e controle do modo listening global e whitelist por tenant.
+- **Interface Web de Clientes e Navegação**:
+  - Nova tela [`internal/server/static/contacts.html`](file:///Users/hudson/development/whatshelper/internal/server/static/contacts.html) e script [`internal/server/static/contacts.js`](file:///Users/hudson/development/whatshelper/internal/server/static/contacts.js) com buscador instantâneo, drawer com dados cadastrais, resumo do LLM, fatos conhecidos, atalhos diretos para abrir o Chat/Thinking da conversa e botão de exclusão com modal de confirmação.
+  - Adicionado o link **Clientes** (`/contacts`) na barra de navegação superior de todas as telas ([`index.html`](file:///Users/hudson/development/whatshelper/internal/server/static/index.html), [`thinking.html`](file:///Users/hudson/development/whatshelper/internal/server/static/thinking.html), [`knowledge.html`](file:///Users/hudson/development/whatshelper/internal/server/static/knowledge.html), [`journey.html`](file:///Users/hudson/development/whatshelper/internal/server/static/journey.html)).
+- **Testes**:
+  - Testes unitários de normalização em [`internal/core/contact_test.go`](file:///Users/hudson/development/whatshelper/internal/core/contact_test.go).
+  - Testes de contrato de repositório em [`internal/store/storetest/contract.go`](file:///Users/hudson/development/whatshelper/internal/store/storetest/contract.go).
+  - Testes de resolução de contato em [`internal/brain/contact_resolver_test.go`](file:///Users/hudson/development/whatshelper/internal/brain/contact_resolver_test.go).
+  - Testes de modo listening e gravação em pastas aninhadas em [`internal/brain/listening_test.go`](file:///Users/hudson/development/whatshelper/internal/brain/listening_test.go).
+  - Testes da API REST em [`internal/server/contacts_api_test.go`](file:///Users/hudson/development/whatshelper/internal/server/contacts_api_test.go).
+
