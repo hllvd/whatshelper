@@ -11,6 +11,17 @@ R: Quando o consultor saiu da Ademicon (não trabalha mais na empresa), você de
 P: O consultor saiu da minha equipe porque migrou para outra equipe (ou se tornou gestor de outra equipe). Como devo proceder?
 R: Quando o consultor continua na Ademicon e migrou para outra equipe (ou virou gestor), você deve ajustar o Calendário de Equipes. Acesse Equipes → Calendário (#/teams/calendar), busque pelo consultor, edite o bloco da equipe anterior preenchendo a Data Final (data de corte) e vincule/confirme a nova equipe com a respectiva Data de Início (mantendo a equipe atual sem data final).
 
+P: Estou filtrando por equipe em Contratos (#/contracts) e continuam aparecendo vendas de um consultor ou de outro gestor/líder que já foi da minha equipe mas agora está em outra equipe (ou virou líder/gestor). O que fazer?
+R: Isso acontece porque esse consultor já fez parte da sua equipe no passado e as datas de vigência de equipe no Calendário de Equipes estão incorretas ou sobrepostas. Para corrigir:
+1. No menu lateral, clique em Equipes e acesse o Calendário (`#/teams/calendar`).
+2. Localize o consultor ou gestor/líder cujas vendas estão aparecendo indevidamente.
+3. Ajuste a data de corte:
+   - No bloco da equipe antiga, preencha a Data Final (último dia em que atuou nela).
+   - No bloco da nova equipe, preencha a Data de Início (dia em que iniciou na nova equipe / como gestor).
+   - A equipe atual deve ficar sem data final (aberta/vigente).
+A data de corte no Calendário de Equipes é o que define quais contratos pertencem à equipe antiga (fechados até a data final) e quais pertencem à nova equipe (fechados a partir da data de início). Após esse ajuste, ao filtrar por equipe em Contratos, as vendas da nova equipe não serão mais puxadas para a equipe antiga.
+(Nota: No sistema, Líder é sinônimo de Gestor ou Administrador).
+
 P: Fui promovido ao nível Guimel (bati o Guimel) e quero criar minha própria equipe. Como faço?
 R: No menu lateral, clique em Solicitações (#/requests), clique em "+ Nova Solicitação", selecione o tipo "Eu sou Guimel agora, quero criar minha equipe", preencha o Nome da Equipe e envie. A solicitação será encaminhada ao gestor e ao SuperAdmin. Quando aprovada, a equipe será criada automaticamente, você se tornará o proprietário (Owner) e seu perfil será atualizado para Administrador.
 

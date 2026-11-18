@@ -84,7 +84,7 @@ func RenderReply(p *Pack, input PromptInput) (RenderedPrompt, error) {
 			b.WriteByte('\n')
 		}
 		if len(input.Directive.MustAsk) > 0 {
-			b.WriteString("Must ask:\n")
+			b.WriteString("Must ask (apenas se a informação ainda NÃO constar em FATOS CONHECIDOS ou no histórico recente):\n")
 			for _, q := range input.Directive.MustAsk {
 				b.WriteString("- ")
 				b.WriteString(q)
@@ -98,6 +98,9 @@ func RenderReply(p *Pack, input PromptInput) (RenderedPrompt, error) {
 				b.WriteString(c)
 				b.WriteByte('\n')
 			}
+		}
+		if screen, ok := input.Facts["ChannelOrScreen"]; ok && strings.TrimSpace(screen) != "" {
+			b.WriteString("- A tela/página já é conhecida (" + strings.TrimSpace(screen) + "). NUNCA pergunte em qual página ou tela o usuário está.\n")
 		}
 		rendered.System = strings.TrimRight(rendered.System, "\n") + b.String()
 	}

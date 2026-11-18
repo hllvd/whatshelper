@@ -24,6 +24,16 @@ Ao editar o histórico no calendário, você define uma **data de corte** (a **D
 
 Isso garante que metas, comissões e relatórios por equipe não misturem vendas passadas com a produção atual.
 
+### ❓ Por que ao filtrar por equipe continuam aparecendo vendas de consultor que já foi da equipe ou virou líder/gestor?
+Se ao filtrar por equipe na tela **Contratos** (`#/contracts`) ou **Meus Contratos** (`#/my-contracts`) continuarem aparecendo vendas de um consultor que já saiu da equipe, migrou ou foi promovido a líder/gestor:
+- **Causa**: As datas de vigência da equipe antiga e da nova equipe no **Calendário de Equipes** estão sobrepostas ou com a data final em branco na equipe anterior.
+- **Conceito de Líder**: Na plataforma e na operação, **Líder** é sinônimo de **Gestor** (ou Administrador).
+- **Solução**: Acesse **Equipes → Calendário de Equipes** (`#/teams/calendar`), localize o consultor/líder e ajuste a **data de corte**:
+  1. No bloco da **equipe anterior**, preencha a **Data Final** com o último dia em que ele atuou na equipe antiga.
+  2. No bloco da **nova equipe**, defina a **Data de Início** correspondente à sua entrada na nova equipe (ou início como gestor).
+  3. Mantenha a equipe atual sem data de fim (aberta/vigente).
+Assim que as datas de corte estiverem ajustadas, o filtro por equipe separará corretamente os contratos antigos dos novos.
+
 > ⚠️ **Atenção Importante:** Todo consultor deve **sempre manter uma equipe ativa** (sem data final definida ou com a data mais recente aberta). Se o consultor ficar sem nenhuma equipe ativa, suas novas vendas não serão associadas adequadamente nos relatórios operacionais.
 
 ---

@@ -464,3 +464,98 @@ func TestFSMPipeline_Supporter_GratitudeClosesFlow(t *testing.T) {
 		t.Errorf("esperava saudação no novo atendimento, obteve: %s", sent[2].Text)
 	}
 }
+
+func TestFSMPipeline_Supporter_TeamFilterMigratedConsultant(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 11, 18, 9, 20, 0, 0, time.UTC)
+	clock := fakes.NewFakeClock(now)
+	memStore := fakes.NewMemoryStoreWithClock(clock)
+	blobs := fakes.NewMemoryBlobStore()
+	llm := fakes.NewScriptedLLM(nil)
+	ch := fakes.NewMemoryChannel("simulator", 16)
+	_ = ch.Start(ctx)
+
+	repoRoot := filepath.Join("..", "..")
+	tenantsDir := filepath.Join(repoRoot, "tenants")
+	packsDir := filepath.Join(repoRoot, "packs")
+
+	if _, err := brain.SeedLocalTenants(ctx, tenantsDir, memStore); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := brain.SeedLocalKnowledge(ctx, tenantsDir, blobs); err != nil {
+		t.Fatal(err)
+	}
+
+	p := brain.NewPipeline(ctx, brain.PipelineConfig{
+		Store:         memStore,
+		Blobs:         blobs,
+		LLM:           llm,
+		Bus:           core.NewInMemoryEventBus(64),
+		Clock:         clock,
+		Tenants:       brain.NewStoreTenantPolicyLoader(memStore, nil),
+		Knowledge:     brain.NewBlobKnowledgeSource(blobs, clock, 5*time.Second),
+		PackLoader:    func(name string) (*pack.Pack, error) { return pack.LoadFromDir(filepath.Join(packsDir, name)) },
+		AnalysisModel: "test-sensor",
+		ResponseModel: "test-reply",
+	})
+	p.RegisterChannel(ch)
+	defer p.Stop()
+
+	tenantID := "supporter"
+	channelID := "simulator"
+	sourceKey := "test-team-filter-user"
+
+	// Turno 1: Usuário já identificou que está em "contratos" e relata que o filtro de equipe puxa vendas de quem mudou de time
+	llm.EnqueueStage("analysis", core.LLMResponse{
+		Content: `{
+			"summary": "Usuário está na tela Contratos e relata que o filtro de equipe puxa vendas de gestora que já foi da equipe.",
+			"last_sender": "user",
+			"intent": "ask_howto",
+			"facts": {
+				"ChannelOrScreen": "Contratos",
+				"Topic": "contratos"
+			},
+			"signals": {
+				"has_new_question": true,
+				"user_engaged": true
+			},
+			"context": {}
+		}`,
+		PromptTokens: 80, CompletionTokens: 40, DurationMs: 15,
+	})
+	llm.EnqueueStage("response", core.LLMResponse{
+		Content: `{
+			"answerable": true,
+			"sources": ["como-ajustar-membros-equipe-calendario.md", "QA.md"],
+			"reply": "Isso acontece porque as datas de vigência no Calendário de Equipes (#/teams/calendar) estão sobrepostas. Acesse Equipes → Calendário (#/teams/calendar), localize a gestora/consultora e preencha a Data Final na equipe antiga e a Data de Início na nova equipe."
+		}`,
+		PromptTokens: 100, CompletionTokens: 40, DurationMs: 20,
+	})
+
+	msg := core.NormalizedMessage{
+		TenantID:  tenantID,
+		Channel:   channelID,
+		SourceKey: sourceKey,
+		MessageID: "msg-team-filter-1",
+		Timestamp: clock.Now(),
+		Direction: core.DirectionInbound,
+		Type:      core.MessageTypeText,
+		Text:      "Eu estou filtrando por equipe em contratos e mesmo assim aparece venda de uma gestora que já foi da minha equipe mas está em outra equipe",
+	}
+
+	if err := p.ProcessBatch(ctx, []core.NormalizedMessage{msg}); err != nil {
+		t.Fatalf("ProcessBatch falhou: %v", err)
+	}
+
+	sent := ch.SentMessages()
+	if len(sent) != 1 {
+		t.Fatalf("esperava 1 mensagem enviada, obteve %d", len(sent))
+	}
+	replyText := sent[0].Text
+	if strings.Contains(replyText, "qual tela ou página") || strings.Contains(replyText, "qual página exata") {
+		t.Errorf("erro: bot repetiu pergunta sobre tela/página quando ChannelOrScreen já era conhecido: %s", replyText)
+	}
+	if !strings.Contains(replyText, "Calendário") || !strings.Contains(replyText, "Data Final") {
+		t.Errorf("esperava orientação sobre Calendário de Equipes e data de corte, obteve: %s", replyText)
+	}
+}

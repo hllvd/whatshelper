@@ -37,11 +37,10 @@ states:
     stagnation_threshold: 3
     stagnation_to: perguntar_humano
     directive:
-      goal: "Identificar assunto, em qual página está e qual contrato, venda ou matrícula."
-      must_ask:
-        - "Em qual página você está vendo isso e qual contrato, matrícula ou venda está envolvido?"
+      goal: "Identificar assunto, tela e detalhes da solicitação para orientar com a base de conhecimento."
       constraints:
-        - "Faça no máximo 1 ou 2 perguntas objetivas."
+        - "NUNCA pergunte em qual página o usuário está se ele já tiver informado ou se ChannelOrScreen for conhecido."
+        - "Se a situação tiver causa ou procedimento conhecido na base de conhecimento, oriente a solução diretamente."
     rules:
       - id: entender_to_exception
         priority: 40
@@ -102,15 +101,14 @@ states:
         reason: "Usuário agradeceu ou respondeu após explicação"
 
   investigando_ocorrencia:
-    description: "Coleta de tela, ID de referência e evidência para ocorrência"
+    description: "Coleta de detalhes para ocorrência ou orientação técnica"
     stagnation_threshold: 3
-    stagnation_to: perguntar_humano
+    stagnation_to: responder_pergunta
     directive:
-      goal: "Confirmar em qual página e qual contrato, matrícula ou venda para encaminhar ou orientar."
-      must_ask:
-        - "Pode informar em qual página ocorreu e, se houver, o número do contrato, matrícula ou venda?"
+      goal: "Investigar e orientar a ocorrência com base na documentação e dados informados."
       constraints:
-        - "Seja objetivo na coleta."
+        - "NUNCA pergunte em qual página o usuário está se a página já for conhecida."
+        - "Se a causa e a solução estiverem na base de conhecimento (ex: filtro de equipe trazendo vendas de consultor que migrou), oriente o procedimento no Calendário de Equipes imediatamente em vez de insistir em novos dados."
     rules:
       - id: issue_ready_to_human
         priority: 30
@@ -122,6 +120,19 @@ states:
           - type: notify_admin
             params:
               reason: "Ocorrência documentada pronta para análise"
+      - id: issue_to_howto
+        priority: 25
+        on_event: user_message
+        intent: ask_howto
+        to: responder_pergunta
+        reason: "Usuário enviou dúvida sobre procedimento ou funcionamento"
+      - id: issue_with_screen_to_answer
+        priority: 20
+        on_event: user_message
+        intent: report_issue
+        guard: 'HasFact("ChannelOrScreen") && !HasFact("ReferenceId") && !HasFact("HasAttachment")'
+        to: responder_pergunta
+        reason: "Tela já identificada para orientação com a base de conhecimento"
       - id: issue_to_closing
         priority: 15
         on_event: user_message

@@ -379,3 +379,21 @@ curl -X PUT "http://127.0.0.1:8080/api/llm/config?tenant=demo" \
   - [`TestLoadSupporterPack_WithPersonality`](file:///Users/hudson/development/whatshelper/internal/pack/render_test.go#L139-L174): valida carregamento do `personality.md` pelo pack e injeção no prompt de resposta.
   - [`TestLocalTenantAndKnowledgeSource_ReloadsOnChange`](file:///Users/hudson/development/whatshelper/internal/brain/knowledge_test.go#L18-L94): valida recarga e invalidação de cache ao adicionar ou modificar `personality.md` no tenant.
 
+---
+
+## 2026-11-18 — Resolução de Repetição de Perguntas de Contexto e Suporte a Filtros de Equipe com Consultor Migrado / Líder
+
+### Itens Implementados
+- **Eliminação do Loop de Repetição de Perguntas**:
+  - Em [`internal/pack/render.go`](file:///Users/hudson/development/whatshelper/internal/pack/render.go), adicionado condicional no renderizador de diretivas (`RESPONSE DIRECTIVE (FSM)`): quando `ChannelOrScreen` já é conhecido nos fatos ou histórico, injeta a restrição estrita proibindo o LLM de voltar a perguntar qual tela ou página o usuário está.
+  - No `packs/supporter/journey.yaml` e `journeys/support.yaml`, removido o `must_ask` estático dos estados `entender_pergunta` e `investigando_ocorrencia` e adicionadas transições diretas para `responder_pergunta` quando a tela já foi informada ou a dúvida é procedimental.
+  - Em [`packs/supporter/pack.yaml`](file:///Users/hudson/development/whatshelper/packs/supporter/pack.yaml), [`packs/supporter/personality.md`](file:///Users/hudson/development/whatshelper/packs/supporter/personality.md) e [`tenants/supporter/personality.md`](file:///Users/hudson/development/whatshelper/tenants/supporter/personality.md), estabelecida a regra anti-loop: proibição estrita de repetir perguntas de esclarecimento já feitas ou cujas respostas já constem nos fatos/histórico.
+- **Tratamento de Filtro por Equipe Puxando Vendas de Consultor que Migrou ou Virou Líder**:
+  - **Conceito de Líder**: Definido explicitamente que no sistema e na operação, **Líder** é sinônimo de **Gestor** (ou Administrador).
+  - **Causa e Procedimento de Solução**:
+    - Quando um gestor relatar que filtra por equipe (em Contratos `#/contracts` ou Meus Contratos `#/my-contracts`) e aparecem vendas de um consultor ou gestor/líder que já foi do time mas hoje está em outra equipe, o bot explica que a causa é a linha do tempo e datas de corte no **Calendário de Equipes** (`#/teams/calendar`).
+    - Orienta o passo a passo: acessar Equipes → Calendário de Equipes (`#/teams/calendar`), localizar a pessoa e ajustar a **data de corte** (preencher a **Data Final** na equipe antiga e a **Data de Início** na nova equipe), pois é a data de corte que define que os contratos fechados após essa data pertençam exclusivamente à nova equipe.
+  - Documentado em [`tenants/supporter/knowledge/QA.md`](file:///Users/hudson/development/whatshelper/tenants/supporter/knowledge/QA.md), [`tenants/supporter/knowledge/como-ajustar-membros-equipe-calendario.md`](file:///Users/hudson/development/whatshelper/tenants/supporter/knowledge/como-ajustar-membros-equipe-calendario.md) e nas regras de negócio do pack.
+- **Testes**:
+  - Adicionado [`TestFSMPipeline_Supporter_TeamFilterMigratedConsultant`](file:///Users/hudson/development/whatshelper/internal/brain/fsm_pipeline_test.go) validando que, ao relatar vendas puxadas no filtro de equipe para gestor que migrou, o bot não repete perguntas sobre tela e responde diretamente orientando o Calendário de Equipes e as datas de corte.
+
