@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"whatshelper/internal/core"
 )
 
 // HTTPTranscriber implementa core.AudioTranscriber usando endpoint HTTP multipart compatível com Whisper/OpenAI.
@@ -114,16 +116,23 @@ func extFromMime(mimeType string) string {
 }
 
 // DynamicAudioTranscriber permite selecionar provedor e modelo de áudio em tempo real,
-// suportando tanto endpoint customizado (TRANSCRIPTION_URL) quanto OpenAI direto (/audio/transcriptions).
+// suportando endpoint customizado (TRANSCRIPTION_URL), OpenAI direto (/audio/transcriptions)
+// e transcrição nativa via LLM configurado (ex.: Gemini multimodal).
 type DynamicAudioTranscriber struct {
 	custom          *HTTPTranscriber
 	openAI          *HTTPTranscriber
+	llm             core.LLM
 	defaultProvider string
 	defaultModel    string
 }
 
 // NewDynamicAudioTranscriber cria um transcritor dinâmico; retorna nil se nenhum endpoint/chave estiver disponível.
 func NewDynamicAudioTranscriber(customURL, customKey, customModel, openAIKey, openAIBaseURL, defaultProvider, defaultModel string, client *http.Client) *DynamicAudioTranscriber {
+	return NewDynamicAudioTranscriberWithLLM(customURL, customKey, customModel, openAIKey, openAIBaseURL, defaultProvider, defaultModel, nil, client)
+}
+
+// NewDynamicAudioTranscriberWithLLM cria um transcritor dinâmico incluindo fallback/integração com LLM configurado.
+func NewDynamicAudioTranscriberWithLLM(customURL, customKey, customModel, openAIKey, openAIBaseURL, defaultProvider, defaultModel string, llm core.LLM, client *http.Client) *DynamicAudioTranscriber {
 	custom := NewHTTPTranscriber(customURL, customKey, customModel, client)
 	var openAI *HTTPTranscriber
 	if strings.TrimSpace(openAIKey) != "" {
@@ -133,15 +142,22 @@ func NewDynamicAudioTranscriber(customURL, customKey, customModel, openAIKey, op
 		}
 		openAI = NewHTTPTranscriber(base+"/audio/transcriptions", openAIKey, defaultModel, client)
 	}
-	if custom == nil && openAI == nil {
+	if custom == nil && openAI == nil && llm == nil {
 		return nil
 	}
 	return &DynamicAudioTranscriber{
 		custom:          custom,
 		openAI:          openAI,
+		llm:             llm,
 		defaultProvider: strings.TrimSpace(defaultProvider),
 		defaultModel:    strings.TrimSpace(defaultModel),
 	}
+}
+
+// WithLLM associa um core.LLM (ex.: DynamicRouter) ao transcritor.
+func (d *DynamicAudioTranscriber) WithLLM(llm core.LLM) *DynamicAudioTranscriber {
+	d.llm = llm
+	return d
 }
 
 func (d *DynamicAudioTranscriber) Transcribe(ctx context.Context, audio []byte, mimeType string) (string, error) {
@@ -150,6 +166,9 @@ func (d *DynamicAudioTranscriber) Transcribe(ctx context.Context, audio []byte, 
 
 // TranscribeWithConfig executa a transcrição usando provedor/modelo resolvidos em tempo real.
 func (d *DynamicAudioTranscriber) TranscribeWithConfig(ctx context.Context, audio []byte, mimeType, provider, model string) (string, error) {
+	if len(audio) == 0 {
+		return "", errors.New("transcrição: áudio vazio")
+	}
 	p := strings.TrimSpace(provider)
 	if p == "" {
 		p = d.defaultProvider
@@ -157,6 +176,13 @@ func (d *DynamicAudioTranscriber) TranscribeWithConfig(ctx context.Context, audi
 	m := strings.TrimSpace(model)
 	if m == "" {
 		m = d.defaultModel
+	}
+
+	// Se houver LLM e o provedor/modelo for do LLM (ex.: gemini, openrouter, multimodal) ou não houver transcritor whisper:
+	lowerM := strings.ToLower(m)
+	isMultimodalLLM := p == "gemini" || strings.Contains(lowerM, "gemini") || strings.Contains(lowerM, "gpt-4o")
+	if d.llm != nil && (isMultimodalLLM || (d.custom == nil && d.openAI == nil)) {
+		return d.transcribeWithLLM(ctx, audio, mimeType, p, m)
 	}
 	if p == "openai" && d.openAI != nil {
 		return d.openAI.TranscribeWithModel(ctx, audio, mimeType, m)
@@ -167,5 +193,34 @@ func (d *DynamicAudioTranscriber) TranscribeWithConfig(ctx context.Context, audi
 	if d.openAI != nil {
 		return d.openAI.TranscribeWithModel(ctx, audio, mimeType, m)
 	}
+	if d.llm != nil {
+		return d.transcribeWithLLM(ctx, audio, mimeType, p, m)
+	}
 	return "", errors.New("transcrição indisponível")
+}
+
+func (d *DynamicAudioTranscriber) transcribeWithLLM(ctx context.Context, audio []byte, mimeType, provider, model string) (string, error) {
+	if d.llm == nil {
+		return "", errors.New("transcrição via LLM indisponível: modelo não configurado")
+	}
+	normMime := strings.TrimSpace(mimeType)
+	if normMime == "" {
+		normMime = "audio/ogg"
+	}
+	prompt := "Transcreva o áudio a seguir com fidelidade total em português do Brasil. Retorne apenas o texto falado no áudio, sem explicações, sem comentários, sem pontuações ou introduções adicionais."
+	req := core.LLMRequest{
+		Stage:       "audio",
+		Provider:    provider,
+		Model:       model,
+		System:      "Você é um transcritor de áudio em português de alta fidelidade. Retorne única e exclusivamente a transcrição literal do áudio enviado.",
+		Prompt:      prompt,
+		MediaParts:  []core.MediaPart{{MimeType: normMime, Data: audio}},
+		Temperature: 0.1,
+		MaxTokens:   1024,
+	}
+	resp, err := d.llm.Generate(ctx, req)
+	if err != nil {
+		return "", fmt.Errorf("transcrição via LLM falhou: %w", err)
+	}
+	return strings.TrimSpace(resp.Content), nil
 }

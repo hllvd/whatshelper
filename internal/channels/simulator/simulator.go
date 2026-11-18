@@ -52,7 +52,7 @@ func (c *Channel) ID() string {
 func (c *Channel) Capabilities() core.ChannelCapabilities {
 	return core.ChannelCapabilities{
 		PlainTextOnly:      true,
-		Media:              false,
+		Media:              true,
 		Typing:             true,
 		Reactions:          false,
 		ReportsOwnMessages: true,
@@ -114,6 +114,49 @@ func (c *Channel) SubmitInbound(ctx context.Context, tenantID, sourceKey, text s
 		Timestamp: now,
 		Direction: core.DirectionInbound,
 		Type:      core.MessageTypeText,
+		Text:      strings.TrimSpace(text),
+	}
+	if err := msg.Validate(); err != nil {
+		return core.NormalizedMessage{}, err
+	}
+
+	select {
+	case c.inbound <- msg:
+		return msg, nil
+	case <-ctx.Done():
+		return core.NormalizedMessage{}, ctx.Err()
+	}
+}
+
+// SubmitInboundMedia normaliza uma entrada de mídia (ex: áudio) do usuário simulador e a envia no stream de mensagens recebidas.
+func (c *Channel) SubmitInboundMedia(ctx context.Context, tenantID, sourceKey string, msgType core.MessageType, mediaRef, text string) (core.NormalizedMessage, error) {
+	c.mu.RLock()
+	started := c.started
+	c.mu.RUnlock()
+	if !started {
+		return core.NormalizedMessage{}, ErrChannelStopped
+	}
+	if strings.TrimSpace(tenantID) == "" {
+		tenantID = "demo"
+	}
+	if strings.TrimSpace(sourceKey) == "" {
+		return core.NormalizedMessage{}, ErrEmptySource
+	}
+	if strings.TrimSpace(mediaRef) == "" {
+		return core.NormalizedMessage{}, errors.New("mediaRef é obrigatório")
+	}
+
+	now := c.clock.Now().UTC()
+	msg := core.NormalizedMessage{
+		TenantID:  strings.TrimSpace(tenantID),
+		Channel:   c.ID(),
+		Account:   "sim-web",
+		SourceKey: strings.TrimSpace(sourceKey),
+		MessageID: newSimMsgID(now),
+		Timestamp: now,
+		Direction: core.DirectionInbound,
+		Type:      msgType,
+		MediaRef:  strings.TrimSpace(mediaRef),
 		Text:      strings.TrimSpace(text),
 	}
 	if err := msg.Validate(); err != nil {

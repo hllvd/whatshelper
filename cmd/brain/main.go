@@ -122,7 +122,7 @@ func main() {
 		audioModel = cfg.TranscriptionModel
 	}
 	var transcriber core.AudioTranscriber
-	if t := media.NewDynamicAudioTranscriber(cfg.TranscriptionURL, cfg.TranscriptionAPIKey, cfg.TranscriptionModel, cfg.OpenAIAPIKey, cfg.OpenAIBaseURL, cfg.LLMProvider, audioModel, nil); t != nil {
+	if t := media.NewDynamicAudioTranscriberWithLLM(cfg.TranscriptionURL, cfg.TranscriptionAPIKey, cfg.TranscriptionModel, cfg.OpenAIAPIKey, cfg.OpenAIBaseURL, cfg.LLMProvider, audioModel, llmRouter, nil); t != nil {
 		transcriber = t
 	}
 

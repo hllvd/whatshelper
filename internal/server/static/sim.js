@@ -396,6 +396,170 @@
   document.getElementById('btn-handoff').addEventListener('click', () => setSourceStatus('human', 'assumido por humano'));
   document.getElementById('btn-resume').addEventListener('click', () => setSourceStatus('active', 'reativado pelo operador'));
 
+  // ==========================================
+  // GRAVAÇÃO E UPLOAD DE ÁUDIO NO SIMULADOR
+  // ==========================================
+  const btnUploadAudio = document.getElementById('btn-upload-audio');
+  const btnMic = document.getElementById('btn-mic');
+  const audioFileInput = document.getElementById('audio-file-input');
+  const recordingBar = document.getElementById('recording-bar');
+  const recordingTimer = document.getElementById('recording-timer');
+  const btnCancelRecording = document.getElementById('btn-cancel-recording');
+
+  let mediaRecorder = null;
+  let audioStream = null;
+  let audioChunks = [];
+  let recordingInterval = null;
+  let recordingStartTime = 0;
+  let isRecordingCancelled = false;
+  let isHoldingKey = false;
+
+  function updateRecordingTimer() {
+    if (!recordingStartTime) return;
+    const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
+    const m = String(Math.floor(elapsed / 60)).padStart(2, '0');
+    const s = String(elapsed % 60).padStart(2, '0');
+    if (recordingTimer) recordingTimer.textContent = `${m}:${s}`;
+  }
+
+  async function startAudioRecording() {
+    if (mediaRecorder && mediaRecorder.state === 'recording') return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      alert('Seu navegador não suporta gravação de áudio via microfone.');
+      return;
+    }
+    try {
+      audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunks = [];
+      isRecordingCancelled = false;
+      const mime = (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported('audio/webm;codecs=opus'))
+        ? 'audio/webm;codecs=opus'
+        : ((typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) ? 'audio/ogg;codecs=opus' : '');
+      mediaRecorder = mime ? new MediaRecorder(audioStream, { mimeType: mime }) : new MediaRecorder(audioStream);
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) audioChunks.push(e.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        if (recordingInterval) {
+          clearInterval(recordingInterval);
+          recordingInterval = null;
+        }
+        if (audioStream) {
+          audioStream.getTracks().forEach((t) => t.stop());
+          audioStream = null;
+        }
+        if (recordingBar) recordingBar.style.display = 'none';
+        if (btnMic) btnMic.classList.remove('recording');
+
+        if (!isRecordingCancelled && audioChunks.length > 0) {
+          const blobType = mediaRecorder.mimeType || 'audio/webm';
+          const audioBlob = new Blob(audioChunks, { type: blobType });
+          await sendAudioBlob(audioBlob, 'audio_gravado.webm');
+        }
+        audioChunks = [];
+      };
+
+      mediaRecorder.start(250);
+      recordingStartTime = Date.now();
+      updateRecordingTimer();
+      recordingInterval = setInterval(updateRecordingTimer, 1000);
+      if (recordingBar) recordingBar.style.display = 'flex';
+      if (btnMic) btnMic.classList.add('recording');
+    } catch (err) {
+      console.error('Falha ao acessar microfone:', err);
+      alert('Não foi possível acessar o microfone: ' + err.message);
+    }
+  }
+
+  function stopAudioRecording(cancelled = false) {
+    if (!mediaRecorder || mediaRecorder.state !== 'recording') return;
+    isRecordingCancelled = cancelled;
+    mediaRecorder.stop();
+  }
+
+  async function sendAudioBlob(blob, filename) {
+    activeTenant = (tenantInput && tenantInput.value.trim()) || 'demo';
+    activeSource = sessionInput.value.trim() || 'sim-user-1';
+    if (sseStatus) sseStatus.textContent = 'Enviando áudio...';
+    try {
+      const fd = new FormData();
+      fd.append('tenant_id', activeTenant);
+      fd.append('source_key', activeSource);
+      fd.append('file', blob, filename);
+      const res = await fetch('/api/sim/messages', {
+        method: 'POST',
+        body: fd,
+      });
+      if (res.ok) {
+        renderBubble('inbound', `🎙️ [Áudio: ${filename}]`, new Date().toISOString());
+        if (sseStatus) sseStatus.textContent = 'Áudio enviado! Aguardando transcrição...';
+      } else {
+        const errJson = await res.json().catch(() => ({}));
+        alert('Erro ao enviar áudio: ' + (errJson.error || res.statusText));
+      }
+    } catch (err) {
+      console.error('Falha ao enviar áudio:', err);
+      alert('Falha ao enviar áudio: ' + err.message);
+    }
+  }
+
+  if (btnMic) {
+    btnMic.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      startAudioRecording();
+    });
+    btnMic.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      startAudioRecording();
+    }, { passive: false });
+  }
+
+  window.addEventListener('mouseup', () => {
+    if (mediaRecorder && mediaRecorder.state === 'recording' && !isHoldingKey) {
+      stopAudioRecording(false);
+    }
+  });
+
+  window.addEventListener('touchend', () => {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      stopAudioRecording(false);
+    }
+  });
+
+  if (btnCancelRecording) {
+    btnCancelRecording.addEventListener('click', () => {
+      stopAudioRecording(true);
+    });
+  }
+
+  if (btnUploadAudio && audioFileInput) {
+    btnUploadAudio.addEventListener('click', () => audioFileInput.click());
+    audioFileInput.addEventListener('change', async () => {
+      const file = audioFileInput.files && audioFileInput.files[0];
+      if (!file) return;
+      await sendAudioBlob(file, file.name);
+      audioFileInput.value = '';
+    });
+  }
+
+  // Atalho de teclado: segurar a tecla Alt+A
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'a' && e.altKey && !isHoldingKey) {
+      e.preventDefault();
+      isHoldingKey = true;
+      startAudioRecording();
+    }
+  });
+
+  window.addEventListener('keyup', (e) => {
+    if ((e.key === 'a' || e.key === 'Alt') && isHoldingKey) {
+      isHoldingKey = false;
+      stopAudioRecording(false);
+    }
+  });
+
   async function submitSimOrigin(mode, defaultText) {
     const text = window.prompt('Texto da mensagem simulada:', defaultText);
     if (!text || !text.trim()) return;

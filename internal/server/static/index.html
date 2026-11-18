@@ -57,9 +57,19 @@
 
       <section id="chat-messages" class="chat-messages" aria-label="Mensagens da conversa" aria-live="polite"></section>
 
+      <div id="recording-bar" class="recording-bar" style="display:none;" aria-live="polite">
+        <span class="recording-indicator">🔴 Gravando áudio...</span>
+        <span id="recording-timer">00:00</span>
+        <span class="recording-hint">(Solte o botão para enviar ou clique em Cancelar)</span>
+        <button id="btn-cancel-recording" type="button" class="btn-sm">Cancelar</button>
+      </div>
+
       <form id="chat-form" class="chat-form">
         <label for="chat-input" class="visually-hidden">Mensagem do cliente</label>
-        <textarea id="chat-input" placeholder="Digite sua mensagem como cliente (Enter para enviar, Shift+Enter para quebrar linha)..." required></textarea>
+        <textarea id="chat-input" placeholder="Digite sua mensagem como cliente (Enter para enviar, Shift+Enter para quebrar linha)..."></textarea>
+        <input type="file" id="audio-file-input" accept="audio/*,.ogg,.mp3,.m4a,.wav,.webm" style="display:none;" />
+        <button id="btn-upload-audio" type="button" class="btn-icon" title="Subir arquivo de áudio">📎</button>
+        <button id="btn-mic" type="button" class="btn-icon" title="Segure para gravar áudio (ou segure a tecla Espaço no campo)">🎙️</button>
         <button id="send-button" type="submit" class="primary">Enviar</button>
       </form>
     </main>

@@ -113,8 +113,22 @@ func (c *Client) Generate(ctx context.Context, req core.LLMRequest) (*core.LLMRe
 		}
 	}
 
+	var contents []*genai.Content
+	if len(req.MediaParts) > 0 {
+		parts := make([]*genai.Part, 0, len(req.MediaParts)+1)
+		for _, mp := range req.MediaParts {
+			if len(mp.Data) > 0 && mp.MimeType != "" {
+				parts = append(parts, genai.NewPartFromBytes(mp.Data, mp.MimeType))
+			}
+		}
+		parts = append(parts, genai.NewPartFromText(promptText))
+		contents = []*genai.Content{{Parts: parts, Role: "user"}}
+	} else {
+		contents = genai.Text(promptText)
+	}
+
 	start := c.clock.Now()
-	resp, err := c.sdk.Models.GenerateContent(ctx, strings.TrimSpace(req.Model), genai.Text(promptText), genCfg)
+	resp, err := c.sdk.Models.GenerateContent(ctx, strings.TrimSpace(req.Model), contents, genCfg)
 	durationMs := c.clock.Now().Sub(start).Milliseconds()
 	if err != nil {
 		return nil, fmt.Errorf("gemini models.generateContent falhou: %w", err)

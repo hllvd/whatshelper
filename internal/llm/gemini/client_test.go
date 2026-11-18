@@ -87,4 +87,18 @@ func TestGeminiClient_GenerateAndErrors(t *testing.T) {
 	if genCfg["responseMimeType"] != "application/json" {
 		t.Fatalf("expected responseMimeType application/json, got %+v", genCfg)
 	}
+
+	// Teste com MediaParts (áudio/imagem)
+	mediaResp, err := client.Generate(ctx, core.LLMRequest{
+		Stage:      "audio",
+		Model:      "gemini-2.5-flash",
+		Prompt:     "Transcreva o áudio",
+		MediaParts: []core.MediaPart{{MimeType: "audio/ogg", Data: []byte("fake-audio-bytes")}},
+	})
+	if err != nil {
+		t.Fatalf("Generate with MediaParts failed: %v", err)
+	}
+	if mediaResp.Content != `{"ok":true}` {
+		t.Fatalf("unexpected mediaResp content: %s", mediaResp.Content)
+	}
 }

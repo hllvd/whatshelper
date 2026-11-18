@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,9 +21,13 @@ import (
 )
 
 type simMessageRequest struct {
-	TenantID  string `json:"tenant_id"`
-	SourceKey string `json:"source_key"`
-	Text      string `json:"text"`
+	TenantID    string `json:"tenant_id"`
+	SourceKey   string `json:"source_key"`
+	Text        string `json:"text"`
+	Type        string `json:"type,omitempty"`
+	AudioBase64 string `json:"audio_base64,omitempty"`
+	MimeType    string `json:"mime_type,omitempty"`
+	FileName    string `json:"file_name,omitempty"`
 }
 
 type chatMessageView struct {
@@ -43,14 +48,80 @@ func (s *Server) handlePostSimMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	contentType := r.Header.Get("Content-Type")
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		if err := r.ParseMultipartForm(16 << 20); err != nil {
+			writeJSONError(w, http.StatusBadRequest, "falha ao ler multipart form")
+			return
+		}
+		tenantID := strings.TrimSpace(r.FormValue("tenant_id"))
+		if tenantID == "" {
+			tenantID = "demo"
+		}
+		sourceKey := strings.TrimSpace(r.FormValue("source_key"))
+		text := strings.TrimSpace(r.FormValue("text"))
+
+		file, handler, fileErr := r.FormFile("file")
+		if fileErr == nil && file != nil {
+			defer file.Close()
+			audioBytes, err := io.ReadAll(io.LimitReader(file, 16<<20))
+			if err != nil {
+				writeJSONError(w, http.StatusBadRequest, "falha ao ler arquivo de áudio")
+				return
+			}
+			mimeType := handler.Header.Get("Content-Type")
+			if mimeType == "" || mimeType == "application/octet-stream" {
+				mimeType = inferMimeFromName(handler.Filename)
+			}
+			msg, err := s.ingestSimAudio(r.Context(), tenantID, sourceKey, text, mimeType, audioBytes)
+			if err != nil {
+				writeJSONError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusAccepted, msg)
+			return
+		}
+
+		msg, err := s.deps.Simulator.SubmitInbound(r.Context(), tenantID, sourceKey, text)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusAccepted, msg)
+		return
+	}
+
 	var req simMessageRequest
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<20)).Decode(&req); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "JSON inválido")
 		return
 	}
 
 	if strings.TrimSpace(req.TenantID) == "" {
 		req.TenantID = "demo"
+	}
+
+	if (req.Type == "audio" || req.AudioBase64 != "") && len(req.AudioBase64) > 0 {
+		rawB64 := req.AudioBase64
+		if idx := strings.Index(rawB64, ","); idx != -1 {
+			rawB64 = rawB64[idx+1:]
+		}
+		audioBytes, err := base64.StdEncoding.DecodeString(rawB64)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, "áudio em base64 inválido")
+			return
+		}
+		mimeType := strings.TrimSpace(req.MimeType)
+		if mimeType == "" {
+			mimeType = inferMimeFromName(req.FileName)
+		}
+		msg, err := s.ingestSimAudio(r.Context(), req.TenantID, req.SourceKey, req.Text, mimeType, audioBytes)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusAccepted, msg)
+		return
 	}
 
 	msg, err := s.deps.Simulator.SubmitInbound(r.Context(), req.TenantID, req.SourceKey, req.Text)
@@ -60,6 +131,66 @@ func (s *Server) handlePostSimMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusAccepted, msg)
+}
+
+func (s *Server) ingestSimAudio(ctx context.Context, tenantID, sourceKey, text, mimeType string, audioBytes []byte) (core.NormalizedMessage, error) {
+	if len(audioBytes) == 0 {
+		return core.NormalizedMessage{}, errors.New("áudio vazio")
+	}
+	if s.deps.Blobs == nil {
+		return core.NormalizedMessage{}, errors.New("armazenamento de arquivos (BlobStore) não configurado")
+	}
+	normMime := strings.TrimSpace(mimeType)
+	if normMime == "" {
+		normMime = "audio/webm"
+	}
+	ext := extFromAudioMime(normMime)
+	now := time.Now().UTC()
+	mediaKey := store.S3MediaKey(tenantID, "simulator", sourceKey, now, fmt.Sprintf("%d", now.UnixNano()), ext)
+	if err := s.deps.Blobs.Put(ctx, mediaKey, audioBytes, normMime); err != nil {
+		return core.NormalizedMessage{}, fmt.Errorf("falha ao salvar áudio no BlobStore: %w", err)
+	}
+	caption := text
+	if strings.TrimSpace(caption) == "" {
+		caption = "[Áudio enviado]"
+	}
+	return s.deps.Simulator.SubmitInboundMedia(ctx, tenantID, sourceKey, core.MessageTypeAudio, mediaKey, caption)
+}
+
+func extFromAudioMime(mimeType string) string {
+	lower := strings.ToLower(mimeType)
+	switch {
+	case strings.Contains(lower, "webm"):
+		return "webm"
+	case strings.Contains(lower, "ogg"):
+		return "ogg"
+	case strings.Contains(lower, "mp3") || strings.Contains(lower, "mpeg"):
+		return "mp3"
+	case strings.Contains(lower, "mp4") || strings.Contains(lower, "m4a"):
+		return "m4a"
+	case strings.Contains(lower, "wav"):
+		return "wav"
+	default:
+		return "ogg"
+	}
+}
+
+func inferMimeFromName(name string) string {
+	lower := strings.ToLower(name)
+	switch {
+	case strings.HasSuffix(lower, ".webm"):
+		return "audio/webm"
+	case strings.HasSuffix(lower, ".ogg"):
+		return "audio/ogg"
+	case strings.HasSuffix(lower, ".mp3"):
+		return "audio/mpeg"
+	case strings.HasSuffix(lower, ".m4a") || strings.HasSuffix(lower, ".mp4"):
+		return "audio/mp4"
+	case strings.HasSuffix(lower, ".wav"):
+		return "audio/wav"
+	default:
+		return "audio/webm"
+	}
 }
 
 type simTypingRequest struct {

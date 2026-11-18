@@ -598,6 +598,8 @@ func (p *Pipeline) transcribeAudioMessage(ctx context.Context, msg core.Normaliz
 func inferAudioMime(mediaRef string) string {
 	lower := strings.ToLower(mediaRef)
 	switch {
+	case strings.HasSuffix(lower, ".webm"):
+		return "audio/webm"
 	case strings.HasSuffix(lower, ".mp3"):
 		return "audio/mpeg"
 	case strings.HasSuffix(lower, ".m4a"):
